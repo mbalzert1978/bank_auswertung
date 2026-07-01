@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 transactions and surfaces the main cost drivers and realistic savings potential.
 **Pure analysis**: it never triggers transactions and never changes account data.
 
-The project is **docs-first**: the architecture is fully specified before code
-exists. The design is the point — read the docs before implementing:
+The project is **docs-first**: the architecture is specified ahead of
+implementation. The design is the point — read the docs before implementing:
 
 - [README.md](README.md) — source of truth for scope and architecture.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
@@ -17,30 +17,81 @@ exists. The design is the point — read the docs before implementing:
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories and the module breakdown).
 
-## Current state
-
-A **skeleton only**. `Cargo.toml` is a single library crate (`bank_auswertung`,
-edition 2024) with no dependencies; [src/lib.rs](src/lib.rs) is an empty
-doc-comment stub — **no domain code, no types, no tests yet**. An earlier
-Python/`uv` scaffold was deliberately replaced by this Rust crate
+**Build-order step 1 (domain skeleton) is implemented; steps 2+ are not
+started.** The repo is a **Cargo workspace** whose only member is the pure
+domain crate [`crates/domain`](crates/domain) (package `domain`, edition
+2024). The hexagonal cut is real at the crate level: it depends on no I/O crate
+— only `serde` (for the outbound `KategorieAnfrage` DTO) and `static_assertions`
+(dev). An earlier Python/`uv` scaffold was deliberately replaced
 ([ADR-0003](docs/adr/0003-rust-als-sprache.md)); ignore any lingering Python
 references.
 
-Building starts on Markus' explicit **"Go"** for step 1 of the build order below.
+Implemented in the domain crate:
+
+- **Value objects** with validating `new → Option` constructors (_parse, don't
+  validate_): `Betrag` (unsigned + `Währung`), `KontoId`, `Pseudonym`,
+  `GläubigerId`, `Fingerabdruck`, `ObfuskierterText` — the non-empty string
+  newtypes share one validating core, `NonEmptyString`, and are built from it
+  via `From`.
+- **Sum types** with exhaustive `match`: `Richtung::Eingang|Ausgang`,
+  `Gegenkonto::Eigen|Fremd`, `Empfänger::Firma|Person`, `Buchungsart`.
+- `Buchung` composed from those, plus the pure projection
+  `Buchung → KategorieAnfrage`.
+- The structural-identifier invariant is enforced **at compile time**:
+  **placeholder** `Iban`/`Bic` ([strukturelle_identifikatoren.rs](crates/domain/src/strukturelle_identifikatoren.rs))
+  derive no `Serialize`, proven by a `static_assertions` `assert_not_impl_any!`
+  — an embedding attempt is a compile error, not a runtime test. These
+  placeholders only guard the invariant now; the real `Iban`/`Bic` move into the
+  inbound adapter in step 2 (their intended home per ADR-0001/0003).
+
+Deliberately still minimal / deferred: `ObfuskierterText` only trims and rejects
+empty (best-effort **scrubbing** of embedded identifiers comes with step 5,
+ADR-0003); an absent free-text (empty Verwendungszweck) will be modelled at the
+field level from step 2 (`Option<ObfuskierterText>`), not as an empty
+`ObfuskierterText`. `Fingerabdruck` deduplicates on the Empfänger identity only
+(no payment-intermediary detection yet). No adapters, no binary, no I/O.
+
+The domain crate opts into the workspace's strict `[workspace.lints.clippy]`
+(the "Don't Panic" set) via `[lints] workspace = true`; `cargo test` and
+`cargo clippy --all-targets` are green. Next: **step 2** (CSV-CAMT-v8 adapter),
+blocked on a real sample file and the Eigene-Konten-Config.
 
 ## Language convention
 
-The project language is **German**. Docs, the glossary, code identifiers, and
-commit messages are German. Keep domain identifiers in German exactly as
-[CONTEXT.md](CONTEXT.md) defines them (`Buchung`, `Betrag`, `Empfänger`,
-`Verwendungszweck`, `Buchungstext`, `Gläubiger-ID`, `Fingerabdruck`,
-`Umbuchung`, `Gebühr`, …) — do not anglicize domain terms, and prefer the
-glossary's chosen word over its listed _Avoid_ synonyms.
+The project language is **German**: docs, the glossary, commit messages, and the
+**domain vocabulary in code** are German. Code identifiers split by whether they
+carry that vocabulary:
+
+- **Domain vocabulary (the ubiquitous language / UBQL, per
+  [CONTEXT.md](CONTEXT.md)) stays German** — types, their fields, noun-getters,
+  and every name _component_ that is a glossary term: `Buchung`, `Betrag`,
+  `Empfänger`, `Verwendungszweck`, `Buchungstext`/`Buchungsart`, `Gläubiger-ID`,
+  `Fingerabdruck`, `Umbuchung`, `Gebühr`, `Richtung`, `Gegenkonto`,
+  `Kategorie(Anfrage)`, `Währung`, … — do not anglicize them, and prefer the
+  glossary's chosen word over its listed _Avoid_ synonyms. "Structural
+  identifiers" (`strukturelle_identifikatoren`) counts as UBQL too — it names the
+  privacy concept CONTEXT.md defines.
+- **Every identifier that does NOT carry domain vocabulary is English** — in
+  particular constructors and utility/conversion methods, purely technical helper
+  types, and generic local/parameter names. Concretely: `::neu` is a no-go →
+  `::new`; likewise `as_str`, `inner`, `resolve`, `identity_key`, the shared
+  non-empty-text core `NonEmptyString`, and locals like `value`/`trimmed`. A
+  compound name is translated per component — keep the glossary noun, anglicize
+  the generic verb/preposition: `aus_buchung` → `from_buchung`,
+  `zu_kategorie_anfrage` → `to_kategorie_anfrage`.
+- **Test names and test-internal helpers follow the same split** — non-UBQL
+  parts English, glossary nouns German. `empfänger_ohne_gläubiger_id_wird_fail_safe_als_person_aufgelöst`
+  becomes `empfänger_without_gläubiger_id_resolves_fail_safe_as_person`; a
+  fully-UBQL helper like `firma_buchung` stays as-is. Only German _artifact prose_
+  — doc comments and assertion/`expect` messages — stays German.
+- **The crate/package is named `domain`** (English): it carries no glossary
+  vocabulary, so the rule applies to it like any other non-UBQL identifier.
 
 - Die **Ausgabesprache des Agenten** (Claude) ist in diesem Repository immer
   **Deutsch** — unabhängig davon, in welcher Sprache der Nutzer schreibt. Das
   gilt für alle Chat-Antworten des Agenten, zusätzlich zur obigen Regel, dass
-  Docs, Glossar, Code-Bezeichner und Commit-Messages Deutsch sind;
+  Docs, Glossar, UBQL-Code-Bezeichner und Commit-Messages Deutsch sind (nicht vom
+  UBQL abhängige Bezeichner dagegen Englisch, z. B. `::neu` → `::new`);
   domänenspezifische Begriffe aus [CONTEXT.md](CONTEXT.md) bleiben davon
   unberührt (weiterhin exakt wie dort definiert, nicht eindeutschen).
 
@@ -145,6 +196,8 @@ standing orders).
 
 - **Value objects, not primitives** (_parse, don't validate_): `Betrag`,
   `KontoId`, `Pseudonym`, `Fingerabdruck`, `GläubigerId`, `ObfuskierterText`.
+  The non-empty string newtypes share one validating core, `NonEmptyString`
+  (trim + reject-empty in one place), and are built from it via `From`.
   Validate once at the edge; the type then carries the proof. No raw
   `String`/`f64` crosses the DTO boundary into the domain.
 - **Sum types with exhaustive `match`**, not a flag plus optional fields:
@@ -163,9 +216,11 @@ standing orders).
 - **Black-box at the DTO boundary**: test the domain against its public DTO
   contract, not its internals — the inside stays freely refactorable.
 - **TDD outside-in**, organized as **vertical slices** (one per build-order
-  step). The load-bearing first test asserts that the projection
-  `Buchung → KategorieAnfrage` **carries no structural identifier**; it is the
-  template for every later slice test.
+  step). The load-bearing invariant — the projection `Buchung → KategorieAnfrage`
+  **carries no structural identifier** — is realized in step 1 as a **compile-time**
+  `static_assertions` check that `Iban`/`Bic` derive no `Serialize` (strictly
+  stronger than a runtime assertion); the projection's content and constructor
+  validation are covered by runtime black-box tests.
 - Constructor validation is tested too: an illegal value yields **no object**.
 
 ## Build order (tracer-bullet, vertical slices)
@@ -174,7 +229,7 @@ Build in this order; each step leaves something runnable/valuable:
 
 1. **Cargo workspace + domain skeleton** — `Buchung` from value objects + the
    narrow `KategorieAnfrage` outbound type, with the no-structural-identifier
-   test. _(Replaces the old Python hello-world.)_ Starts on explicit "Go".
+   test. _(Replaces the old Python hello-world.)_ — **done** (see Current state).
 2. **CSV-CAMT-v8 adapter** against a real sample file → `Buchung`, obfuscating
    while mapping. **Blocked** on a real sample file and the Eigene-Konten-Config.
 3. **Analysis core** — recurrence + fees + cashflow + Pareto (valuable without
