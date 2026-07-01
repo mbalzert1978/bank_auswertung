@@ -1,7 +1,7 @@
 ---
 id: "0001"
 title: "Domänen-Skelett: Buchung, Fingerabdruck, ObfuskierterText, KategorieAnfrage"
-status: open
+status: closed
 ---
 
 # Domänen-Skelett: Buchung, Fingerabdruck, ObfuskierterText, KategorieAnfrage
