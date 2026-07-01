@@ -20,7 +20,7 @@ fn firma_buchung() -> Buchung {
 }
 
 #[test]
-fn buchung_can_be_constructed_from_value_objects() {
+fn buchung_lässt_sich_aus_value_objects_konstruieren() {
     let buchung = firma_buchung();
 
     assert_eq!(buchung.richtung(), Richtung::Ausgang);
@@ -31,12 +31,12 @@ fn buchung_can_be_constructed_from_value_objects() {
 /// verbucht werden könnte — der Versuch scheitert schon am `Betrag` selbst,
 /// lange bevor eine `Buchung` überhaupt zusammengesetzt wird.
 #[test]
-fn negative_eingang_buchung_is_not_constructible() {
+fn negative_eingang_buchung_ist_nicht_konstruierbar() {
     assert!(Betrag::new(-1299, Währung::Eur).is_none());
 }
 
 #[test]
-fn fingerabdruck_is_a_pure_function_of_the_buchung() {
+fn fingerabdruck_ist_eine_reine_funktion_der_buchung() {
     let first_buchung = firma_buchung();
     let second_buchung = firma_buchung();
 
@@ -47,7 +47,7 @@ fn fingerabdruck_is_a_pure_function_of_the_buchung() {
 }
 
 #[test]
-fn projection_to_kategorie_anfrage_carries_fingerabdruck_and_free_text() {
+fn projektion_zu_kategorie_anfrage_trägt_fingerabdruck_und_freitext() {
     let buchung = firma_buchung();
 
     let anfrage = buchung.to_kategorie_anfrage();
