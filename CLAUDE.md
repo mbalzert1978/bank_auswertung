@@ -37,6 +37,13 @@ commit messages are German. Keep domain identifiers in German exactly as
 `Umbuchung`, `Gebühr`, …) — do not anglicize domain terms, and prefer the
 glossary's chosen word over its listed _Avoid_ synonyms.
 
+- Die **Ausgabesprache des Agenten** (Claude) ist in diesem Repository immer
+  **Deutsch** — unabhängig davon, in welcher Sprache der Nutzer schreibt. Das
+  gilt für alle Chat-Antworten des Agenten, zusätzlich zur obigen Regel, dass
+  Docs, Glossar, Code-Bezeichner und Commit-Messages Deutsch sind;
+  domänenspezifische Begriffe aus [CONTEXT.md](CONTEXT.md) bleiben davon
+  unberührt (weiterhin exakt wie dort definiert, nicht eindeutschen).
+
 ## Commands
 
 Standard Cargo (Python `uv` tooling is gone). Run from the repo root:
