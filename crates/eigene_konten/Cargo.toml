@@ -1,0 +1,15 @@
+[package]
+name = "eigene_konten"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2"
+toml = "1.1.2"
+
+[dev-dependencies]
+static_assertions = "1.1.0"

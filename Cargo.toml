@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/domain"]
+members = ["crates/domain", "crates/eigene_konten"]
 
 [workspace.lints.clippy]
 # Don't Panic - prevent panics from unwraps and unsafe slicing or indexing
@@ -62,3 +62,11 @@ dbg_macro = "warn"
 # a deliberate #[expect(..., reason = "…")] rather than a silent #[allow]
 allow_attributes = "warn"
 allow_attributes_without_reason = "warn"
+
+single_match = "warn"
+single_match_else = "warn"
+needless_match = "warn"
+needless_late_init = "warn"
+redundant_pattern_matching = "warn"
+redundant_pattern = "warn"
+redundant_guards = "warn"
