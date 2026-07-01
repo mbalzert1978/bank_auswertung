@@ -39,7 +39,9 @@ Slice nicht abschließbar.
       IBAN).
 - [ ] Markus' echte eigene IBANs + Rollen sind erfasst und die Config damit
       befüllbar (mindestens eine reale Testkonfiguration liegt vor). — **offen
-      (HITL)**; bislang nur eine als Platzhalter gekennzeichnete Dummy-Config.
+      (HITL)**; die Vorlage `eigene-konten.example.toml` (fiktive Platzhalter)
+      liegt im Wurzelverzeichnis, die reale `eigene-konten.toml` ist gitignored
+      und lokal von Markus zu befüllen.
 - [x] Test belegt: dieselbe Config-Instanz beantwortet sowohl die
       Eigen/Fremd-Frage als auch die Rollen-Frage — eine Quelle, keine zwei
       separaten Listen.

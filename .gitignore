@@ -74,3 +74,10 @@ Cargo.lock
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,macos,visualstudiocode
+
+### Eigene-Konten-Config (lokal, privat) ###
+# Echte eigene IBANs sind strukturelle Identifikatoren und dürfen die Maschine
+# nie verlassen. Die reale Config wird daher NICHT versioniert — nur die Vorlage
+# eigene-konten.example.toml. Kopiere die Vorlage lokal nach eigene-konten.toml
+# und trage dort deine echten IBANs ein.
+eigene-konten.toml
