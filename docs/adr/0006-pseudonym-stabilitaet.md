@@ -29,7 +29,7 @@ das sprechende Etikett (`PERSON_07`) bräuchte trotzdem eine eigene Abbildung �
 explizite Persistenz ist ehrlicher und einfacher als ein Hash plus separater
 Etiketten-Schicht.
 
-## Consequences
+## Konsequenzen
 
 - Zwei getrennte lokale Speicher: der `Speicher`-Port hält nur obfuskierte DTOs
   (keine strukturellen Identifikatoren), der Zuordnungs-Speicher hält die

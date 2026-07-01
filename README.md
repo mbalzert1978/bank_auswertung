@@ -26,7 +26,7 @@ Hexagonal, Cargo-Workspace ([ADR-0001](docs/adr/0001-hexagonale-architektur.md),
   - `Umsatzquelle` (rein) → CSV-CAMT-v8-Adapter zuerst. Obfuskiert beim Mappen,
     sodass die Domäne nur obfuskierte Value Objects erhält: IBAN/BIC bleiben im
     Adapter, `Auftragskonto`→`KONTO_x`, Privatperson→`PERSON_x`, Gegen-IBAN →
-    `Gegenkonto::Eigen|Fremd` via Eigene-Konten-Config; Empfänger-/
+    `Gegenkonto::Eigen(Rolle)|Fremd` via Eigene-Konten-Config; Empfänger-/
     Verwendungszweck-Freitext wird zu `ObfuskierterText` gescrubbt.
   - `Kategorisierer` (raus) → spricht eigene schmale DTOs, **nicht** die
     Buchung-DTO: Hinweg `KategorieAnfrage` (Fingerabdruck + `ObfuskierterText`
@@ -38,7 +38,7 @@ Hexagonal, Cargo-Workspace ([ADR-0001](docs/adr/0001-hexagonale-architektur.md),
   - `Speicher` (raus) → SQLite, speichert DTOs.
   - `Bericht` (raus) → HTML zuerst.
 
-## Scope
+## Umfang
 
 - **Drin:** CSV-CAMT v8, Mehrkonten, Umbuchung-Netting, Gebühren, Wiederkehr,
   Kategorisierung via Chat, gelernte Korrekturen, dynamischer Zeitraum (was die
@@ -60,13 +60,13 @@ Gläubiger-ID (öffentlicher Firmen-Schlüssel) bleibt bewusst als Analyse-Anker
 ## Baureihenfolge (Tracer-Bullet)
 
 1. Cargo-Workspace + Domänen-Skelett: `Buchung` aus Value Objects (`Betrag`,
-   `Richtung`, `Empfänger::Firma|Person`, `Gegenkonto::Eigen|Fremd`) plus der
+   `Richtung`, `Empfänger::Firma|Person`, `Gegenkonto::Eigen(Rolle)|Fremd`) plus der
    schmale `KategorieAnfrage`-Ausgangstyp (Freitext als `ObfuskierterText`). Test
    am DTO-Vertrag inkl. „Projektion `Buchung`→`KategorieAnfrage` trägt keinen
    strukturellen Identifikator". _(ersetzt das Python-Hello-World)_
 2. CSV-CAMT-v8-Adapter gegen echte Beispiel-Datei → `Buchung`. Obfuskiert beim
    Mappen: IBAN/BIC bleiben im Adapter, `Auftragskonto`→`KONTO_x`,
-   Privatperson→`PERSON_x`, Gegen-IBAN → `Gegenkonto::Eigen|Fremd` via
+   Privatperson→`PERSON_x`, Gegen-IBAN → `Gegenkonto::Eigen(Rolle)|Fremd` via
    Eigene-Konten-Config, Freitext → `ObfuskierterText` (best-effort gescrubbt).
    Adapter sichert eine einheitliche Währung zu.
 3. Analyse-Kern: Wiederkehr + Gebühren + Aderlass + Pareto. Schon ohne LLM
@@ -80,7 +80,7 @@ Gläubiger-ID (öffentlicher Firmen-Schlüssel) bleibt bewusst als Analyse-Anker
 
 - Echte CSV-CAMT-v8-Beispieldatei (ein Monat reicht) für Schritt 2.
 - **Eigene-Konten-Config** (lokal): je eigenem Konto seine IBAN + Konto-Rolle
-  (Giro/Haushalt/Spar/Vorlauf). Eine Quelle für `Gegenkonto::Eigen|Fremd`
+  (Giro/Haushalt/Spar/Vorlauf). Eine Quelle für `Gegenkonto::Eigen(Rolle)|Fremd`
   (Schritt 2) **und** die Rollen-Deutung der Analyse (Schritt 3) — die CSV trägt
   sie nicht. Verbindlich vor Schritt 2.
 - **Persistente Pseudonym-Zuordnung** (lokal, verlässt den Rechner nie): stabile

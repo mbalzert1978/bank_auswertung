@@ -2,7 +2,12 @@
 # Edit at https://www.toptal.com/developers/gitignore?templates=rust,macos,visualstudiocode
 
 __pycache__/
-.claude/
+
+# .claude/ ist lokal (u. a. worktrees/) — außer den geteilten Team-Configs:
+# der eingecheckte Architektur-Hook (Dependency-Richtung) samt settings.json.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 
 ### macOS ###
 # General

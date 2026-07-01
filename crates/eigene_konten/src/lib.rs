@@ -6,7 +6,7 @@
 //! beide nicht auseinanderlaufen, beantwortet **dieselbe** Instanz beide Fragen
 //! über [`EigeneKonten::lookup`] → [`Kontozuordnung`].
 //!
-//! Die Herkunft der Config steckt hinter dem Port [`ConfigSource`] — dieser
+//! Die Herkunft der Config steckt hinter dem Port [`Konfigquelle`] — dieser
 //! Crate hängt **nicht** an `std::fs`; der konkrete Datei-Zugriff lebt außerhalb
 //! (Composition Root / eigener Adapter), Dependency Inversion (ADR-0001). Der
 //! reine Kern [`EigeneKonten::from_toml`] parst einen bereits gelesenen String.
@@ -27,14 +27,13 @@
 //! oder eine Config ganz ohne Konto-Eintrag führen zum Abbruch — kein
 //! stillschweigendes Überspringen.
 
-mod config_source;
 mod iban;
+mod konfigquelle;
 mod kontozuordnung;
 mod register;
-mod rolle;
 
-pub use config_source::{ConfigSource, ConfigSourceError};
+pub use domain::Rolle;
 pub use iban::{Iban, IbanError};
+pub use konfigquelle::{Konfigquelle, KonfigquelleError};
 pub use kontozuordnung::Kontozuordnung;
 pub use register::{EigeneKonten, LoadError};
-pub use rolle::Rolle;

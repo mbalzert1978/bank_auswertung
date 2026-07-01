@@ -19,6 +19,7 @@ mod non_empty_string;
 mod obfuskierter_text;
 mod pseudonym;
 mod richtung;
+mod rolle;
 mod strukturelle_identifikatoren;
 
 pub use betrag::{Betrag, Währung};
@@ -34,3 +35,4 @@ pub use non_empty_string::NonEmptyString;
 pub use obfuskierter_text::ObfuskierterText;
 pub use pseudonym::Pseudonym;
 pub use richtung::Richtung;
+pub use rolle::Rolle;

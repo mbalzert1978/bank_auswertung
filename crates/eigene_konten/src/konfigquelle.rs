@@ -4,12 +4,12 @@
 /// Inversion (ADR-0001): der Loader besitzt die Abstraktion, die er braucht,
 /// nicht den konkreten Zugriff. Der konkrete Datei-Adapter lebt außerhalb (im
 /// Composition Root).
-pub trait ConfigSource {
+pub trait Konfigquelle {
     /// Liefert den gesamten Config-Text — oder einen beliebigen Lesefehler.
-    fn read(&self) -> Result<String, ConfigSourceError>;
+    fn read(&self) -> Result<String, KonfigquelleError>;
 }
 
-/// Fehler einer [`ConfigSource`] — bewusst offen für beliebige Herkunft
+/// Fehler einer [`Konfigquelle`] — bewusst offen für beliebige Herkunft
 /// (Datei-I/O, Netz, …), damit die Abstraktion keine konkrete Fehlerquelle
 /// vorschreibt.
-pub type ConfigSourceError = Box<dyn std::error::Error + Send + Sync>;
+pub type KonfigquelleError = Box<dyn std::error::Error + Send + Sync>;

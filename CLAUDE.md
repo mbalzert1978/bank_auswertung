@@ -17,14 +17,17 @@ implementation. The design is the point — read the docs before implementing:
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories and the module breakdown).
 
-**Build-order step 1 (domain skeleton) is implemented; steps 2+ are not
-started.** The repo is a **Cargo workspace** whose only member is the pure
-domain crate [`crates/domain`](crates/domain) (package `domain`, edition
-2024). The hexagonal cut is real at the crate level: it depends on no I/O crate
-— only `serde` (for the outbound `KategorieAnfrage` DTO) and `static_assertions`
-(dev). An earlier Python/`uv` scaffold was deliberately replaced
-([ADR-0003](docs/adr/0003-rust-als-sprache.md)); ignore any lingering Python
-references.
+**Build-order steps 1 (domain skeleton) and 2 (Eigene-Konten-Config +
+CSV-CAMT-v8 adapter) are implemented; steps 3+ are not started.** The repo is a
+**Cargo workspace** with three members: the pure domain crate
+[`crates/domain`](crates/domain) (package `domain`, edition 2024), the
+[`crates/eigene_konten`](crates/eigene_konten) config crate, and the
+[`crates/csv_camt_v8`](crates/csv_camt_v8) inbound adapter. The hexagonal cut is
+real at the crate level: `domain` depends on no I/O crate — only `serde` (for the
+outbound `KategorieAnfrage` DTO) and `static_assertions` (dev); the adapter
+crates depend on `domain`, never the reverse. An earlier Python/`uv` scaffold was
+deliberately replaced ([ADR-0003](docs/adr/0003-rust-als-sprache.md)); ignore any
+lingering Python references.
 
 Implemented in the domain crate:
 
@@ -34,27 +37,45 @@ Implemented in the domain crate:
   newtypes share one validating core, `NonEmptyString`, and are built from it
   via `From`.
 - **Sum types** with exhaustive `match`: `Richtung::Eingang|Ausgang`,
-  `Gegenkonto::Eigen|Fremd`, `Empfänger::Firma|Person`, `Buchungsart`.
-- `Buchung` composed from those, plus the pure projection
-  `Buchung → KategorieAnfrage`.
+  `Gegenkonto::Eigen(Rolle)|Fremd` (an own counter-account carries its
+  `Konto-Rolle` — "eigen without a role" is unconstructible; the role must ride
+  along at map time because obfuscation discards the counter-IBAN),
+  `Empfänger::Firma|Person`, `Buchungsart`. `Rolle` is UBQL and lives in the
+  domain; `eigene_konten` re-exports it.
+- `Buchung` composed from those — `verwendungszweck: Option<ObfuskierterText>`
+  (an absent free-text is modelled at the field, not as an empty
+  `ObfuskierterText`) — plus the pure projection `Buchung → KategorieAnfrage`
+  (whose `verwendungszweck` is likewise `Option`).
 - The structural-identifier invariant is enforced **at compile time**:
   **placeholder** `Iban`/`Bic` ([strukturelle_identifikatoren.rs](crates/domain/src/strukturelle_identifikatoren.rs))
   derive no `Serialize`, proven by a `static_assertions` `assert_not_impl_any!`
-  — an embedding attempt is a compile error, not a runtime test. These
-  placeholders only guard the invariant now; the real `Iban`/`Bic` move into the
-  inbound adapter in step 2 (their intended home per ADR-0001/0003).
+  — an embedding attempt is a compile error, not a runtime test. The real,
+  checksum-validating `Iban` now lives in `eigene_konten` (also deriving no
+  `Serialize`); the domain placeholders keep guarding the invariant, and `Bic`
+  stays a placeholder until a format needs it.
 
-Deliberately still minimal / deferred: `ObfuskierterText` only trims and rejects
-empty (best-effort **scrubbing** of embedded identifiers comes with step 5,
-ADR-0003); an absent free-text (empty Verwendungszweck) will be modelled at the
-field level from step 2 (`Option<ObfuskierterText>`), not as an empty
-`ObfuskierterText`. `Fingerabdruck` deduplicates on the Empfänger identity only
-(no payment-intermediary detection yet). No adapters, no binary, no I/O.
+Implemented in the adapter crates:
 
-The domain crate opts into the workspace's strict `[workspace.lints.clippy]`
-(the "Don't Panic" set) via `[lints] workspace = true`; `cargo test` and
-`cargo clippy --all-targets` are green. Next: **step 2** (CSV-CAMT-v8 adapter),
-blocked on a real sample file and the Eigene-Konten-Config.
+- **`eigene_konten`** — the Eigene-Konten-Config (per own account: IBAN +
+  `Rolle`) behind the `ConfigSource` port; the single source for
+  `Gegenkonto::Eigen|Fremd` resolution and the analysis's role interpretation.
+- **`csv_camt_v8`** — the `Umsatzquelle` inbound port + the CSV-CAMT-v8 adapter.
+  Reads CSV behind the fs-free `CsvQuelle` port and maps each row to a `Buchung`,
+  **obfuscating while mapping** (raw IBAN/BIC never reach a `Buchung`):
+  `Auftragskonto → KONTO_x` (first-seen, run-stable), Gegen-IBAN → `Gegenkonto`
+  via the config, Empfänger → `Firma`/`Person` (fail-safe), free-text →
+  `ObfuskierterText`, one currency per file enforced.
+
+Deferred: `ObfuskierterText` only trims and rejects empty (best-effort
+**scrubbing** of embedded identifiers comes with step 5, ADR-0003);
+`Fingerabdruck` deduplicates on the Empfänger identity only (no
+payment-intermediary detection yet); `PERSON_x` is only run-stable (the
+persistent pseudonym mapping is step 4). No binary yet.
+
+All three crates opt into the workspace's strict `[workspace.lints.clippy]` (the
+"Don't Panic" set) via `[lints] workspace = true`; `cargo test`, `cargo clippy
+--all-targets`, and `cargo fmt` are green. Next: **step 3** (analysis core:
+recurrence + fees + cashflow + Pareto — valuable without the LLM).
 
 ## Language convention
 
@@ -221,7 +242,7 @@ standing orders).
   Validate once at the edge; the type then carries the proof. No raw
   `String`/`f64` crosses the DTO boundary into the domain.
 - **Sum types with exhaustive `match`**, not a flag plus optional fields:
-  `Richtung::Eingang|Ausgang`, `Gegenkonto::Eigen|Fremd`,
+  `Richtung::Eingang|Ausgang`, `Gegenkonto::Eigen(Rolle)|Fremd`,
   `Empfänger::Firma|Person`, `Buchungsart`. Illegal combinations must be
   **unconstructible**, not "checked".
 - `Betrag` is **unsigned** with a currency; the sign lives only in `Richtung`

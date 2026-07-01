@@ -6,6 +6,10 @@ use crate::{
 /// Ein einzelner Kontoumsatz, zusammengesetzt aus den obfuskierten Value
 /// Objects der Domäne. Jedes Feld ist bereits an seinem eigenen Rand
 /// validiert — `Buchung::new` kann daher nicht fehlschlagen.
+///
+/// `verwendungszweck` ist `Option`: ein fehlender Freitext (leerer
+/// Verwendungszweck im Export) wird am Feld modelliert, nicht als leerer
+/// `ObfuskierterText` — dessen Konstruktor lehnt Leeres ab.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Buchung {
     konto: KontoId,
@@ -13,7 +17,7 @@ pub struct Buchung {
     richtung: Richtung,
     empfänger: Empfänger,
     gegenkonto: Gegenkonto,
-    verwendungszweck: ObfuskierterText,
+    verwendungszweck: Option<ObfuskierterText>,
     buchungsart: Buchungsart,
 }
 
@@ -24,7 +28,7 @@ impl Buchung {
         richtung: Richtung,
         empfänger: Empfänger,
         gegenkonto: Gegenkonto,
-        verwendungszweck: ObfuskierterText,
+        verwendungszweck: Option<ObfuskierterText>,
         buchungsart: Buchungsart,
     ) -> Self {
         Self {
@@ -46,8 +50,8 @@ impl Buchung {
         &self.empfänger
     }
 
-    pub fn verwendungszweck(&self) -> &ObfuskierterText {
-        &self.verwendungszweck
+    pub fn verwendungszweck(&self) -> Option<&ObfuskierterText> {
+        self.verwendungszweck.as_ref()
     }
 
     /// Die Projektion `Buchung` → `KategorieAnfrage`: die schmale, eigene DTO

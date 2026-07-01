@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Der `Kategorisierer`-Port (outbound), Chat-Payload-Adapter zuerst
 (Baureihenfolge-Schritt 5): exportiert **nur die der Domäne noch unbekannten**
@@ -23,7 +23,7 @@ Zahlungsintermediären muss die exportierte `ObfuskierterText`-Nutzlast aus dem
 Verwendungszweck stammen, nicht aus dem (uninformativen) Empfänger-Namen des
 Intermediärs — das nutzt die Intermediär-Erkennung aus Slice 0005.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] Export enthält ausschließlich Fingerabdrücke, die im Kategorie-Register
       noch **keine** Kategorie haben — bereits bekannte Fingerabdrücke werden
@@ -41,10 +41,10 @@ Intermediärs — das nutzt die Intermediär-Erkennung aus Slice 0005.
       Export-JSON → (kanonische Fixture-Antwort) → Import → aktualisiertes
       Kategorie-Register.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
-- Blocked by [0005](0005-wiederkehr-erkennung.md) (Zahlungsintermediär-Erkennung
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0005](0005-wiederkehr-erkennung.md) (Zahlungsintermediär-Erkennung
   für die Textwahl im Export)
-- Blocked by [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
-- Blocked by [0010](0010-scrubbing-regeln-fuer-obfuskiertertext.md)
+- Blockiert durch [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
+- Blockiert durch [0010](0010-scrubbing-regeln-fuer-obfuskiertertext.md)

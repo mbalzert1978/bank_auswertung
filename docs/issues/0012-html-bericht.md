@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Der `Bericht`-Port (outbound), HTML zuerst (Baureihenfolge-Schritt 6): zeigt
 die **Analyse der Domäne** — Umbuchungen (Slice 0004), Wiederkehr (Slice
@@ -22,7 +22,7 @@ Lackmustest verlangt, dass das Programm auch ganz ohne LLM wertvoll bleibt —
 der Bericht muss also auch mit unkategorisierten Buchungen sinnvoll
 funktionieren.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] HTML-Bericht rendert Umbuchungs-Übersicht, Wiederkehr-Liste (inkl.
       Jahreskosten/Preissteigerungen), Gebühren-Summen, Aderlass/Cashflow je
@@ -36,10 +36,10 @@ funktionieren.
 - [ ] Bericht lässt sich aus reinen Fixture-Analyse-DTOs erzeugen, ganz ohne
       SQLite-Speicher oder Kategorisierer-Adapter im Testlauf.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
-- Blocked by [0004](0004-umbuchung-netting.md)
-- Blocked by [0005](0005-wiederkehr-erkennung.md)
-- Blocked by [0006](0006-gebuehren-klassifikation.md)
-- Blocked by [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0004](0004-umbuchung-netting.md)
+- Blockiert durch [0005](0005-wiederkehr-erkennung.md)
+- Blockiert durch [0006](0006-gebuehren-klassifikation.md)
+- Blockiert durch [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md)

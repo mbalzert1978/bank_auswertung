@@ -8,7 +8,7 @@
 > [CONTEXT.md](../../CONTEXT.md). Entscheidungen: [docs/adr/](../adr/). Dieser PRD
 > bildet die README treu ab und erfindet nichts darüber hinaus.
 
-## Problem Statement
+## Problemstellung
 
 Aus Markus' Sicht: Monatliche Kosten ziehen seine Konten leer, und er sieht nicht
 klar, wohin. Über mehrere Konten hinweg verschwimmt, was echter Abfluss ist und was
@@ -18,7 +18,7 @@ Sparpotenziale** finden. Gleichzeitig
 sind das sensible Bankdaten: Er will sie lokal verarbeiten und nichts
 Identifizierendes an externe Dienste geben.
 
-## Solution
+## Lösung
 
 Eine lokale, wartbare Rust-Software liest die Kontoumsätze ein und macht **reine
 Analyse** — sie löst keine Transaktionen aus und ändert keine Kontodaten. Sie
@@ -33,7 +33,7 @@ Identifikatoren (IBAN/BIC/Kontonr.) verlassen den Rechner nie. Das Ergebnis ist
 ein HTML-Report, den Markus mit Claude gemeinsam durchgeht, Korrekturen lernt und
 Sparpotenziale benennt.
 
-## User Stories
+## Nutzergeschichten
 
 Akteure: **Kontoinhaber** (Markus, Endnutzer) und **Entwickler** (baut/wartet die
 Software mit Claude).
@@ -99,7 +99,7 @@ Software mit Claude).
 5. Als Kontoinhaber möchte ich die Kategorisierung zuerst per Chat-Payload
    erledigen (Export → Chat → Import), damit ich ohne API-Anbindung starten kann.
 
-### Report
+### Bericht
 
 1. Als Kontoinhaber möchte ich am Ende einen HTML-Report, damit ich die
    Auswertung übersichtlich vor mir habe und mit Claude durchgehen kann.
@@ -165,10 +165,10 @@ Software mit Claude).
    Baureihenfolge) bauen, damit nach jedem Schritt etwas Lauffähiges/Wertvolles
    existiert.
 10. Als Entwickler möchte ich eine einzige Eigene-Konten-Config (IBAN +
-    Konto-Rolle) als Quelle für `Gegenkonto::Eigen|Fremd` und die Rollen-Deutung,
+    Konto-Rolle) als Quelle für `Gegenkonto::Eigen(Rolle)|Fremd` und die Rollen-Deutung,
     damit beides nicht auseinanderläuft.
 
-## Implementation Decisions
+## Umsetzungsentscheidungen
 
 ### Architektur
 
@@ -189,7 +189,7 @@ Software mit Claude).
   `GläubigerId`, `ObfuskierterText`. Geprüft wird einmal am Rand, danach trägt der
   Typ den Beweis.
 - **Summentypen mit erschöpfendem `match`** statt Flag + optionale Felder:
-  `Richtung::Eingang|Ausgang`, `Gegenkonto::Eigen|Fremd`,
+  `Richtung::Eingang|Ausgang`, `Gegenkonto::Eigen(Rolle)|Fremd`,
   `Empfänger::Firma|Person`, `Buchungsart`. Ungültige Kombinationen sind **nicht
   konstruierbar**.
 - `Betrag` ist vorzeichenlos; das Vorzeichen lebt ausschließlich in `Richtung`
@@ -233,7 +233,7 @@ Software mit Claude).
 ### Lokale Konfiguration & Speicher (Adapter-seitig)
 
 - **Eigene-Konten-Config** (lokal): je eigenem Konto IBAN + Konto-Rolle
-  (Giro/Haushalt/Spar/Vorlauf). Eine Quelle für `Gegenkonto::Eigen|Fremd`
+  (Giro/Haushalt/Spar/Vorlauf). Eine Quelle für `Gegenkonto::Eigen(Rolle)|Fremd`
   (Schritt 2) **und** die Rollen-Deutung der Analyse (Schritt 3); die CSV trägt
   sie nicht. Verbindlich vor Schritt 2.
 - **Zuordnungs-Speicher** (lokal, persistent, verlässt den Rechner nie):
@@ -264,13 +264,13 @@ Invarianten aus Nutzersicht._
 ### Baureihenfolge (Tracer-Bullet, vertikale Slices)
 
 1. **Cargo-Workspace + Domänen-Skelett**: `Buchung` aus Value Objects (`Betrag`,
-   `Richtung`, `Empfänger::Firma|Person`, `Gegenkonto::Eigen|Fremd`) plus der
+   `Richtung`, `Empfänger::Firma|Person`, `Gegenkonto::Eigen(Rolle)|Fremd`) plus der
    schmale `KategorieAnfrage`-Ausgangstyp (Freitext als `ObfuskierterText`). Test
    am DTO-Vertrag inkl. „Projektion `Buchung`→`KategorieAnfrage` trägt keinen
    strukturellen Identifikator". _(ersetzt das Python-Hello-World)_
 2. **CSV-CAMT-v8-Adapter** gegen echte Beispiel-Datei → `Buchung`. Obfuskiert beim
    Mappen: IBAN/BIC bleiben im Adapter, `Auftragskonto`→`KONTO_x`,
-   Privatperson→`PERSON_x`, Gegen-IBAN → `Gegenkonto::Eigen|Fremd` via
+   Privatperson→`PERSON_x`, Gegen-IBAN → `Gegenkonto::Eigen(Rolle)|Fremd` via
    Eigene-Konten-Config, Freitext → `ObfuskierterText` (best-effort gescrubbt);
    sichert eine einheitliche Währung zu.
 3. **Analyse-Kern**: Wiederkehr + Gebühren + Aderlass + Pareto. Schon ohne LLM
@@ -281,7 +281,7 @@ Invarianten aus Nutzersicht._
 7. **Iteration**: gemeinsam durchgehen, Korrekturen lernen, Sparpotenziale
    benennen.
 
-## Testing Decisions
+## Testentscheidungen
 
 ### Was einen guten Test ausmacht
 
@@ -306,7 +306,7 @@ Invarianten aus Nutzersicht._
   (D4 Analyse-Kern am DTO-Vertrag; Adapter an ihren schmalen DTOs), TDD von außen
   nach innen — nicht das Innenleben isoliert, sondern der Vertrag.
 
-### Prior Art
+### Vorarbeiten
 
 - Das Repo ist frisch scaffolded — es gibt noch keinen Code und keine Tests. Prior
   Art ist daher der Vertrag selbst:
@@ -316,14 +316,14 @@ Invarianten aus Nutzersicht._
   DTO-Vertrag prüfen die Konstruktor-Validierung mit). Der erste Test aus Schritt 1
   setzt das Muster für alle weiteren.
 
-## In Scope
+## Im Umfang
 
 Kompakt (Spiegel der README-„Drin"-Liste; Details in den User Stories): CSV-CAMT v8,
 Mehrkonten, Umbuchung-Netting, Gebühren, Wiederkehr (inkl.
 Jahreskosten/Preissteigerung), Kategorisierung via Chat, gelernte Korrekturen,
 dynamischer Zeitraum (was die CSV hergibt), HTML-Report.
 
-## Out of Scope
+## Außerhalb des Umfangs
 
 - **Bewusst draußen (YAGNI, später nur ein Adapter):** XML-camt, MT940,
   API-Kategorisierer, andere Report-Formate als HTML.
@@ -334,7 +334,7 @@ dynamischer Zeitraum (was die CSV hergibt), HTML-Report.
 - **Beweisbar vollständiges Scrubbing** ist nicht im Scope — das Freitext-Scrubbing
   ist explizit heuristisch/best-effort.
 
-## Further Notes
+## Weitere Hinweise
 
 **Offene Punkte** (aus README „Offen" — vor ihren Schritten zu lösen; Details zu
 Config und Zuordnungs-Speicher oben unter „Lokale Konfiguration & Speicher"):

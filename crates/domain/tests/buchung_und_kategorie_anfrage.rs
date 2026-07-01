@@ -6,7 +6,8 @@ use domain::{
 fn firma_buchung() -> Buchung {
     let gläubiger_id = GläubigerId::new("DE98ZZZ09999999999").expect("gültige Gläubiger-ID");
     let fallback_pseudonym = Pseudonym::new("PERSON_00").expect("gültiges Pseudonym");
-    let empfänger = Empfänger::resolve(Some(gläubiger_id), fallback_pseudonym);
+    let empfänger =
+        Empfänger::resolve(Some(gläubiger_id), || Some(fallback_pseudonym)).expect("Firma");
 
     Buchung::new(
         KontoId::new("KONTO_1").expect("gültige KontoId"),
@@ -14,8 +15,23 @@ fn firma_buchung() -> Buchung {
         Richtung::Ausgang,
         empfänger,
         Gegenkonto::Fremd,
-        ObfuskierterText::new("Streaming-Abo").expect("nicht leer"),
+        Some(ObfuskierterText::new("Streaming-Abo").expect("nicht leer")),
         Buchungsart::Lastschrift,
+    )
+}
+
+fn person_buchung_ohne_verwendungszweck() -> Buchung {
+    let pseudonym = Pseudonym::new("PERSON_07").expect("gültiges Pseudonym");
+    let empfänger = Empfänger::resolve(None, || Some(pseudonym)).expect("Person");
+
+    Buchung::new(
+        KontoId::new("KONTO_1").expect("gültige KontoId"),
+        Betrag::new(4200, Währung::Eur).expect("gültiger Betrag"),
+        Richtung::Ausgang,
+        empfänger,
+        Gegenkonto::Fremd,
+        None,
+        Buchungsart::Überweisung,
     )
 }
 
@@ -53,5 +69,22 @@ fn projektion_zu_kategorie_anfrage_trägt_fingerabdruck_und_freitext() {
     let anfrage = buchung.to_kategorie_anfrage();
 
     assert_eq!(anfrage.fingerabdruck, Fingerabdruck::from_buchung(&buchung));
-    assert_eq!(anfrage.verwendungszweck.as_str(), "Streaming-Abo");
+    assert_eq!(
+        anfrage
+            .verwendungszweck
+            .expect("Verwendungszweck vorhanden")
+            .as_str(),
+        "Streaming-Abo"
+    );
+}
+
+/// Fehlt der Freitext an der `Buchung`, trägt auch die Projektion keinen — es
+/// gibt keinen leeren `ObfuskierterText`, sondern `None`.
+#[test]
+fn projektion_ohne_verwendungszweck_trägt_keinen_freitext() {
+    let buchung = person_buchung_ohne_verwendungszweck();
+
+    let anfrage = buchung.to_kategorie_anfrage();
+
+    assert!(anfrage.verwendungszweck.is_none());
 }

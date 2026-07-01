@@ -24,7 +24,7 @@ Abfluss, nettet Umbuchungen, summiert Gebühren, rankt die größten Abflüsse u
 zeigt den Trend — es fehlt nur das automatische Etikett für unbekannte Händler.
 Wenn das Programm ohne LLM noch wertvoll ist, ist die Domäne echt.
 
-## Consequences
+## Konsequenzen
 
 - Die HTML-Ausgabe zeigt die **Analyse der Domäne**, nicht „was das LLM sagte".
   Die Kategorie ist nur ein Attribut einer `Buchung`.

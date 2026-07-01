@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** HITL — braucht Markus' echte eigene IBANs + Konto-Rollen.
 
-## What to build
+## Was zu bauen ist
 
 Die **Eigene-Konten-Config** (lokal, adapter-seitig): je eigenem Konto seine
 IBAN + Konto-Rolle (Giro/Haushalt/Spar/Vorlauf). Das ist die **eine Quelle**
@@ -27,7 +27,7 @@ eigen, und wenn ja mit welcher Rolle?".
 und deren Rollen (Giro/Haushalt/Spar/Vorlauf) — ohne diese Angabe ist der
 Slice nicht abschließbar.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [x] Config-Format ist definiert und dokumentiert (Feld je eigenem Konto:
       IBAN + Rolle aus `{Giro, Haushalt, Spar, Vorlauf}`).
@@ -46,8 +46,8 @@ Slice nicht abschließbar.
       Eigen/Fremd-Frage als auch die Rollen-Frage — eine Quelle, keine zwei
       separaten Listen.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
   (Domänen-Skelett als Voraussetzung des Slice-Aufbaus; die IBAN bleibt hier
   bewusst reine Adapter-Konvention, **nicht** der Domänen-`KontoId`).

@@ -1,0 +1,7 @@
+"Auftragskonto";"Buchungstag";"Valutadatum";"Buchungstext";"Verwendungszweck";"Glaeubiger ID";"Mandatsreferenz";"Kundenreferenz (End-to-End)";"Sammlerreferenz";"Lastschrift Ursprungsbetrag";"Auslagenersatz Ruecklastschrift";"Beguenstigter/Zahlungspflichtiger";"Kontonummer/IBAN";"BIC (SWIFT-Code)";"Betrag";"Waehrung";"Info"
+"DE20 1234 5678 0000 0011 11";"01.12.2025";"01.12.2025";"LASTSCHRIFT";"Netflix Abo Dezember";"DE98ZZZ09999999999";"MND-001";"NETFLIX-12";"";"";"";"Netflix International B.V.";"DE90 8765 4321 0000 0099 99";"ABNANL2AXXX";"-12,99";"EUR";"Umsatz gebucht"
+"DE20 1234 5678 0000 0011 11";"02.12.2025";"02.12.2025";"DAUERAUFTRAG";"Uebertrag Sparen";"";"";"";"";"";"";"Markus Mustermann";"DE69 1234 5678 0000 0033 33";"GENODEF1S01";"-250,00";"EUR";""
+"DE20 1234 5678 0000 0011 11";"03.12.2025";"03.12.2025";"ÜBERWEISUNG";"Miete Anteil";"";"";"";"";"";"";"Anna Schmidt";"DE90 8765 4321 0000 0099 99";"ABNANL2AXXX";"-1.234,56";"EUR";""
+"DE20 1234 5678 0000 0011 11";"10.12.2025";"10.12.2025";"ÜBERWEISUNG";"";"";"";"";"";"";"";"Anna Schmidt";"DE90 8765 4321 0000 0099 99";"ABNANL2AXXX";"-15,00";"EUR";""
+"DE20 1234 5678 0000 0011 11";"15.12.2025";"15.12.2025";"GUTSCHRIFT";"Erstattung Abschlag";"DE11ZZZ00000000001";"";"";"";"";"";"Stadtwerke Musterstadt";"DE90 8765 4321 0000 0099 99";"ABNANL2AXXX";"19,90";"EUR";""
+"DE20 1234 5678 0000 0011 11";"31.12.2025";"31.12.2025";"ENTGELT";"Kontofuehrungsentgelt";"";"";"";"";"";"";"Sparkasse Musterstadt";"";"";"-4,90";"EUR";""

@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Erster Teil des Analyse-Kerns (Baureihenfolge-Schritt 3), black-box am
 DTO-Vertrag testbar ohne Datei und ohne Netz: Umbuchungen zwischen Markus'
@@ -21,7 +21,7 @@ Matching-Logik: erkennt Buchungspaare, bei denen `Gegenkonto::Eigen` steht
 (_welche_ Gegen-IBAN eigen ist, hat der Adapter in Slice 0003 schon
 aufgelöst — dieser Slice matcht nur noch darauf).
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] Ein Buchungspaar zweier eigener Konten (Ausgang von Konto A, Eingang bei
       Konto B, `Gegenkonto::Eigen`) wird als Umbuchung erkannt und aus der
@@ -34,6 +34,6 @@ aufgelöst — dieser Slice matcht nur noch darauf).
 - [ ] Test deckt den DTO-Vertrag ab: eine Liste synthetischer `Buchung`-DTOs
       rein, Netting-Ergebnis-DTO raus — ohne Datei- oder Netzzugriff.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)

@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Der `Speicher`-Port (outbound), SQLite-Adapter (Baureihenfolge-Schritt 4):
 persistiert **DTOs** (nicht Domänenobjekte) über mehrere Importe hinweg —
@@ -25,7 +25,7 @@ laufstabil sind — sonst würde ein späterer Wechsel von laufstabilen zu
 importübergreifenden Pseudonymen bereits gespeicherte Historie inkonsistent
 machen.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] `Buchung`-DTOs aus zwei separaten CSV-Importen werden in SQLite
       persistiert und beim Neustart des Programms vollständig wieder geladen.
@@ -42,7 +42,7 @@ machen.
       0008) und diesem `Speicher`: unterschiedliche Speicherorte/Formate,
       kein gemeinsamer Zugriffspfad.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
-- Blocked by [0008](0008-persistente-pseudonym-zuordnung.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0008](0008-persistente-pseudonym-zuordnung.md)
