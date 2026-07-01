@@ -29,21 +29,25 @@ Slice nicht abschließbar.
 
 ## Acceptance criteria
 
-- [ ] Config-Format ist definiert und dokumentiert (Feld je eigenem Konto:
+- [x] Config-Format ist definiert und dokumentiert (Feld je eigenem Konto:
       IBAN + Rolle aus `{Giro, Haushalt, Spar, Vorlauf}`).
-- [ ] Loader liest eine Config-Datei ein und liefert eine typisierte
+- [x] Loader liest eine Config-Datei ein und liefert eine typisierte
       In-Memory-Struktur; eine Datei mit unbekannter Rolle oder fehlerhafter
       IBAN wird abgelehnt (kein stillschweigendes Überspringen).
-- [ ] Nachschlagefunktion „gegeben eine Gegen-IBAN, ist sie eigen (und mit
+- [x] Nachschlagefunktion „gegeben eine Gegen-IBAN, ist sie eigen (und mit
       welcher Rolle) oder fremd?" ist getestet, inkl. Negativfall (fremde
       IBAN).
 - [ ] Markus' echte eigene IBANs + Rollen sind erfasst und die Config damit
-      befüllbar (mindestens eine reale Testkonfiguration liegt vor).
-- [ ] Test belegt: dieselbe Config-Instanz beantwortet sowohl die
+      befüllbar (mindestens eine reale Testkonfiguration liegt vor). — **offen
+      (HITL)**; die Vorlage `eigene-konten.example.toml` (fiktive Platzhalter)
+      liegt im Wurzelverzeichnis, die reale `eigene-konten.toml` ist gitignored
+      und lokal von Markus zu befüllen.
+- [x] Test belegt: dieselbe Config-Instanz beantwortet sowohl die
       Eigen/Fremd-Frage als auch die Rollen-Frage — eine Quelle, keine zwei
       separaten Listen.
 
 ## Blocked by
 
 - Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
-  (nutzt `KontoId` als Domänen-Value-Object für die Rollen-Auflösung).
+  (Domänen-Skelett als Voraussetzung des Slice-Aufbaus; die IBAN bleibt hier
+  bewusst reine Adapter-Konvention, **nicht** der Domänen-`KontoId`).

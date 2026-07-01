@@ -1,0 +1,37 @@
+# eigene-konten.example.toml — VORLAGE, nicht die echte Config.
+#
+# So benutzt du sie:
+#   1. Kopiere diese Datei nach `eigene-konten.toml` (im Repo-Wurzelverzeichnis).
+#   2. Trage je eigenem Konto einen `[[konto]]`-Block mit deiner echten IBAN und
+#      der Rolle ein.
+#   3. `eigene-konten.toml` ist per .gitignore ausgeschlossen und verlässt die
+#      Maschine nie — nur diese Vorlage mit Platzhaltern wird versioniert.
+#
+# Datenschutz: eine eigene IBAN ist ein struktureller Identifikator. Sie bleibt
+# lokal; das Einlesen leitet daraus nur `Gegenkonto::Eigen|Fremd` (+ Rolle) ab
+# und wirft die IBAN an der DTO-Grenze weg. Nichts davon geht an ein LLM oder
+# nach außen.
+#
+# Rolle ist eins aus: Giro | Haushalt | Spar | Vorlauf. Rollen dürfen sich
+# wiederholen (z. B. zwei Giro-Konten) oder fehlen. Doppelte IBANs werden
+# abgelehnt.
+#
+# Die Platzhalter-IBANs unten sind absichtlich ungültig (Prüfsumme) — die Config
+# lädt erst, wenn du sie durch deine echten ersetzt hast (lautes Scheitern statt
+# stillem Laden von Platzhaltern).
+
+[[konto]]
+iban  = "DE00 0000 0000 0000 0000 00"   # ← deine echte Giro-IBAN
+rolle = "Giro"
+
+[[konto]]
+iban  = "DE00 0000 0000 0000 0000 00"   # ← deine echte Haushalts-IBAN
+rolle = "Haushalt"
+
+[[konto]]
+iban  = "DE00 0000 0000 0000 0000 00"   # ← deine echte Spar-IBAN
+rolle = "Spar"
+
+[[konto]]
+iban  = "DE00 0000 0000 0000 0000 00"   # ← deine echte Vorlauf-IBAN
+rolle = "Vorlauf"

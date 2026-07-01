@@ -8,7 +8,7 @@ fn richtung_as_sign(richtung: Richtung) -> i8 {
 }
 
 #[test]
-fn richtung_covers_eingang_and_ausgang_exhaustively() {
+fn richtung_deckt_eingang_und_ausgang_erschöpfend_ab() {
     assert_eq!(richtung_as_sign(Richtung::Eingang), 1);
     assert_eq!(richtung_as_sign(Richtung::Ausgang), -1);
 }
@@ -21,7 +21,7 @@ fn gegenkonto_is_eigen(gegenkonto: Gegenkonto) -> bool {
 }
 
 #[test]
-fn gegenkonto_covers_eigen_and_fremd_exhaustively() {
+fn gegenkonto_deckt_eigen_und_fremd_erschöpfend_ab() {
     assert!(gegenkonto_is_eigen(Gegenkonto::Eigen));
     assert!(!gegenkonto_is_eigen(Gegenkonto::Fremd));
 }
@@ -37,13 +37,13 @@ fn buchungsart_description(buchungsart: Buchungsart) -> &'static str {
 }
 
 #[test]
-fn buchungsart_covers_all_variants_exhaustively() {
+fn buchungsart_deckt_alle_varianten_erschöpfend_ab() {
     assert_eq!(buchungsart_description(Buchungsart::Entgelt), "Entgelt");
     assert_eq!(buchungsart_description(Buchungsart::Sonstige), "Sonstige");
 }
 
 #[test]
-fn empfänger_with_gläubiger_id_resolves_as_firma() {
+fn empfänger_mit_gläubiger_id_wird_als_firma_aufgelöst() {
     let gläubiger_id = GläubigerId::new("DE98ZZZ09999999999").expect("gültige Gläubiger-ID");
     let fallback_pseudonym = Pseudonym::new("PERSON_00").expect("gültiges Pseudonym");
 
@@ -53,7 +53,7 @@ fn empfänger_with_gläubiger_id_resolves_as_firma() {
 }
 
 #[test]
-fn empfänger_without_gläubiger_id_resolves_fail_safe_as_person() {
+fn empfänger_ohne_gläubiger_id_wird_fail_safe_als_person_aufgelöst() {
     let pseudonym = Pseudonym::new("PERSON_07").expect("gültiges Pseudonym");
 
     let empfänger = Empfänger::resolve(None, pseudonym.clone());

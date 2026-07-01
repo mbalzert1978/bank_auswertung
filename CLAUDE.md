@@ -79,11 +79,31 @@ carry that vocabulary:
   compound name is translated per component — keep the glossary noun, anglicize
   the generic verb/preposition: `aus_buchung` → `from_buchung`,
   `zu_kategorie_anfrage` → `to_kategorie_anfrage`.
-- **Test names and test-internal helpers follow the same split** — non-UBQL
-  parts English, glossary nouns German. `empfänger_ohne_gläubiger_id_wird_fail_safe_als_person_aufgelöst`
-  becomes `empfänger_without_gläubiger_id_resolves_fail_safe_as_person`; a
-  fully-UBQL helper like `firma_buchung` stays as-is. Only German _artifact prose_
-  — doc comments and assertion/`expect` messages — stays German.
+- **The deciding test: "must a domain expert read/understand this name?"** — yes
+  ⇒ UBQL, German; no (pure code mechanics) ⇒ English. It cuts _within_ a type: a
+  struct `Kontoauszug` and its domain action `Kontoauszug::drucken()` stay
+  German, but the technical `Kontoauszug::parse()` is English. **Function
+  internals** — locals, parameters, and technical helpers no domain expert reads
+  — are English **even inside a German-named function**:
+  `eingabe`/`normalisiert`/`länge`/`zeichen`/`länderkürzel_ok`/`prüfziffern_ok`
+  → `input`/`normalized`/`length`/`c`/`country_code_ok`/`check_digits_ok`. The
+  four architectural **ports** are a German-named category of their own
+  ([ADR-0001](docs/adr/0001-hexagonale-architektur.md): `Umsatzquelle`,
+  `Kategorisierer`, `Speicher`, `Bericht`); a new port and its immediate
+  vocabulary join it in German (e.g. `Konfigquelle`), even where the concept is
+  infrastructural.
+- **`#[test]` function names are fully German** — a test is living documentation
+  a domain expert reads, so the whole name is a German specification sentence,
+  verbs included: `negativer_betrag_ist_nicht_konstruierbar`,
+  `empfänger_ohne_gläubiger_id_wird_fail_safe_als_person_aufgelöst`,
+  `unbekannte_rolle_wird_abgelehnt`, `iban_mit_falscher_prüfsumme_wird_abgelehnt`.
+  This is the one deliberate exception to the "non-UBQL ⇒ English" rule above —
+  the name's job is to communicate the problem and the solution to a domain
+  expert, not to be code mechanics. **Test-internal helpers and port fakes**
+  (`fixture_konten`, an `iban(…)` builder, a `FileSource` fake, `dummy_path`) are
+  plumbing no domain expert reads → they keep the normal split (English mechanics,
+  German glossary nouns). Only German _artifact prose_ — doc comments and
+  assertion/`expect` messages — stays German everywhere.
 - **The crate/package is named `domain`** (English): it carries no glossary
   vocabulary, so the rule applies to it like any other non-UBQL identifier.
 
