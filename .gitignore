@@ -1,6 +1,9 @@
 # Created by https://www.toptal.com/developers/gitignore/api/rust,macos,visualstudiocode
 # Edit at https://www.toptal.com/developers/gitignore?templates=rust,macos,visualstudiocode
 
+__pycache__/
+.claude/
+
 ### macOS ###
 # General
 .DS_Store
@@ -39,6 +42,7 @@ Temporary Items
 # will have compiled files and executables
 debug/
 target/
+*_debug.exe
 
 # Remove Cargo.lock from gitignore if creating an executable, leave it for libraries
 # More information here https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
