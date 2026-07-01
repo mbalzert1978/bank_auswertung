@@ -1,7 +1,7 @@
 ---
 id: "0001"
 title: "Domänen-Skelett: Buchung, Fingerabdruck, ObfuskierterText, KategorieAnfrage"
-status: open
+status: closed
 ---
 
 # Domänen-Skelett: Buchung, Fingerabdruck, ObfuskierterText, KategorieAnfrage
@@ -37,25 +37,25 @@ Werte.
 
 ## Acceptance criteria
 
-- [ ] `Betrag`, `KontoId`, `Pseudonym`, `Fingerabdruck`, `GläubigerId`,
+- [x] `Betrag`, `KontoId`, `Pseudonym`, `Fingerabdruck`, `GläubigerId`,
       `ObfuskierterText` existieren als Value Objects mit validierenden
       Konstruktoren; ein illegaler Wert (z. B. negativer `Betrag`) ist nicht
       konstruierbar (Test: Konstruktor liefert `None`/`Err`, kein „Objekt da,
       aber innen kaputt").
-- [ ] `Richtung::Eingang|Ausgang`, `Gegenkonto::Eigen|Fremd`,
+- [x] `Richtung::Eingang|Ausgang`, `Gegenkonto::Eigen|Fremd`,
       `Empfänger::Firma|Person`, `Buchungsart` sind Summentypen mit
       erschöpfendem `match`; eine negative `Eingang`-Buchung ist nicht
       konstruierbar.
-- [ ] `Empfänger`-Auflösung ist fail-safe: bei Unsicherheit „Firma vs.
+- [x] `Empfänger`-Auflösung ist fail-safe: bei Unsicherheit „Firma vs.
       Privatperson" wird als `Person` behandelt (Test deckt den
       Unsicherheits-Fall ab).
-- [ ] `Buchung` lässt sich aus den Value Objects konstruieren.
-- [ ] Die Projektion `Buchung → KategorieAnfrage` ist implementiert.
-- [ ] **Tragender Invariant-Test**: die Projektion `Buchung → KategorieAnfrage`
+- [x] `Buchung` lässt sich aus den Value Objects konstruieren.
+- [x] Die Projektion `Buchung → KategorieAnfrage` ist implementiert.
+- [x] **Tragender Invariant-Test**: die Projektion `Buchung → KategorieAnfrage`
       trägt **keinen strukturellen Identifikator** — `Iban`/`Bic` sind ohne
       `Serialize` und in keinem DTO einbettbar (ein Einbettungsversuch ist ein
       Compile-Fehler, nicht nur ein Laufzeit-Test).
-- [ ] `cargo test` und `cargo clippy --all-targets` laufen grün gegen den
+- [x] `cargo test` und `cargo clippy --all-targets` laufen grün gegen den
       Domänen-Crate ohne I/O-Abhängigkeit (kein `reqwest`, kein `rusqlite`).
 
 ## Blocked by

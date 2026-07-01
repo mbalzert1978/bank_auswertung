@@ -6,6 +6,15 @@ Transaktionen aus, ändert keine Kontodaten.
 
 ## Language
 
+> **Code-Bezeichner-Regel:** Die hier definierten Begriffe sind das
+> Domänenvokabular (UBQL) und bleiben im Code **deutsch** (Typen, Felder,
+> Substantiv-Getter, sowie deutsche Namensbestandteile). Bezeichner **ohne**
+> Domänenbezug — Konstruktoren, Utility-/Konvertierungsmethoden, technische
+> Hilfstypen, generische Lokal-/Parameternamen sowie Testnamen/-helfer — sind
+> dagegen **englisch** (z. B. `::neu` → `::new`). Nur deutsche _Artefakt-Prosa_
+> (Doc-Comments, `expect`-Meldungen) bleibt deutsch. Ausführlich im Abschnitt
+> „Language convention" von [CLAUDE.md](CLAUDE.md).
+
 **Buchung**:
 Ein einzelner Kontoumsatz (eine Zeile im Export) mit Betrag, Datum, Richtung
 (Ein-/Ausgang) und beschreibenden Feldern.
