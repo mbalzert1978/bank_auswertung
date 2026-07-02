@@ -8,6 +8,9 @@ members = [
     "crates/eigene_konten_domain",
     "crates/eigene_konten_adapter",
     "crates/eigene_konten_specs",
+    "crates/obfuskierung_domain",
+    "crates/obfuskierung_adapter",
+    "crates/obfuskierung_specs",
 ]
 
 [workspace.lints.clippy]

@@ -1,0 +1,15 @@
+[package]
+name = "obfuskierung_adapter"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+obfuskierung_domain = { path = "../obfuskierung_domain" }
+thiserror = "2"
+
+[dev-dependencies]
+serde = "1"
+static_assertions = "1.1.0"

@@ -1,0 +1,11 @@
+[package]
+name = "obfuskierung_specs"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+obfuskierung_adapter = { path = "../obfuskierung_adapter" }

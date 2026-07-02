@@ -1,0 +1,13 @@
+[package]
+name = "obfuskierung_domain"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+# Bewusst DEPENDENCY-FREI (ADR-0007): die Domäne kennt weder Fehler-Bibliotheken
+# noch serde. Ihren Store „verlangt" sie über einen eigenen Port; der Fehler des
+# Ports ist ein schlichter std-Typ, den der Adapter mappt. Ohne serde-Dep kann
+# ein struktureller Identifikator (die Klartext-Schlüssel im Bestand) hier gar
+# kein `Serialize` ableiten.
