@@ -12,12 +12,20 @@ use crate::token::{KontoId, ObfuskierterText, Pseudonym};
 /// dessen bisherigen Bestand → laufübergreifende Stabilität) und kann seinen
 /// fortgeschriebenen Bestand über [`sichern`](Self::sichern) zurückschreiben. Die
 /// Persistenz dahinter ist vertagt; aktuell trägt ein In-Memory-Fake den Seam.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Obfuskierer {
     aggregat: ObfuskierungsAggregat,
 }
 
 impl Obfuskierer {
+    /// Ein frischer Obfuskierer ohne vorherigen Bestand — für einen Lauf, der
+    /// (noch) nicht an einem Store hängt. Die laufübergreifende Stabilität
+    /// entsteht erst, wenn ein Store über [`laden`](Self::laden)/[`sichern`](Self::sichern)
+    /// dahinterliegt; die Persistenz dafür ist vertagt.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Lädt den bisherigen Bestand aus dem Store und startet die Vergabe daraus.
     pub fn laden(speicher: &impl ZuordnungsSpeicher) -> Result<Self, SpeicherError> {
         let bestand = speicher.laden()?;
