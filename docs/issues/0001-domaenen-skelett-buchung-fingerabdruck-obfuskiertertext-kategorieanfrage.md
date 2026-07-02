@@ -6,6 +6,13 @@ status: closed
 
 # Domänen-Skelett: Buchung, Fingerabdruck, ObfuskierterText, KategorieAnfrage
 
+> **Superseded durch [ADR-0007](../adr/0007-modularer-monolith-feature-slices.md).**
+> Das hier gebaute **geteilte** `domain`-Crate wird aufgelöst: seine Typen wandern
+> in die Slices, die sie besitzen (`Buchung`/VOs → `csv_camt_v8`,
+> `KONTO_x`/`PERSON_x` → `obfuskierung`); `Fingerabdruck`/`KategorieAnfrage`
+> entfallen, bis ihr Slice entsteht. Value-Object-/Summentyp-Prinzipien bleiben,
+> nur je Slice statt zentral.
+
 **Typ:** AFK
 
 ## Was zu bauen ist

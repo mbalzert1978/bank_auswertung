@@ -7,6 +7,14 @@
 > Quelle der Wahrheit: [README.md](../../README.md). Begriffe:
 > [CONTEXT.md](../../CONTEXT.md). Entscheidungen: [docs/adr/](../adr/). Dieser PRD
 > bildet die README treu ab und erfindet nichts darüber hinaus.
+>
+> **Architektur superseded durch
+> [ADR-0007](../adr/0007-modularer-monolith-feature-slices.md):** Die Abschnitte zu
+> Cargo-Workspace/„reine Domänen-Crate" und die Domänen-Module **D1–D5 in einem
+> Crate** sind überholt — Ziel ist ein modularer Monolith aus Feature-Slices
+> (Triade `_domain`/`_adapter`/`_specs`, dünner `shared_kernel`, kein geteiltes
+> `domain`-Crate). Fachfunktionen, Datenschutz-Invarianten und Baureihenfolge
+> bleiben gültig; nur ihre Verortung ändert sich.
 
 ## Problemstellung
 

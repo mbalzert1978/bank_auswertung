@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Architektur-Umbau im Gange ([ADR-0007](docs/adr/0007-modularer-monolith-feature-slices.md)).**
+> Das Repo wird von „ein geteiltes `domain`-Crate + Adapter" auf einen **modularen
+> Monolithen aus Feature-Slices** umgestellt: pro Slice eine Triade
+> `<slice>_domain`/`_adapter`/`_specs`, dazu ein **dünner** interface-only
+> `shared_kernel`. Das geteilte `domain`-Crate wird aufgelöst; jeder Slice hat
+> eigene Value Objects und gibt nach außen nur DTOs heraus. Die „Current state"-
+> und Crate-Listen unten beschreiben teils noch den Vor-Umbau-Stand und werden
+> phasenweise nachgezogen — maßgeblich ist ADR-0007.
+
 ## What this is
 
 **Bank-Auswertung** — local, maintainable Rust software that reads bank-account
@@ -13,7 +22,8 @@ implementation. The design is the point — read the docs before implementing:
 
 - [README.md](README.md) — source of truth for scope and architecture.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — the six architecture decisions, each with rationale.
+- [docs/adr/](docs/adr/) — the seven architecture decisions, each with rationale
+  (ADR-0007 verfeinert/supersedet die Architektur-Aussagen von 0001–0003).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories and the module breakdown).
 

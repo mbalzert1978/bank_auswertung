@@ -6,6 +6,14 @@ status: done
 
 # CSV-CAMT-v8-Adapter zu Buchung
 
+> **Umbau durch [ADR-0007](../adr/0007-modularer-monolith-feature-slices.md).** Der
+> Adapter wird zur Slice-Triade `csv_camt_v8_domain`/`_adapter`/`_specs`: der public
+> Port gibt einen **DTO** heraus (nicht `Buchung`), die Obfuskierung wandert in den
+> eigenen `obfuskierung`-Slice (per Bridge konsumiert), die Eigen/Fremd-Auflösung
+> läuft über die public API des `eigene_konten`-Slice. Fachlicher Inhalt (Mapping,
+> einheitliche Währung, Fail-safe-Empfänger, Datenschutz) bleibt; nur der Schnitt
+> und die Testführung (Fluent-TestApi, Black-Box) ändern sich.
+
 **Prämisse:** Dieser Slice ist **nicht** auf eine echte CSV-Beispieldatei
 blockiert. Es gibt vorerst keine Realdaten — die liefert Markus erst, wenn das
 Programm vollständig steht, und dann ausschließlich per CLI-Argument. Für diesen

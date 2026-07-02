@@ -8,12 +8,21 @@ Begriffe: [CONTEXT.md](CONTEXT.md). Entscheidungen: [docs/adr/](docs/adr/).
 
 ## Architektur
 
+> **Im Umbau ([ADR-0007](docs/adr/0007-modularer-monolith-feature-slices.md)):**
+> modularer Monolith aus **Feature-Slices**. Jeder Slice ist eine Triade
+> `<slice>_domain`/`_adapter`/`_specs`; dazu ein **dünner** interface-only
+> `shared_kernel`. Es gibt **kein** geteiltes `domain`-Crate mehr — jeder Slice hat
+> eigene Value Objects und gibt nach außen nur DTOs heraus. Die folgende
+> Beschreibung nennt die Fachfunktionen und Ports; ihre Verteilung auf Slices und
+> die Crate-Topologie regelt ADR-0007.
+
 Hexagonal, Cargo-Workspace ([ADR-0001](docs/adr/0001-hexagonale-architektur.md),
 [0002](docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
 [0003](docs/adr/0003-rust-als-sprache.md),
 [0004](docs/adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md),
 [0005](docs/adr/0005-domaenenmodell-value-objects-und-summentypen.md),
-[0006](docs/adr/0006-pseudonym-stabilitaet.md)):
+[0006](docs/adr/0006-pseudonym-stabilitaet.md),
+[0007](docs/adr/0007-modularer-monolith-feature-slices.md)):
 
 - **Domänen-Crate (rein, kein I/O):** Wiederkehr-Erkennung (inkl. Jahreskosten &
   Preissteigerung), Umbuchung-Netting, Gebühren-Klassifikation, Aderlass/Cashflow

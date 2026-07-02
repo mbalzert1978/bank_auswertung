@@ -1,5 +1,11 @@
 # Pseudonym-Stabilität: die Klartext-Zuordnung ist lokal **und persistent**
 
+> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
+> gültig, neu verortet.** Die getrennte, lokale **und persistente**
+> Klartext↔Pseudonym-Zuordnung bleibt — sie wird zum eigenen **Obfuskierungs-Slice**
+> (public `obfuskiere_*`-API; Persistenz vertagt, jetzt laufstabil), den andere
+> Slices über eine Bridge konsumieren.
+
 Der Fingerabdruck ist eine reine Funktion über dem Empfänger
 ([ADR-0004](0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md)). Für eine
 Privatperson (`Empfänger::Person(Pseudonym)`) geht das Pseudonym in den

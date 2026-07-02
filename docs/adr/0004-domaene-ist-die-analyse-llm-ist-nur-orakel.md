@@ -1,5 +1,11 @@
 # Die Domäne ist die Analyse — das LLM ist nur ein Orakel für unbekannte Fingerabdrücke
 
+> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
+> gültig, neu verortet.** „Domäne = Analyse, LLM = Orakel, Fingerabdruck ist
+> Domänenwissen" bleibt — aber verteilt auf Feature-Slices statt in **einer**
+> Domäne; „die Domäne" ist hier als Sammelbegriff der Slice-Domänen zu lesen. Die
+> Obfuskierung ist ein eigener Slice.
+
 Lesen, Obfuskieren und Präsentieren sind Adapter-Aufgaben (rein/raus), **nicht**
 die Domäne. Die Domäne ist die Finanzanalyse und lebt rein und testbar im Kern:
 Wiederkehrenden Abfluss erkennen (inkl. Jahreskosten und Preissteigerung),

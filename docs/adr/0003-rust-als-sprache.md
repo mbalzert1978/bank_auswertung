@@ -1,5 +1,14 @@
 # Rust als Implementierungssprache
 
+> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
+> verfeinert.** Rust, der Cargo-Workspace und der **compilergeprüfte** Schutz
+> (strukturelle Identifikatoren ohne `Serialize`) bleiben. Verortung neu: der
+> Crate-Level-Schnitt ist jetzt die Slice-Triade (`_domain`/`_adapter`/`_specs`)
+> plus ein dünner `shared_kernel`; externe Fremd-Crates leben ausschließlich im
+> einzigen `io`-Crate; die `Serialize`-Sperre wird pro Slice re-homed statt in
+> **einer** Domänen-Crate. Der `KategorieAnfrage`-DTO wird erst mit dem
+> Kategorisierer-Slice wieder relevant.
+
 Wir implementieren in Rust statt Python oder C#. Das Datenschutzmodell ruht auf
 der Obfuskierung — in Rust lässt sich die **strukturelle** Grenze compilergeprüft
 erzwingen: Die Rohdaten-Newtypes (`Iban`, `Bic`) leben nur im eingehenden

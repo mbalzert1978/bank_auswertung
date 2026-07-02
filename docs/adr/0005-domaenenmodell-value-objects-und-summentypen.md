@@ -1,5 +1,11 @@
 # Domänenmodell: Value Objects statt Primitiven, Summentypen statt Flags, deklarativ-funktional
 
+> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
+> gültig, neu verortet.** Value Objects, Summentypen und der deklarativ-funktionale
+> Stil bleiben verbindlich — aber je **Slice-Domäne**, nicht in **einem** geteilten
+> Modell. Namenskonvention neu: Domänentypen tragen `Entity`/`Aggregat`, die
+> UBQL-DTOs am Rand den schlichten Glossar-Namen (ADR-0007).
+
 Die Domäne benutzt **keine nackten Primitiven**. Jedes fachliche Konzept ist ein
 Value Object (`Betrag`, `KontoId`, `Pseudonym`, `Fingerabdruck`, `GläubigerId`,
 `ObfuskierterText`), das beim Konstruieren validiert — _parse, don't validate_.
