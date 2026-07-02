@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """PreToolUse-Hook: erzwingt "Abhängigkeiten zeigen nach innen".
 
-Nur IO-Layer-Crates (Verzeichnisname endet auf ``_io``) dürfen externe Fremd-Crates
-in ihrer ``Cargo.toml`` binden. Alle anderen Crates — Domäne UND Adapter-Kern —
-ziehen ihre Abhängigkeiten über öffentliche PORTS rein; eine externe
+Nur das einzige ``io``-Crate darf externe Fremd-Crates in seiner ``Cargo.toml``
+binden; ``architecture`` (der Dependency-Richtungs-Validator, liegt außerhalb von
+``crates/``) ist ebenfalls ausgenommen. Alle anderen Crates — Domäne UND
+Adapter-Kern — ziehen ihre Abhängigkeiten über öffentliche PORTS rein; eine externe
 ``[dependencies]``-Zeile dort wird geblockt (exit 2).
 
 Der Hook rekonstruiert den Datei-Inhalt NACH dem Edit (PreToolUse läuft davor) und
@@ -11,8 +12,9 @@ prüft den ganzen resultierenden Cargo.toml — so greift die Regel unabhängig 
 wie der Edit zugeschnitten ist. Fehlt ein valider Payload oder scheitert das Lesen,
 wird NICHT geblockt (fail-open, damit der Hook nie das Editieren bricht).
 
-Beleg: docs/prd/0001-bank-auswertung.md (Z.178-183), ADR-0001; Memory
-dependency-richtung-nach-innen.
+Beleg: docs/prd/0001-bank-auswertung.md (Z.178-183), ADR-0001/ADR-0007; Memory
+dependency-richtung-nach-innen. Der Test-Zwilling liegt in
+architecture/tests/dependency_direction.rs (CI-Zeit; dieser Hook: Edit-Zeit).
 """
 
 import json
@@ -117,8 +119,11 @@ def main():
         sys.exit(0)
 
     crate_dir = os.path.basename(os.path.dirname(path))
-    if crate_dir.endswith("_io"):
-        sys.exit(0)  # IO-Layer darf binden.
+    # Nur das einzige `io`-Crate darf binden; `architecture` ist der Validator und
+    # liegt ohnehin außerhalb von `crates/` — der Namens-Carve-out hält die Ausnahme
+    # explizit (ADR-0007).
+    if crate_dir in ("io", "architecture"):
+        sys.exit(0)
 
     try:
         content = resulting_content(payload.get("tool_name", ""), tool_input)
@@ -133,14 +138,14 @@ def main():
     print(
         f"BLOCKIERT — Dependency-Richtung verletzt (Crate `{crate_dir}`).\n"
         f"Externe Crate(s) im Nicht-IO-Layer: {deps}.\n\n"
-        "Regel (UNUMSTÖSSLICH): Abhängigkeiten zeigen nach innen. Nur der IO-Layer "
-        "(`*_io`-Crate) bindet externe Fremd-Crates; alle anderen Layer — Domäne UND "
+        "Regel (UNUMSTÖSSLICH): Abhängigkeiten zeigen nach innen. Nur das einzige "
+        "`io`-Crate bindet externe Fremd-Crates; alle anderen Layer — Domäne UND "
         "Adapter-Kern — ziehen ihre Abhängigkeiten über öffentliche PORTS rein.\n\n"
-        f"Fix: `{deps}` hinter einen Port legen und die konkrete Nutzung in ein "
-        "`*_io`-Infra-Crate verschieben, das den Port erfüllt.\n"
+        f"Fix: `{deps}` hinter einen Port legen und die konkrete Nutzung in das "
+        "`io`-Infra-Crate verschieben, das den Port erfüllt.\n"
         "Sanktioniert (nie geblockt): serde, serde_json, thiserror, static_assertions, "
         "sowie path-/workspace-Deps.\n"
-        "Beleg: docs/prd/0001-bank-auswertung.md (Z.178-183), ADR-0001; "
+        "Beleg: docs/prd/0001-bank-auswertung.md (Z.178-183), ADR-0001/ADR-0007; "
         "Memory dependency-richtung-nach-innen.",
         file=sys.stderr,
     )

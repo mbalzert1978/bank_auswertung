@@ -1,0 +1,16 @@
+[package]
+name = "architecture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+# `architecture` ist der Validator ÜBER dem Graphen (ADR-0007) und von der
+# "nach innen"-Regel ausgenommen — es allein darf sich frei bedienen, hier
+# `cargo_metadata`, um Cargos aufgelösten Abhängigkeitsgraphen auszuwerten. Es
+# liegt bewusst außerhalb von `crates/`, damit der PreToolUse-Hook (matcht nur
+# `crates/*/Cargo.toml`) es nicht blockt.
+[dev-dependencies]
+cargo_metadata = "0.23"
