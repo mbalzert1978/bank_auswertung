@@ -2,14 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Architektur-Umbau im Gange ([ADR-0007](docs/adr/0007-modularer-monolith-feature-slices.md)).**
-> Das Repo wird von „ein geteiltes `domain`-Crate + Adapter" auf einen **modularen
-> Monolithen aus Feature-Slices** umgestellt: pro Slice eine Triade
-> `<slice>_domain`/`_adapter`/`_specs`, dazu ein **dünner** interface-only
-> `shared_kernel`. Das geteilte `domain`-Crate wird aufgelöst; jeder Slice hat
-> eigene Value Objects und gibt nach außen nur DTOs heraus. Die „Current state"-
-> und Crate-Listen unten beschreiben teils noch den Vor-Umbau-Stand und werden
-> phasenweise nachgezogen — maßgeblich ist ADR-0007.
+> **Architektur-Umbau nach [ADR-0007](docs/adr/0007-modularer-monolith-feature-slices.md)
+> — strukturell abgeschlossen (Phasen A–F).** Das Repo ist von „ein geteiltes
+> `domain`-Crate + Adapter" auf einen **modularen Monolithen aus Feature-Slices**
+> umgestellt: pro Slice eine Triade `<slice>_domain`/`_adapter`/`_specs`, dazu ein
+> **dünner** interface-only `shared_kernel` und das Top-Validator-Crate
+> `architecture` (Dependency-Richtungs-Test über `cargo_metadata`). Das geteilte
+> `domain`-Crate ist aufgelöst; jeder Slice hat eigene Value Objects und gibt nach
+> außen nur DTOs heraus. Der „Current state" unten beschreibt diesen Stand;
+> maßgeblich bleibt ADR-0007.
 
 ## What this is
 
@@ -27,65 +28,72 @@ implementation. The design is the point — read the docs before implementing:
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories and the module breakdown).
 
-**Build-order steps 1 (domain skeleton) and 2 (Eigene-Konten-Config +
-CSV-CAMT-v8 adapter) are implemented; steps 3+ are not started.** The repo is a
-**Cargo workspace** with three members: the pure domain crate
-[`crates/domain`](crates/domain) (package `domain`, edition 2024), the
-[`crates/eigene_konten`](crates/eigene_konten) config crate, and the
-[`crates/csv_camt_v8`](crates/csv_camt_v8) inbound adapter. The hexagonal cut is
-real at the crate level: `domain` depends on no I/O crate — only `serde` (for the
-outbound `KategorieAnfrage` DTO) and `static_assertions` (dev); the adapter
-crates depend on `domain`, never the reverse. An earlier Python/`uv` scaffold was
-deliberately replaced ([ADR-0003](docs/adr/0003-rust-als-sprache.md)); ignore any
-lingering Python references.
+**The ADR-0007 slice refactor is structurally complete (Phases A–F).** The repo
+is a **Cargo workspace** (edition 2024; every member inherits the strict
+`[workspace.lints.clippy]` "Don't Panic" set via `[lints] workspace = true`) of
+**ten crates under `crates/`** plus the top-level validator crate
+[`architecture`](architecture):
 
-Implemented in the domain crate:
+- a **thin, interface-only** [`shared_kernel`](crates/shared_kernel) — messaging
+  traits only, unwired, no deps and no value objects;
+- three **feature-slice triads** `<slice>_domain`/`_adapter`/`_specs`:
+  [`eigene_konten`](crates/eigene_konten_adapter),
+  [`obfuskierung`](crates/obfuskierung_adapter), and
+  [`csv_camt_v8`](crates/csv_camt_v8_adapter);
+- [`architecture`](architecture/tests/dependency_direction.rs) — a test-only crate
+  (outside `crates/`) that asserts the dependency direction over `cargo_metadata`.
 
-- **Value objects** with validating `new → Option` constructors (_parse, don't
-  validate_): `Betrag` (unsigned + `Währung`), `KontoId`, `Pseudonym`,
-  `GläubigerId`, `Fingerabdruck`, `ObfuskierterText` — the non-empty string
-  newtypes share one validating core, `NonEmptyString`, and are built from it
-  via `From`.
-- **Sum types** with exhaustive `match`: `Richtung::Eingang|Ausgang`,
-  `Gegenkonto::Eigen(Rolle)|Fremd` (an own counter-account carries its
-  `Konto-Rolle` — "eigen without a role" is unconstructible; the role must ride
-  along at map time because obfuscation discards the counter-IBAN),
-  `Empfänger::Firma|Person`, `Buchungsart`. `Rolle` is UBQL and lives in the
-  domain; `eigene_konten` re-exports it.
-- `Buchung` composed from those — `verwendungszweck: Option<ObfuskierterText>`
-  (an absent free-text is modelled at the field, not as an empty
-  `ObfuskierterText`) — plus the pure projection `Buchung → KategorieAnfrage`
-  (whose `verwendungszweck` is likewise `Option`).
-- The structural-identifier invariant is enforced **at compile time**:
-  **placeholder** `Iban`/`Bic` ([strukturelle_identifikatoren.rs](crates/domain/src/strukturelle_identifikatoren.rs))
-  derive no `Serialize`, proven by a `static_assertions` `assert_not_impl_any!`
-  — an embedding attempt is a compile error, not a runtime test. The real,
-  checksum-validating `Iban` now lives in `eigene_konten` (also deriving no
-  `Serialize`); the domain placeholders keep guarding the invariant, and `Bic`
-  stays a placeholder until a format needs it.
+An earlier Python/`uv` scaffold **and** the earlier shared `domain` crate were both
+deliberately removed ([ADR-0003](docs/adr/0003-rust-als-sprache.md),
+[ADR-0007](docs/adr/0007-modularer-monolith-feature-slices.md)); ignore any
+lingering Python or `crates/domain` references.
 
-Implemented in the adapter crates:
+**The hexagonal cut is enforced three ways:** (1) at the crate level — a
+`<slice>_domain` crate is **dependency-free** (not even `serde`/`thiserror`;
+errors are hand-written `Display` + `std::error::Error`, the adapter maps them),
+and a slice reaches a foreign slice only through its public `_adapter`, never its
+`_domain`; (2) by the `architecture` test (`cargo test -p architecture`), which
+reads the resolved graph and fails on any violated inward edge (domain not blind,
+external dep outside `io`, foreign-`_domain` coupling, specs not black-box); (3) by
+the `enforce-dependency-direction.py` PreToolUse hook, which blocks a
+non-sanctioned external `[dependencies]` line at edit time in every crate except
+the single deferred `io` crate and `architecture`.
 
-- **`eigene_konten`** — the Eigene-Konten-Config (per own account: IBAN +
-  `Rolle`) behind the `ConfigSource` port; the single source for
-  `Gegenkonto::Eigen|Fremd` resolution and the analysis's role interpretation.
-- **`csv_camt_v8`** — the `Umsatzquelle` inbound port + the CSV-CAMT-v8 adapter.
-  Reads CSV behind the fs-free `CsvQuelle` port and maps each row to a `Buchung`,
-  **obfuscating while mapping** (raw IBAN/BIC never reach a `Buchung`):
-  `Auftragskonto → KONTO_x` (first-seen, run-stable), Gegen-IBAN → `Gegenkonto`
-  via the config, Empfänger → `Firma`/`Person` (fail-safe), free-text →
-  `ObfuskierterText`, one currency per file enforced.
+Per slice (value objects live in the owning slice; only DTOs cross the boundary):
 
-Deferred: `ObfuskierterText` only trims and rejects empty (best-effort
-**scrubbing** of embedded identifiers comes with step 5, ADR-0003);
-`Fingerabdruck` deduplicates on the Empfänger identity only (no
-payment-intermediary detection yet); `PERSON_x` is only run-stable (the
-persistent pseudonym mapping is step 4). No binary yet.
+- **`eigene_konten`** — `_domain` owns `IbanEntity` (checksum-validated, mod-97)
+  and `RolleEntity`; `_adapter` exposes the `Konfigquelle` seam, the DTOs `Iban`
+  (inbound, **no `Serialize`**), `Rolle` and `Zuordnung`, the `Kontenregister`,
+  and the Fluent `KontenTestApi`. Single source for `Gegenkonto::Eigen|Fremd`.
+- **`obfuskierung`** — `_domain` owns the First-Seen mapping aggregate
+  (`KONTO_x`/`PERSON_x`, run-stable) and the `ZuordnungsSpeicher` port it
+  requires; `_adapter` exposes `obfuskiere_konto/person/text`, the `Iban` inbound
+  DTO (**no `Serialize`**), the `KontoId`/`Pseudonym`/`ObfuskierterText` outbound
+  DTOs, and a Fluent TestApi with an in-memory fake store. Persistence is deferred
+  ([ADR-0006](docs/adr/0006-pseudonym-stabilitaet.md)).
+- **`csv_camt_v8`** — `_domain` owns `BuchungAggregat` + its value-object entities
+  and the **field parsers** (`BetragEntity::aus_deutschem_betrag`,
+  `BuchungsartEntity::aus_buchungstext`, `RichtungEntity::aus_vorzeichen`, each
+  unit-tested in the domain module); `_adapter` fulfils the `Umsatzquelle` inbound
+  port, defines the `Zeilenquelle` seam (io delivers already-parsed `Umsatzzeile`
+  DTOs — byte-level CSV parsing is deferred to `io`), bridges to
+  `eigene_konten_adapter` and `obfuskierung_adapter` (Eigen/Fremd +
+  Auftragskonto validation), and **obfuscates while mapping** so raw IBAN/BIC never
+  reach a `Buchung`. `Buchung` is the outbound DTO; the Fluent `CsvImportTestApi`
+  drives the real adapter behind fakes.
 
-All three crates opt into the workspace's strict `[workspace.lints.clippy]` (the
-"Don't Panic" set) via `[lints] workspace = true`; `cargo test`, `cargo clippy
---all-targets`, and `cargo fmt` are green. Next: **step 3** (analysis core:
-recurrence + fees + cashflow + Pareto — valuable without the LLM).
+**Privacy invariant (compiler-enforced):** the raw `Iban` DTOs derive **no
+`Serialize`**, proven per slice by a `static_assertions` `assert_not_impl_any!` —
+embedding a structural identifier in a serializable DTO is a compile error, not a
+review miss. `Bic` is deferred until a format needs it.
+
+Every crate is green (`cargo build`/`test`/`clippy --all-targets`, `cargo fmt
+--check`). Deferred (target picture, not yet built): the single `io` crate
+(`csv`/`toml`/`fs`/`sqlx` + `Speicher`), the `presentation` crate, the messaging
+layer, the analysis/categorizer slices (incl. `Fingerabdruck`, `KategorieAnfrage`),
+`ObfuskierterText` scrubbing (only trims/rejects-empty today), and the persistent
+pseudonym mapping. Next functional work: **the analysis core** (recurrence + fees +
+cashflow + Pareto — valuable without the LLM). No binary yet.
 
 ## Language convention
 
@@ -135,8 +143,10 @@ carry that vocabulary:
   plumbing no domain expert reads → they keep the normal split (English mechanics,
   German glossary nouns). Only German _artifact prose_ — doc comments and
   assertion/`expect` messages — stays German everywhere.
-- **The crate/package is named `domain`** (English): it carries no glossary
-  vocabulary, so the rule applies to it like any other non-UBQL identifier.
+- **The crate/package names are English** — `shared_kernel`, `architecture`, and
+  the `<slice>_domain`/`_adapter`/`_specs` suffixes carry no glossary vocabulary,
+  so the rule applies to them like any other non-UBQL identifier. Only the slice
+  _stem_ that is a glossary term stays German (`eigene_konten`, `obfuskierung`).
 
 - Die **Ausgabesprache des Agenten** (Claude) ist in diesem Repository immer
   **Deutsch** — unabhängig davon, in welcher Sprache der Nutzer schreibt. Das
@@ -166,10 +176,12 @@ gitignored — not a project directory).
 
 ## Architecture — the big picture
 
-Hexagonal (Ports & Adapters), destined to become a **Cargo workspace**: a pure
-domain crate plus one crate per adapter. The hexagonal cut is enforced **at the
-crate level** — the domain crate depends on no I/O crate (no `reqwest`, no
-`rusqlite`) and therefore *cannot* do I/O
+Hexagonal (Ports & Adapters), realized as a **modular monolith of feature-slice
+triads** in a Cargo workspace ([ADR-0007](docs/adr/0007-modularer-monolith-feature-slices.md)).
+The hexagonal cut is enforced **at the crate level** — a `<slice>_domain` crate is
+dependency-free and depends on no I/O crate (no `reqwest`, no `rusqlite`), so it
+*cannot* do I/O; the direction is guarded by the `architecture` test and the
+PreToolUse hook
 ([ADR-0001](docs/adr/0001-hexagonale-architektur.md),
 [ADR-0003](docs/adr/0003-rust-als-sprache.md)).
 
