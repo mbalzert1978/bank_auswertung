@@ -1,9 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/domain",
-    "crates/eigene_konten",
-    "crates/csv_camt_v8",
     "crates/shared_kernel",
     "crates/eigene_konten_domain",
     "crates/eigene_konten_adapter",
