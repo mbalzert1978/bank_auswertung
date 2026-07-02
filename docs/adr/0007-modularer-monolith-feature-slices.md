@@ -43,6 +43,13 @@ Nötige über diese; sie weiß nicht, dass ein Slice sie referenziert. Ihre
 Aggregate-Roots (mit ihren Methoden, ohne `pub`-Felder). **Entities, die in einem
 Aggregat sitzen, sind nicht `pub`**; alles Übrige ist crate-intern.
 
+Die Domäne ist zudem **dependency-frei auch von externen Crates**: keine
+Fehler-Bibliothek (`thiserror`) und **kein `serde`**. Sie gibt ihren Fehler als
+schlichten Typ vor (`Display` + `std::error::Error`, nur über `std`); der Adapter
+mappt/umschließt ihn (dort gern mit `thiserror`). Ohne `serde`-Dep kann ein
+struktureller Identifikator in der Domäne gar kein `Serialize` ableiten — der
+compilergeprüfte `assert_not_impl_any!`-Beleg lebt am Rand, auf dem Adapter-DTO.
+
 ## Naming: Entity/Aggregat in der Domäne, UBQL-DTO am Rand
 
 - **Domäne** arbeitet mit Entities und Aggregaten und hängt das Suffix an:
