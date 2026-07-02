@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Der **Zuordnungs-Speicher** (lokal, persistent, verlässt den Rechner nie):
 Klartext↔Pseudonym-Mapping, **getrennt** vom obfuskierten `Speicher`-Port aus
@@ -24,7 +24,7 @@ Personen-zu-Personen-Daueraufträgen, weil derselbe Mensch bei jedem Import ein
 neues Pseudonym bekäme. Eigene Konten (`KONTO_x`) sind ohnehin stabil (aus der
 Eigene-Konten-Config, Slice 0002) und brauchen dieses Mapping nicht.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] Ein Klarname, der zum ersten Mal eingespeist wird, erhält ein neues
       `Pseudonym` (`PERSON_x`); der Zuordnungs-Speicher wird lokal
@@ -37,6 +37,6 @@ Eigene-Konten-Config, Slice 0002) und brauchen dieses Mapping nicht.
 - [ ] Es existiert kein Pfad, über den ein Klartext-Name aus diesem Speicher
       in ein DTO oder in den `Speicher`-Port (obfuskierte Domäne) gelangt.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)

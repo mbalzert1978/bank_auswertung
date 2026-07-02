@@ -26,7 +26,7 @@ einziges lokales Binary ohne Runtime (Datenschutz-Bonus).
 Bewusst in Kauf genommen: langsamerer Start, mehr Zeremonie, LLM-Anbindung nur
 per roher REST statt fertigem SDK.
 
-## Consequences
+## Konsequenzen
 
 - `pyproject.toml` und `.python-version` entfallen; das Projekt wird ein
   Cargo-Workspace.

@@ -1,9 +1,14 @@
-//! Reine Invariant-Absicherung, kein Domänenkonzept: `Iban`/`Bic` leben nach
-//! ADR-0001/0003 ausschließlich im eingehenden CSV-Adapter (Baureihenfolge-
-//! Schritt 2), der noch nicht existiert. Diese Platzhalter-Typen existieren
-//! nur, damit der Datenschutz-Invariant — kein `Serialize` ableitbar, in
-//! keinem DTO einbettbar — schon jetzt compilergeprüft ist, nicht erst wenn
-//! der echte Adapter-Crate entsteht.
+//! Reine Invariant-Absicherung, kein Domänenkonzept: strukturelle
+//! Identifikatoren (`Iban`/`Bic`) gehören nach ADR-0001/0003 in die
+//! adapterseitige Randschicht, nie in die Domäne. Die echte, prüfsummen-
+//! validierende `Iban` lebt inzwischen im `eigene_konten`-Crate (leitet dort
+//! ebenfalls **kein** `Serialize` ab); der CSV-CAMT-v8-Adapter (`csv_camt_v8`)
+//! hält rohe IBAN/BIC beim Mappen zurück. `Bic` ist bis auf Weiteres reiner
+//! Platzhalter — noch braucht ihn kein Format.
+//!
+//! Diese Platzhalter-Typen existieren nur, damit der Datenschutz-Invariant —
+//! kein `Serialize` ableitbar, in keinem DTO einbettbar — hier in der Domäne
+//! compilergeprüft festgenagelt bleibt (strikt stärker als eine Laufzeitprüfung).
 
 #[expect(
     dead_code,

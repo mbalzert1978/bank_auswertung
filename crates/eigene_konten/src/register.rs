@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::config_source::{ConfigSource, ConfigSourceError};
+use domain::Rolle;
+
 use crate::iban::Iban;
+use crate::konfigquelle::{Konfigquelle, KonfigquelleError};
 use crate::kontozuordnung::Kontozuordnung;
-use crate::rolle::Rolle;
 
 /// Die Eigene-Konten-Config: je eigenem Konto seine IBAN und Rolle.
 ///
@@ -18,10 +19,10 @@ pub struct EigeneKonten {
 }
 
 impl EigeneKonten {
-    /// Lädt die Config über eine [`ConfigSource`] (Port) und parst sie. Ein
+    /// Lädt die Config über eine [`Konfigquelle`] (Port) und parst sie. Ein
     /// Lese-, TOML-, IBAN- oder Rollenfehler oder eine doppelte IBAN führt zum
     /// Abbruch — kein stillschweigendes Überspringen.
-    pub fn from_source(source: &impl ConfigSource) -> Result<Self, LoadError> {
+    pub fn from_source(source: &impl Konfigquelle) -> Result<Self, LoadError> {
         let content = source.read()?;
         Self::from_toml(&content)
     }
@@ -30,7 +31,7 @@ impl EigeneKonten {
     /// I/O-freie Kern (Prüfung am öffentlichen Kontrakt).
     pub fn from_toml(content: &str) -> Result<Self, LoadError> {
         let raw: RawConfig = toml::from_str(content)?;
-        let konten = raw
+        let accounts = raw
             .konto
             .into_iter()
             .try_fold(HashMap::new(), |mut acc, entry| {
@@ -40,7 +41,7 @@ impl EigeneKonten {
                     Ok(acc)
                 }
             })?;
-        Ok(Self { konten })
+        Ok(Self { konten: accounts })
     }
 
     /// Beantwortet für eine Gegen-IBAN beide Fragen zugleich: eigen (mit Rolle)
@@ -74,12 +75,15 @@ struct RawEntry {
 pub enum LoadError {
     /// Die Config konnte über die Quelle nicht gelesen werden (z. B. Datei-I/O).
     #[error("Config konnte nicht gelesen werden: {0}")]
-    Source(#[from] ConfigSourceError),
+    Source(#[from] KonfigquelleError),
     /// Kein gültiges TOML, ungültige IBAN oder unbekannte Rolle — die
     /// Deserialisierung bricht ab, statt einen Eintrag zu überspringen.
     #[error("Config nicht einlesbar: {0}")]
     Toml(#[from] toml::de::Error),
-    /// Dieselbe eigene IBAN ist mehrfach eingetragen.
-    #[error("Eigene IBAN mehrfach eingetragen: {}", .0.as_str())]
+    /// Dieselbe eigene IBAN ist mehrfach eingetragen. Die Meldung nennt die IBAN
+    /// bewusst **nicht** im Klartext — eine eigene IBAN ist ein struktureller
+    /// Identifikator und soll auch nicht über ein Log die Maschine verlassen; die
+    /// betroffene IBAN bleibt für den programmatischen Zugriff im Feld.
+    #[error("eine eigene IBAN ist mehrfach in der Eigene-Konten-Config eingetragen")]
     DuplicateIban(Iban),
 }

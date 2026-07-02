@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Zweiter Teil des Analyse-Kerns: deterministische Erkennung wiederkehrender
 Abflüsse (Abos, Daueraufträge) — inkl. Jahreskosten (jährlich statt monatlich
@@ -25,7 +25,7 @@ Adapter-Konzern) und wirkt sich auch auf die spätere Kategorisierung aus
 Arbeitet auf bereits genetteten Abflüssen (Slice 0004) — eine wiederkehrende
 Umbuchung an ein eigenes Konto zählt nicht als wiederkehrender Kosten-Treiber.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] Eine Serie gleichartiger monatlicher Ausgangs-Buchungen (gleicher
       Fingerabdruck, ähnlicher Betrag, regelmäßiger Abstand) wird als
@@ -44,7 +44,7 @@ Umbuchung an ein eigenes Konto zählt nicht als wiederkehrender Kosten-Treiber.
 - [ ] Test deckt den DTO-Vertrag ab: Buchungs-Liste rein, Wiederkehr-Ergebnis
       raus, ohne Datei-/Netzzugriff.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
-- Blocked by [0004](0004-umbuchung-netting.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0004](0004-umbuchung-netting.md)

@@ -5,7 +5,7 @@ Ein- und Ausgabe laufen ausschließlich über öffentliche DTOs. Niemand außerh
 sieht Domänen-Interna. So bleibt das Innere frei refaktorierbar, solange der
 DTO-Vertrag hält.
 
-## Consequences
+## Konsequenzen
 
 - **Jeder Port spricht seinen eigenen DTO**, nicht einen gemeinsamen Gott-DTO.
   Insbesondere spricht der `Kategorisierer`-Port eigene schmale DTOs, **nicht**

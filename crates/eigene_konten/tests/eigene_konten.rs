@@ -1,37 +1,37 @@
 use eigene_konten::{
-    ConfigSource, ConfigSourceError, EigeneKonten, Iban, IbanError, Kontozuordnung, LoadError,
+    EigeneKonten, Iban, IbanError, Konfigquelle, KonfigquelleError, Kontozuordnung, LoadError,
     Rolle,
 };
 
-// --- Test-Adapter für den ConfigSource-Port -------------------------------
+// --- Test-Adapter für den Konfigquelle-Port -------------------------------
 
-/// Datei-basierte ConfigSource. `std::fs` lebt hier im Testcode (am Rand) —
+/// Datei-basierte Konfigquelle. `std::fs` lebt hier im Testcode (am Rand) —
 /// der Crate selbst bleibt fs-frei.
 struct FileSource {
     path: std::path::PathBuf,
 }
 
-impl ConfigSource for FileSource {
-    fn read(&self) -> Result<String, ConfigSourceError> {
+impl Konfigquelle for FileSource {
+    fn read(&self) -> Result<String, KonfigquelleError> {
         Ok(std::fs::read_to_string(&self.path)?)
     }
 }
 
-/// In-Memory-ConfigSource — belegt, dass der Loader nicht an eine Datei
+/// In-Memory-Konfigquelle — belegt, dass der Loader nicht an eine Datei
 /// gebunden ist.
 struct StringSource(&'static str);
 
-impl ConfigSource for StringSource {
-    fn read(&self) -> Result<String, ConfigSourceError> {
+impl Konfigquelle for StringSource {
+    fn read(&self) -> Result<String, KonfigquelleError> {
         Ok(self.0.to_string())
     }
 }
 
-/// ConfigSource, die immer scheitert — für den Lesefehler-Pfad.
+/// Konfigquelle, die immer scheitert — für den Lesefehler-Pfad.
 struct FailingSource;
 
-impl ConfigSource for FailingSource {
-    fn read(&self) -> Result<String, ConfigSourceError> {
+impl Konfigquelle for FailingSource {
+    fn read(&self) -> Result<String, KonfigquelleError> {
         Err("Quelle kaputt".into())
     }
 }

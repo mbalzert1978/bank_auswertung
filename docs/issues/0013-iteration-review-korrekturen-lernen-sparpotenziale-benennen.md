@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** HITL — gemeinsame Review-Sitzung mit Markus, kein reiner Code-Slice.
 
-## What to build
+## Was zu bauen ist
 
 Baureihenfolge-Schritt 7, der Abschluss der ersten vollen
 Tracer-Bullet-Runde: Markus geht den HTML-Bericht (Slice 0012) gemeinsam mit
@@ -21,7 +21,7 @@ Kein neuer Produktionscode-Pfad — das Ergebnis dieses Slices sind
 festgehaltene Entscheidungen (gelernte Korrekturen, benannte
 Sparpotenziale), nicht ein weiteres Feature.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] Mindestens eine Kategorie-Korrektur aus der Review-Sitzung ist im
       Kategorie-Register (Slice 0009) gespeichert und wird bei einer erneuten
@@ -33,8 +33,8 @@ Sparpotenziale), nicht ein weiteres Feature.
       Wiederkehr-Muster, fehlende Scrubbing-Fälle) sind als konkrete
       Beobachtungen festgehalten, nicht nur mündlich besprochen.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
-- Blocked by [0011](0011-kategorisierer-chat-payload-adapter.md)
-- Blocked by [0012](0012-html-bericht.md)
+- Blockiert durch [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
+- Blockiert durch [0011](0011-kategorisierer-chat-payload-adapter.md)
+- Blockiert durch [0012](0012-html-bericht.md)

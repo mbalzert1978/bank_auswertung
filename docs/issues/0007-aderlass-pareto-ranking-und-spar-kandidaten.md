@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Vierter und letzter Teil des Analyse-Kerns, die drei eng gekoppelten
 „Aderlass/Ranking/Sparen"-Fähigkeiten in einem Slice: der Aderlass/Cashflow je
@@ -22,7 +22,7 @@ Treibern aus Wiederkehr (Slice 0005) und Gebühren (Slice 0006) — das Ranking
 soll wiederkehrende Kosten und Gebühren als Kandidaten mit einbeziehen, nicht
 nur Einzelbuchungen.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] Cashflow/Aderlass wird je eigenem Konto und je Monat berechnet, über den
       gesamten aus der CSV verfügbaren Zeitraum.
@@ -38,9 +38,9 @@ nur Einzelbuchungen.
       rein, Cashflow- + Ranking- + Spar-Kandidaten-DTOs raus, ohne
       Datei-/Netzzugriff.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
-- Blocked by [0004](0004-umbuchung-netting.md)
-- Blocked by [0005](0005-wiederkehr-erkennung.md)
-- Blocked by [0006](0006-gebuehren-klassifikation.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0004](0004-umbuchung-netting.md)
+- Blockiert durch [0005](0005-wiederkehr-erkennung.md)
+- Blockiert durch [0006](0006-gebuehren-klassifikation.md)

@@ -21,7 +21,7 @@ weitere Adapter hinter demselben Port.
 Markierung, Umbuchungs-Erkennung, Aggregation — arbeitet nur auf `Buchung`, voll
 testbar ohne Datei und ohne Netz.
 
-## Consequences
+## Konsequenzen
 
 - **Obfuskierung lebt am eingehenden Adapter** — er löst rohe Identifikatoren
   (IBAN/BIC, Auftragskonto, Privatname) beim Mappen in obfuskierte Value Objects

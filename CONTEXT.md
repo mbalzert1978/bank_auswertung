@@ -4,7 +4,7 @@ Liest Kontoumsätze aus Bank-Exportformaten ein und hilft dabei, wiederkehrende
 Kostentreiber und Sparpotenziale zu finden. Reine Analyse — löst keine
 Transaktionen aus, ändert keine Kontodaten.
 
-## Language
+## Sprache
 
 > **Code-Bezeichner-Regel:** Die hier definierten Begriffe sind das
 > Domänenvokabular (UBQL) und bleiben im Code **deutsch** (Typen, Felder,
@@ -106,7 +106,7 @@ Händler-Token des Verwendungszwecks. Die Domäne fragt das LLM nur für ihr noc
 Deduplizierung über Fingerabdrücke hält den Chat-Payload klein.
 _Avoid_: Hash, Schlüssel
 
-### Flagged ambiguities
+### Markierte Mehrdeutigkeiten
 
 **Firma vs. Privatperson** — entscheidet, ob der Empfänger-Name im Klartext
 bleibt (Firma) oder pseudonymisiert wird (Privatperson). Auflösung: heuristisch
@@ -115,7 +115,7 @@ ist bewusst **fail-safe**: bei Unsicherheit als Privatperson behandeln und
 pseudonymisieren, weil der teurere Fehler der Klartext-Leak eines echten Namens
 ist, nicht ein Pseudonym zu viel.
 
-## Example dialogue
+## Beispieldialog
 
 > **Dev:** Diese Buchung — `EDEKA SAGT DANKE`, 42 € — bekommt die eine Kategorie?
 > **Markus:** Ja, „Lebensmittel". Den Namen erkennst du, das Programm nicht.

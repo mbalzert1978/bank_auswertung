@@ -12,7 +12,8 @@ serialisierbar ist.
 
 Geschlossene Fallmengen sind **Summentypen** (Rust-`enum` / Discriminated Union)
 mit erschöpfendem `match`, nie ein Flag plus optionale Felder. Beispiele:
-`Richtung`, `Gegenkonto::Eigen|Fremd`, `Empfänger::Firma|Person`, `Buchungsart`.
+`Richtung`, `Gegenkonto::Eigen(Rolle)|Fremd`, `Empfänger::Firma|Person`,
+`Buchungsart`.
 Eine ungültige Kombination ist damit **nicht konstruierbar** — nicht „wird
 geprüft". Eine neue Variante zwingt der Compiler über die Exhaustiveness an jede
 Stelle, die sie behandeln muss.
@@ -26,7 +27,7 @@ Bewusst in Kauf genommen: mehr Typen und mehr Konstruktor-Zeremonie. Akzeptiert,
 weil jedes Value Object einen Invariant trägt und jedes `enum` eine ganze Klasse
 von Bugs ausschließt, statt sie auf verstreute Laufzeit-Checks zu verteilen.
 
-## Consequences
+## Konsequenzen
 
 - Ein neues Feld kommt als Value Object, nicht als `String`/Zahl. Reviews lehnen
   Primitiven an der Domänengrenze ab.

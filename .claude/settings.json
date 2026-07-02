@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/enforce-dependency-direction.py\"",
+            "timeout": 15,
+            "statusMessage": "Prüfe Dependency-Richtung (nach innen)…"
+          }
+        ]
+      }
+    ]
+  }
+}

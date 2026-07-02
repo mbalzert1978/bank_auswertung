@@ -1,4 +1,4 @@
-use crate::rolle::Rolle;
+use domain::Rolle;
 
 /// Ergebnis der Nachschlage-Frage „ist diese Gegen-IBAN eine eigene?".
 ///

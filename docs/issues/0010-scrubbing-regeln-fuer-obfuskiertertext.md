@@ -8,7 +8,7 @@ status: blocked
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Vertieft `ObfuskierterText` (D3, Slice 0001 lieferte nur eine minimale
 Erstversion) um die eigentlichen Scrubbing-Regeln: in Freitext
@@ -22,7 +22,7 @@ ist **heuristisch, nicht beweisbar vollständig** — das ist eine ehrliche
 Grenze des Modells, keine Lücke, die dieser Slice schließen soll (siehe PRD
 „Out of Scope").
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [ ] Eine im Verwendungszweck eingebettete IBAN wird vom Konstruktor erkannt
       und ersetzt/entfernt, bevor der Text als `ObfuskierterText` existiert.
@@ -36,6 +36,6 @@ Grenze des Modells, keine Lücke, die dieser Slice schließen soll (siehe PRD
       heuristisch und nicht beweisbar vollständig — keine
       Vollständigkeits-Behauptung im Code oder in Tests.
 
-## Blocked by
+## Blockiert durch
 
-- Blocked by [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)

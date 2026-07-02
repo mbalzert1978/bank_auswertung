@@ -8,7 +8,7 @@ status: closed
 
 **Typ:** AFK
 
-## What to build
+## Was zu bauen ist
 
 Der erste Tracer-Bullet-Slice (Baureihenfolge-Schritt 1): das Domänen-Skelett
 als Cargo-Workspace-Domänen-Crate, rein von Value Objects bis zur schmalen
@@ -35,7 +35,7 @@ Alle Konstruktoren validieren einmal am Rand; ein illegaler Wert liefert kein
 Objekt. Stil: deklarativ-funktional, reine Transformationen über unveränderliche
 Werte.
 
-## Acceptance criteria
+## Abnahmekriterien
 
 - [x] `Betrag`, `KontoId`, `Pseudonym`, `Fingerabdruck`, `GläubigerId`,
       `ObfuskierterText` existieren als Value Objects mit validierenden
@@ -58,6 +58,6 @@ Werte.
 - [x] `cargo test` und `cargo clippy --all-targets` laufen grün gegen den
       Domänen-Crate ohne I/O-Abhängigkeit (kein `reqwest`, kein `rusqlite`).
 
-## Blocked by
+## Blockiert durch
 
-None - can start immediately.
+Keine — kann sofort starten.
