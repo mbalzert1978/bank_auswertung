@@ -11,6 +11,9 @@ members = [
     "crates/obfuskierung_domain",
     "crates/obfuskierung_adapter",
     "crates/obfuskierung_specs",
+    "crates/csv_camt_v8_domain",
+    "crates/csv_camt_v8_adapter",
+    "crates/csv_camt_v8_specs",
 ]
 
 [workspace.lints.clippy]

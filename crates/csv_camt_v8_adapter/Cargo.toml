@@ -1,0 +1,21 @@
+[package]
+name = "csv_camt_v8_adapter"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+csv_camt_v8_domain = { path = "../csv_camt_v8_domain" }
+eigene_konten_adapter = { path = "../eigene_konten_adapter" }
+obfuskierung_adapter = { path = "../obfuskierung_adapter" }
+thiserror = "2"
+
+# Kein `csv`, kein `serde` in [dependencies]: das byteweise CSV-Parsen (Delimiter,
+# Quoting, Kopfzeile) lebt im vertagten `io`-Crate (ADR-0007). Der Adapter bezieht
+# über den `Zeilenquelle`-Seam bereits geparste `Umsatzzeile`-DTOs und mappt sie.
+
+[dev-dependencies]
+serde = "1"
+static_assertions = "1.1.0"

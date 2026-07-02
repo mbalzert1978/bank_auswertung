@@ -1,0 +1,11 @@
+[package]
+name = "csv_camt_v8_specs"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+csv_camt_v8_adapter = { path = "../csv_camt_v8_adapter" }
