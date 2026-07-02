@@ -8,7 +8,6 @@ workspace = true
 
 [dependencies]
 obfuskierung_domain = { path = "../obfuskierung_domain" }
-thiserror = "2"
 
 [dev-dependencies]
 serde = "1"

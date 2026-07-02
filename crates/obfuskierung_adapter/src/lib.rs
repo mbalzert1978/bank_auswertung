@@ -18,7 +18,7 @@ mod obfuskierer;
 mod testapi;
 mod token;
 
-pub use iban::{Iban, IbanError};
+pub use iban::Iban;
 pub use obfuskierer::Obfuskierer;
 pub use obfuskierung_domain::{SpeicherError, ZuordnungsSpeicher, Zuordnungsbestand};
 pub use testapi::ObfuskierungTestApi;

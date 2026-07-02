@@ -1,17 +1,16 @@
 //! Black-Box-Spezifikation des Obfuskierungs-Slice — nur über die public API des
 //! Adapters (Fluent-`ObfuskierungTestApi` + DTOs), nie über Interna.
 
-use std::str::FromStr;
-
-use obfuskierung_adapter::{Iban, IbanError, ObfuskierungTestApi};
+use obfuskierung_adapter::{Iban, ObfuskierungTestApi};
 
 const EIGENE_GIRO: &str = "DE20 1234 5678 0000 0011 11";
 const EIGENE_HAUSHALT: &str = "DE93 1234 5678 0000 0022 22";
 const EIGENE_SPAR: &str = "DE69 1234 5678 0000 0033 33";
 
-/// Baut das IBAN-Eingangs-DTO — die Validierung passiert im DTO.
+/// Baut das IBAN-Eingangs-DTO — normalisiert nur (keine Validierung mehr, siehe
+/// `iban.rs`); eine leere Eingabe ergäbe `None`.
 fn iban(text: &str) -> Iban {
-    Iban::new(text).expect("gültige Fixture-IBAN")
+    Iban::new(text).expect("nicht-leere Fixture-IBAN")
 }
 
 // --- Konto-Token: First-Seen & Laufstabilität ------------------------------
@@ -192,41 +191,4 @@ fn neue_iban_nach_persistenz_zählt_die_nummerierung_weiter() {
             .as_str(),
         "KONTO_2"
     );
-}
-
-// --- IBAN-Validierung direkt am DTO ----------------------------------------
-
-#[test]
-fn zu_kurze_iban_wird_abgelehnt() {
-    assert_eq!(Iban::from_str("DE12"), Err(IbanError::Length(4)));
-}
-
-#[test]
-fn iban_mit_falschem_aufbau_wird_abgelehnt() {
-    assert_eq!(
-        Iban::from_str("1234567890123456"),
-        Err(IbanError::Structure)
-    );
-}
-
-#[test]
-fn iban_mit_ungültigem_zeichen_wird_abgelehnt() {
-    assert_eq!(
-        Iban::from_str("DE0012345678-01234"),
-        Err(IbanError::InvalidChar)
-    );
-}
-
-#[test]
-fn iban_mit_falscher_prüfsumme_wird_abgelehnt() {
-    // gültige Giro-IBAN mit verfälschter Prüfziffer (20 -> 21)
-    assert_eq!(
-        Iban::from_str("DE21 1234 5678 0000 0011 11"),
-        Err(IbanError::Checksum)
-    );
-}
-
-#[test]
-fn gültige_iban_wird_akzeptiert() {
-    Iban::from_str(EIGENE_GIRO).expect("gültige IBAN wird akzeptiert");
 }
