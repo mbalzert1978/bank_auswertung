@@ -123,11 +123,10 @@ fn szenario() -> Vec<Umsatzzeile> {
 }
 
 fn importiere(zeilen: Vec<Umsatzzeile>) -> Vec<Buchung> {
-    let mut arrange = api();
-    for zeile in zeilen {
-        arrange = arrange.mit_zeile(zeile);
-    }
-    arrange.importiere().expect("Szenario importiert")
+    api()
+        .mit_zeilen(zeilen)
+        .importiere()
+        .expect("Szenario importiert")
 }
 
 // --- Der vollständige Pfad Zeilen → Buchung-Liste --------------------------

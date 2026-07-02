@@ -41,6 +41,13 @@ impl CsvImportTestApi {
         self
     }
 
+    /// Fügt mehrere bereits geparste Umsatzzeilen auf einen Schlag hinzu — spart
+    /// dem Test die Arrange-Schleife über ein ganzes Szenario.
+    pub fn mit_zeilen(mut self, zeilen: impl IntoIterator<Item = Umsatzzeile>) -> Self {
+        self.zeilen.extend(zeilen);
+        self
+    }
+
     /// Führt den echten Import über die Fake-Seams aus und liefert die Buchungen —
     /// oder den `ImportError`. Eine ungültige **Test-Konten-Config** ist ein
     /// Arrange-Fehler und bricht laut ab (die Konten-Fehlerpfade prüft der
