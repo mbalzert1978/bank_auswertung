@@ -1,0 +1,12 @@
+[package]
+name = "eigene_konten_domain"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+# Bewusst DEPENDENCY-FREI (ADR-0007): die Domäne kennt weder Fehler-Bibliotheken
+# noch serde. Sie gibt ihren Fehler als schlichten Typ vor (Display + Error nur
+# über std); der Adapter mappt ihn (dort gern mit thiserror). Ohne serde-Dep kann
+# ein struktureller Identifikator hier gar kein `Serialize` ableiten.

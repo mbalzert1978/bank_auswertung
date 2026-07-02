@@ -5,6 +5,9 @@ members = [
     "crates/eigene_konten",
     "crates/csv_camt_v8",
     "crates/shared_kernel",
+    "crates/eigene_konten_domain",
+    "crates/eigene_konten_adapter",
+    "crates/eigene_konten_specs",
 ]
 
 [workspace.lints.clippy]

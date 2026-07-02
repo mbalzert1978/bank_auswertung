@@ -1,0 +1,11 @@
+[package]
+name = "eigene_konten_specs"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+eigene_konten_adapter = { path = "../eigene_konten_adapter" }
