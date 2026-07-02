@@ -98,3 +98,43 @@ impl std::fmt::Display for IbanError {
 }
 
 impl std::error::Error for IbanError {}
+
+#[cfg(test)]
+mod tests {
+    use super::{IbanEntity, IbanError};
+
+    #[test]
+    fn zu_kurze_iban_wird_abgelehnt() {
+        assert_eq!(IbanEntity::parse("DE12"), Err(IbanError::Length(4)));
+    }
+
+    #[test]
+    fn iban_mit_falschem_aufbau_wird_abgelehnt() {
+        assert_eq!(
+            IbanEntity::parse("1234567890123456"),
+            Err(IbanError::Structure)
+        );
+    }
+
+    #[test]
+    fn iban_mit_ungültigem_zeichen_wird_abgelehnt() {
+        assert_eq!(
+            IbanEntity::parse("DE0012345678-01234"),
+            Err(IbanError::InvalidChar)
+        );
+    }
+
+    #[test]
+    fn iban_mit_falscher_prüfsumme_wird_abgelehnt() {
+        // gültige Giro-IBAN mit verfälschter Prüfziffer (20 -> 21)
+        assert_eq!(
+            IbanEntity::parse("DE21 1234 5678 0000 0011 11"),
+            Err(IbanError::Checksum)
+        );
+    }
+
+    #[test]
+    fn gültige_iban_wird_akzeptiert() {
+        IbanEntity::parse("DE20 1234 5678 0000 0011 11").expect("gültige IBAN wird akzeptiert");
+    }
+}

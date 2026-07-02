@@ -1,9 +1,7 @@
 //! Black-Box-Spezifikation des Eigene-Konten-Slice — nur über die public API
 //! des Adapters (Fluent-`KontenTestApi` + DTOs), nie über Interna.
 
-use std::str::FromStr;
-
-use eigene_konten_adapter::{IbanError, KontenTestApi, LadeError, Rolle, Zuordnung};
+use eigene_konten_adapter::{KontenTestApi, LadeError, Rolle, Zuordnung};
 
 const EIGENE_GIRO: &str = "DE20 1234 5678 0000 0011 11";
 const EIGENE_HAUSHALT: &str = "DE93 1234 5678 0000 0022 22";
@@ -115,55 +113,4 @@ fn config_mit_unbekannter_rolle_wird_abgelehnt() {
         .lade();
 
     assert!(matches!(ergebnis, Err(LadeError::Quelle(_))));
-}
-
-// --- IBAN-Validierung direkt am DTO ----------------------------------------
-
-#[test]
-fn zu_kurze_iban_wird_abgelehnt() {
-    assert_eq!(
-        eigene_konten_adapter::Iban::from_str("DE12"),
-        Err(IbanError::Length(4))
-    );
-}
-
-#[test]
-fn iban_mit_falschem_aufbau_wird_abgelehnt() {
-    assert_eq!(
-        eigene_konten_adapter::Iban::from_str("1234567890123456"),
-        Err(IbanError::Structure)
-    );
-}
-
-#[test]
-fn iban_mit_ungültigem_zeichen_wird_abgelehnt() {
-    assert_eq!(
-        eigene_konten_adapter::Iban::from_str("DE0012345678-01234"),
-        Err(IbanError::InvalidChar)
-    );
-}
-
-#[test]
-fn iban_mit_falscher_prüfsumme_wird_abgelehnt() {
-    assert_eq!(
-        eigene_konten_adapter::Iban::from_str("DE21 1234 5678 0000 0011 11"),
-        Err(IbanError::Checksum)
-    );
-}
-
-#[test]
-fn gültige_iban_wird_akzeptiert() {
-    eigene_konten_adapter::Iban::from_str(EIGENE_GIRO).expect("gültige IBAN wird akzeptiert");
-}
-
-// --- Rolle-Parsing am DTO --------------------------------------------------
-
-#[test]
-fn bekannte_rolle_wird_geparst() {
-    assert_eq!(Rolle::from_str("Spar"), Ok(Rolle::Spar));
-}
-
-#[test]
-fn unbekannte_rolle_wird_abgelehnt() {
-    Rolle::from_str("Tagesgeld").expect_err("unbekannte Rolle wird abgelehnt");
 }
