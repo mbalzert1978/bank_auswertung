@@ -32,14 +32,7 @@ impl BetragEntity {
         raw: &str,
         währung: WährungEntity,
     ) -> Option<(RichtungEntity, Self)> {
-        let trimmed = raw.trim();
-        let (richtung, digits) = match trimmed.strip_prefix('-') {// TODO: das sollte in die RichtungsEntity, 
-            Some(rest) => (RichtungEntity::Ausgang, rest),
-            None => (
-                RichtungEntity::Eingang,
-                trimmed.strip_prefix('+').unwrap_or(trimmed),
-            ),
-        };
+        let (richtung, digits) = RichtungEntity::aus_vorzeichen(raw.trim());
         let cent = cent_aus_deutsch(digits)?;
         let betrag = Self::new(cent, währung)?;
         Some((richtung, betrag))
