@@ -9,8 +9,6 @@ Aus der Fortschreibung der PRD nach [ADR-0008](../adr/0008-event-getriebene-pipe
 unbelegten Messaging-/Pipeline-Teile ab. Die Fachfunktions-Issues (0004–0013)
 bleiben gültig; nur ihre Verortung wandert in die Pipeline-Slices.
 
-- [ ] **[0014-shared-kernel-outbox-vertraege.md](0014-shared-kernel-outbox-vertraege.md)**
-  `shared_kernel` um die Outbox-Verträge erweitern (interface-only, nur `std`).
 - [ ] **[0015-einlesen-slice-als-pipeline-consumer.md](0015-einlesen-slice-als-pipeline-consumer.md)**
   `einlesen`-Slice als Pipeline-Consumer (Umbau von `csv_camt_v8`), Message `Eingelesen`.
 - [ ] **[0016-obfuskieren-slice-als-pipeline-consumer.md](0016-obfuskieren-slice-als-pipeline-consumer.md)**
@@ -22,6 +20,11 @@ Vertagt (Zielbild ADR-0008, bewusst noch kein Issue): `auswerten`-Consumer,
 
 ## Erledigt
 
+- [x] **[0014-shared-kernel-outbox-vertraege.md](0014-shared-kernel-outbox-vertraege.md)** (2026-07-03)
+  `shared_kernel` um die Outbox-Verträge erweitert; in der Gestalt verfeinert durch
+  [ADR-0009](../adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md)
+  (Result/`OutboxError`, `publish`, `const MESSAGE_TYPE`, `TypedOutboxHandler`) und in
+  `shared_kernel` (io-facing) + `application_kernel` (slice-intern) geschnitten.
 - [x] **[0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)** (2026-07-01)
   Domänen-Skelett: Buchung, Fingerabdruck, ObfuskierterText, KategorieAnfrage
 - [x] **[0003-csv-camt-v8-adapter-zu-buchung.md](0003-csv-camt-v8-adapter-zu-buchung.md)** (2026-07-01)

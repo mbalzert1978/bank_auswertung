@@ -15,12 +15,14 @@ ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)).
 | [0004](0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md) | Domäne ist die Analyse, LLM nur Orakel | in Teilen superseded | [0007](0007-modularer-monolith-feature-slices.md), [0008](0008-event-getriebene-pipeline-und-outbox.md) |
 | [0005](0005-domaenenmodell-value-objects-und-summentypen.md) | Domänenmodell: Value Objects & Summentypen | in Teilen superseded | [0007](0007-modularer-monolith-feature-slices.md) |
 | [0006](0006-pseudonym-stabilitaet.md) | Pseudonym-Stabilität | in Teilen superseded | [0007](0007-modularer-monolith-feature-slices.md) |
-| [0007](0007-modularer-monolith-feature-slices.md) | Modularer Monolith aus Feature-Slices | in Teilen superseded | [0008](0008-event-getriebene-pipeline-und-outbox.md) |
-| [0008](0008-event-getriebene-pipeline-und-outbox.md) | Event-getriebene Pipeline aus Slices mit Outbox | **maßgeblich** | — |
+| [0007](0007-modularer-monolith-feature-slices.md) | Modularer Monolith aus Feature-Slices | in Teilen superseded | [0008](0008-event-getriebene-pipeline-und-outbox.md), [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) |
+| [0008](0008-event-getriebene-pipeline-und-outbox.md) | Event-getriebene Pipeline aus Slices mit Outbox | **maßgeblich** | [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) (nur Kernel-Aspekt) |
+| [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) | Zwei Kernel-Crates + idiomatische Outbox-Verträge | **maßgeblich** | — |
 
 ## Supersession-Graph (Kante zeigt vom Ablöser zum abgelösten ADR)
 
 ```
+0009 ──▶ 0007, 0008   (Kernel-Split + idiomatische Outbox-Verträge; kanonisch in 0009)
 0008 ──▶ 0001, 0002, 0003, 0004, 0007   (supersedet/verfeinert; kanonischer Abschnitt in 0008)
 0007 ──▶ 0001, 0002, 0003, 0004, 0005, 0006   (Architektur-/Modell-Verortung)
 ```
@@ -28,6 +30,13 @@ ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)).
 - **[ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) ist maßgeblich** — die
   event-getriebene Pipeline aus Slices mit Outbox. Es supersedet/verfeinert 0001,
   0003, 0004, 0007 und präzisiert 0002 (siehe dort „Was dieses ADR supersedet").
+- **[ADR-0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) verfeinert den
+  Kernel-Aspekt** von 0008 (und 0007): der eine `shared_kernel` wird in `shared_kernel`
+  (io-facing Outbox-Seams) + `application_kernel` (slice-interne Handler-Konventionen)
+  geschnitten — Kapselung über den Crate-Schnitt, weil Rust kein cross-crate
+  `internal` kennt — und die Outbox-Verträge werden Rust-idiomatisch ausformuliert
+  (`Result`/`OutboxError`, `publish`, `const MESSAGE_TYPE`, `TypedOutboxHandler`). Die
+  Pipeline-Aussagen von 0008 bleiben maßgeblich.
 - **[ADR-0007](0007-modularer-monolith-feature-slices.md)** führte den modularen
   Monolithen aus Feature-Slice-Triaden ein und verfeinerte damit die
   Architektur-/Modell-Aussagen von 0001–0006; es ist seinerseits von 0008 in Teilen

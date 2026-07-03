@@ -233,6 +233,15 @@ verschoben (s. dort den Supersession-Hinweis).
   **Messaging-/Outbox-Verträge**: `Handler`/`Command`/`Publisher` sowie
   `OutboxMessage`/`OutboxCommand`/`OutboxPublisher`/`OutboxHandler`/`HandleOutcome`/
   `Severity`/`UnitOfWork` (+ JSON-Konvention). Die blinde Domäne nutzt sie nie.
+  > **Verfeinert durch [ADR-0009](../adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md):**
+  > Der eine `shared_kernel` ist in **zwei** Crates geschnitten — `shared_kernel`
+  > (io-facing Outbox-Seams) + `application_kernel` (slice-interne
+  > `Handler`/`Command`/`Publisher`/`TypedOutboxHandler`) — weil Rust kein cross-crate
+  > `internal` kennt, sodass `io` die slice-internen Verträge nicht sieht. Die
+  > Vertragsnamen oben (auch das `OutboxHandlerBase`/`HandleOutcome` aus „Rollen je
+  > Slice") sind Rust-idiomatisch: `Result<(), OutboxError>` statt
+  > `HandleOutcome`/`Severity`, `publish` statt `add_to_outbox`, `const MESSAGE_TYPE`,
+  > `TypedOutboxHandler` statt `OutboxHandlerBase`.
 - **Testbar jetzt, echtes IO später:** jeder Slice fährt als Black-Box über seine
   Fluent-TestApi mit **Fakes** (Fake-`OutboxPublisher`, Fake-Stores, Fake-Quelle);
   das echte `io`-Crate (SQLite-Outbox + -Stores, Datei/CSV-Parse) erfüllt später

@@ -56,6 +56,11 @@ fremden Slice-Typ und **keine** Wire-/IO-Form. Vorbild: `Stager/Handlers/StagerH
 Mappen von `Error` → `HandleOutcome` (`Handled`/`Retry`/`Faulted`) ist adapterspezifisch
 und lebt in der Consume-Bridge, nicht im Kernel-Vertrag.
 
+> **Verfeinert durch [ADR-0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md):**
+> `HandleOutcome`/`Severity` sind zu `OutboxError` geworden; das Mapping ist
+> `Error → OutboxError` über `Into<OutboxError>`, und `handle` gibt
+> `Result<(), OutboxError>`. Dass `Response`/`Error` keine Schranke tragen, bleibt.
+
 Der **Command trägt, was der Handler für seinen Task braucht** — für den
 Ein-Rutsch-Betrieb der ganze Batch (alle Zeilen), nicht zeilenweise.
 
@@ -76,6 +81,16 @@ Ein-Rutsch-Betrieb der ganze Batch (alle Zeilen), nicht zeilenweise.
   für Downstream-Slices). **TestApis/Fakes**: die Black-Box-Test-Fläche.
 
 ## `shared_kernel` bekommt die Outbox
+
+> **Verfeinert durch [ADR-0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md):**
+> Der hier als *ein* Kernel skizzierte Aufbau ist in **zwei** Crates geschnitten —
+> `shared_kernel` (io-facing Outbox-Seams) + `application_kernel` (slice-interne
+> Handler-Konventionen) — weil Rust kein cross-crate `internal` kennt, sodass `io`
+> die slice-internen Verträge nicht sieht. Die C#-nahen Vertragsnamen unten
+> (`HandleOutcome`/`Severity`/`add_to_outbox`/`OutboxHandlerBase`/`message_type()`)
+> sind Rust-idiomatisch ersetzt (`Result<(), OutboxError>`/`publish`/
+> `const MESSAGE_TYPE`/`TypedOutboxHandler`). Der Text unten bleibt als Historie
+> unverändert.
 
 Der Shared-Kernel bleibt dünn und interface-only, wird aber um die **Outbox-Verträge**
 erweitert (Vorbild `examples/Common/Abstractions` + `examples/Outbox/Adapter`):

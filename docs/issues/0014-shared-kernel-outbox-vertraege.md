@@ -1,7 +1,7 @@
 ---
 id: "0014"
 title: "shared_kernel: Outbox-Verträge (interface-only)"
-status: open
+status: done
 ---
 
 # shared_kernel: Outbox-Verträge (interface-only)
@@ -12,6 +12,16 @@ status: open
 > („`shared_kernel` bekommt die Outbox"). Deckt die in der PRD unter
 > „Event-getriebene Pipeline aus Slices" geforderten Messaging-/Outbox-Verträge ab,
 > die bislang kein Issue trug.
+
+> **Umgesetzt** — in der Gestalt **verfeinert durch
+> [ADR-0009](../adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md):** die
+> unten in C#-naher Form gelisteten Verträge sind Rust-idiomatisch
+> (`Result<(), OutboxError>` statt `HandleOutcome`/`Severity`, `publish` statt
+> `add_to_outbox`, `const MESSAGE_TYPE` statt `message_type()`, `TypedOutboxHandler`
+> statt `OutboxHandlerBase`), und der eine `shared_kernel` ist in `shared_kernel`
+> (io-facing Outbox-Seams) + `application_kernel` (slice-interne
+> `Handler`/`Command`/`Publisher`/`TypedOutboxHandler`) geschnitten. Der Text unten
+> bleibt als Ausgangs-Scope (Historie) stehen.
 
 ## Was zu bauen ist
 
