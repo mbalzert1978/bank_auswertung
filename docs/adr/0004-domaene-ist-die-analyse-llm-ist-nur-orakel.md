@@ -1,20 +1,9 @@
 # Die Domäne ist die Analyse — das LLM ist nur ein Orakel für unbekannte Fingerabdrücke
 
-> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
-> gültig, neu verortet.** „Domäne = Analyse, LLM = Orakel, Fingerabdruck ist
-> Domänenwissen" bleibt — aber verteilt auf Feature-Slices statt in **einer**
-> Domäne; „die Domäne" ist hier als Sammelbegriff der Slice-Domänen zu lesen. Die
-> Obfuskierung ist ein eigener Slice.
->
-> **Status (seit [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)):
-> bestätigt, als Pipeline verortet.** Der Kernsatz „das LLM ist nur ein Orakel,
-> kein Pipeline-Schritt" wird jetzt strukturell getragen: die Pipeline ist
-> `einlesen → obfuskieren → auswerten → report` (je ein Consumer-Slice über
-> Outbox). **Kategorisieren ist bewusst kein eigener Schritt** — der `auswerten`-
-> Handler ruft den injizierten `Kategorisierer`-Port genau dann, wenn die Domäne
-> entscheidet, dass ein Fingerabdruck unbekannt ist (Domänen-Entscheidung „brauche
-> ich das Orakel?"). Lesen/Obfuskieren/Präsentieren sind eigene Consumer-Slices,
-> nicht Teil der Analyse-Domäne.
+> **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md), [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
+> Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
+> bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (bzw. [ADR-0007](0007-modularer-monolith-feature-slices.md)).
 
 Lesen, Obfuskieren und Präsentieren sind Adapter-Aufgaben (rein/raus), **nicht**
 die Domäne. Die Domäne ist die Finanzanalyse und lebt rein und testbar im Kern:
