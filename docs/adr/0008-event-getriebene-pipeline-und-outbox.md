@@ -52,6 +52,9 @@ weiß von ihnen. Er bekommt seine **Domänen-Ports** (in `<slice>_domain` defini
 `Publisher` **injiziert** und **orchestriert das Aggregat über dessen Methoden**
 (reiche Domäne, nicht anämisch). Er kennt **keinen** konkreten Adapter, **keinen**
 fremden Slice-Typ und **keine** Wire-/IO-Form. Vorbild: `Stager/Handlers/StagerHandler.cs`.
+`Response`/`Error` tragen bewusst **keine** Trait-Schranke im `shared_kernel`: das
+Mappen von `Error` → `HandleOutcome` (`Handled`/`Retry`/`Faulted`) ist adapterspezifisch
+und lebt in der Consume-Bridge, nicht im Kernel-Vertrag.
 
 Der **Command trägt, was der Handler für seinen Task braucht** — für den
 Ein-Rutsch-Betrieb der ganze Batch (alle Zeilen), nicht zeilenweise.
@@ -131,7 +134,10 @@ kommt **später** und erfüllt dieselben Seams.
   Außenwelt-Anpassung (Message↔Domäne) lebt in der Consume-Bridge. Die Verortung von
   Feld-Parsern (deutscher Betrag etc.) wird separat nach dem Lackmustest „fachliche
   Entscheidung → Domäne, sonst Adapter" entschieden.
-- **Slice-Umbenennung:** `csv_camt_v8` → **`einlesen`** (Verantwortung, nicht Format).
+- **Slice-Umbenennung:** `csv_camt_v8` → **`einlesen`** (Verantwortung, nicht Format)
+  — **beschlossen, aber noch nicht ausgeführt**: Crates, Code und `CLAUDE.md` führen
+  bis zum Bau des Slice weiter `csv_camt_v8`; die Umbenennung passiert erst mit diesem
+  Umbau (kein stiller Drift — hier bewusst als offen vermerkt).
 
 ## Bewusst vertagt
 

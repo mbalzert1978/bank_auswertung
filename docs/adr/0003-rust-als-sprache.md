@@ -1,9 +1,11 @@
 # Rust als Implementierungssprache
 
 > **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md), [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
-> Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
-> bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
-> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).
+> Der **gesamte Textkörper** unten ist eingefrorene **Historie** (Entscheidungsstand
+> zum ADR-Zeitpunkt) und **nicht implementierungsmaßgeblich** — keine hier genannte
+> Regel ist umzusetzen. Was heute gilt und was nicht mehr, steht **erschöpfend und
+> kanonisch** im Abschnitt „Was dieses ADR supersedet" von
+> [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).
 
 Wir implementieren in Rust statt Python oder C#. Das Datenschutzmodell ruht auf
 der Obfuskierung — in Rust lässt sich die **strukturelle** Grenze compilergeprüft
@@ -13,14 +15,6 @@ ausschließlich obfuskierte Value Objects. Der einzige serialisierbare Ausgang i
 der schmale `KategorieAnfrage`-DTO des `Kategorisierer`-Ports — er _kann_ keinen
 strukturellen Identifikator (IBAN/BIC/Kontonr.) tragen. Ein solcher Leak wird zum
 Compile-Fehler statt zur Review-Hoffnung.
-
-> ⚠ **Reversiert durch [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
-> (nicht nur verfeinert):** Die „kein `Serialize`"-Sperre sitzt heute **nicht** auf
-> den rohen Newtypes (`Iban`/`Bic`), sondern auf den **Egress-DTOs** (LLM-Anfrage,
-> Report) — dort, wo Daten die Maschine verlassen. `Iban` **muss** für den lokalen
-> `einlesen → obfuskieren`-Hop **serialisierbar** sein; roh darf lokal liegen und
-> persistieren, verlässt die Maschine aber nie. Das Ziel (kein realer
-> Identifikator zum LLM/Report) bleibt unverändert.
 
 Was der Compiler **nicht** beweisen kann: dass im Empfänger-/Verwendungszweck-
 Freitext kein Identifikator eingebettet ist (eine IBAN im Verwendungszweck, ein
@@ -52,11 +46,3 @@ per roher REST statt fertigem SDK.
   Rohdaten-Newtypes (`Iban`, `Bic`) kein `Serialize` ableiten und deshalb in
   keinen serialisierbaren DTO einbettbar sind — ein Versuch ist ein
   Compile-Fehler, keine Review-Hoffnung.
-
-  > ⚠ **Reversiert durch [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
-  > (nicht nur verfeinert):** Nicht mehr „`Iban`/`Bic` leiten nie `Serialize` ab",
-  > sondern „roh verlässt die Maschine nie". Der `assert_not_impl_any!`-Beleg wandert
-  > von den rohen Newtypes auf die **Egress-DTOs** (LLM/Report); `Iban` **muss** für
-  > den lokalen `einlesen → obfuskieren`-Hop serialisierbar sein. Kanonisch:
-  > [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md), Abschnitt „Was dieses
-  > ADR supersedet".
