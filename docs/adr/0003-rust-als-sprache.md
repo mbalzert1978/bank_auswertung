@@ -1,13 +1,9 @@
 # Rust als Implementierungssprache
 
-> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
-> verfeinert.** Rust, der Cargo-Workspace und der **compilergeprüfte** Schutz
-> (strukturelle Identifikatoren ohne `Serialize`) bleiben. Verortung neu: der
-> Crate-Level-Schnitt ist jetzt die Slice-Triade (`_domain`/`_adapter`/`_specs`)
-> plus ein dünner `shared_kernel`; externe Fremd-Crates leben ausschließlich im
-> einzigen `io`-Crate; die `Serialize`-Sperre wird pro Slice re-homed statt in
-> **einer** Domänen-Crate. Der `KategorieAnfrage`-DTO wird erst mit dem
-> Kategorisierer-Slice wieder relevant.
+> **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md), [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
+> Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
+> bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (bzw. [ADR-0007](0007-modularer-monolith-feature-slices.md)).
 
 Wir implementieren in Rust statt Python oder C#. Das Datenschutzmodell ruht auf
 der Obfuskierung — in Rust lässt sich die **strukturelle** Grenze compilergeprüft

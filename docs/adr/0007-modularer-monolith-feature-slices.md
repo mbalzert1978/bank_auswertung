@@ -1,5 +1,10 @@
 # Modularer Monolith aus Feature-Slices — die Domäne ist blind, der Shared-Kernel ist dünn
 
+> **Status: in Teilen superseded — durch [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
+> Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
+> bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).
+
 Wir schneiden die Software in **Feature-Slices** statt in eine geteilte Domäne
 plus Adapter. Auslöser waren zwei Kopplungen, die der bisherige Aufbau
 ([ADR-0001](0001-hexagonale-architektur.md), [0002](0002-dto-grenze-und-anti-corruption-layer.md),

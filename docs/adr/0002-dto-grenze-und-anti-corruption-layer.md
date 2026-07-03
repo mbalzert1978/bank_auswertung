@@ -1,10 +1,9 @@
 # Domänengrenze sind öffentliche DTOs (Anti-Corruption-Layer); Tests und Persistenz docken nur dort an
 
-> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
-> verfeinert.** Das Prinzip „nach außen nur DTOs, Tests docken am DTO-Vertrag an"
-> gilt unverändert — aber die Grenze ist jetzt **je Slice** der public
-> `<slice>_adapter` (mit slice-eigenen DTOs und einer Fluent-TestApi), nicht eine
-> **einzige** Domänengrenze. „Jeder Port sein eigener DTO" bleibt tragend.
+> **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md), [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
+> Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
+> bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (bzw. [ADR-0007](0007-modularer-monolith-feature-slices.md)).
 
 Die Domäne hat einen Anti-Corruption-Layer als einzige öffentliche Grenze:
 Ein- und Ausgabe laufen ausschließlich über öffentliche DTOs. Niemand außerhalb

@@ -30,10 +30,19 @@ pub trait PublishCommand: Command {
 pub trait Handler {
     /// Das Kommando, das dieser Handler entgegennimmt.
     type Command: Command;
-    /// Das Ergebnis der Verarbeitung (in der Pipeline weiterverarbeitbar).
+    /// Das Ergebnis der Verarbeitung. **Bewusst ohne Schranke:** die
+    /// Weiterverarbeitbarkeit in der Pipeline (Serialisierung in die nächste
+    /// Outbox-Message) wird nicht auf der `Response` erzwungen, sondern an der
+    /// Publisher-/Command-Grenze — nur das, was tatsächlich weiterversendet wird,
+    /// ist ein [`PublishCommand`] und trägt dort den Dispatch-Key. Eine `Response`
+    /// darf ein rein interner Domänen-Wert bleiben (das C#-`IResponse`-Marker-
+    /// Interface hat hier keine Entsprechung, weil der Constraint anderswo sitzt).
     type Response;
-    /// Der fachliche Fehler, mit dem die Verarbeitung scheitern kann.
-    type Error;
+    /// Der fachliche Fehler, mit dem die Verarbeitung scheitern kann. Schranke
+    /// `std::error::Error`, damit ihn jede Pipeline-Stufe ohne Wiederholung von
+    /// `where`-Klauseln als Fehler behandeln kann; Domänenfehler erfüllen sie
+    /// ohnehin (`Display` + `std::error::Error`, [ADR-0007](../../../docs/adr/0007-modularer-monolith-feature-slices.md)).
+    type Error: std::error::Error;
 
     /// Verarbeitet das Kommando — oder scheitert mit [`Self::Error`].
     fn handle(&self, command: Self::Command) -> Result<Self::Response, Self::Error>;

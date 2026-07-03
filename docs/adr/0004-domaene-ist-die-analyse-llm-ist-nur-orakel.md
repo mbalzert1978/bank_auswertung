@@ -5,6 +5,16 @@
 > Domänenwissen" bleibt — aber verteilt auf Feature-Slices statt in **einer**
 > Domäne; „die Domäne" ist hier als Sammelbegriff der Slice-Domänen zu lesen. Die
 > Obfuskierung ist ein eigener Slice.
+>
+> **Status (seit [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)):
+> bestätigt, als Pipeline verortet.** Der Kernsatz „das LLM ist nur ein Orakel,
+> kein Pipeline-Schritt" wird jetzt strukturell getragen: die Pipeline ist
+> `einlesen → obfuskieren → auswerten → report` (je ein Consumer-Slice über
+> Outbox). **Kategorisieren ist bewusst kein eigener Schritt** — der `auswerten`-
+> Handler ruft den injizierten `Kategorisierer`-Port genau dann, wenn die Domäne
+> entscheidet, dass ein Fingerabdruck unbekannt ist (Domänen-Entscheidung „brauche
+> ich das Orakel?"). Lesen/Obfuskieren/Präsentieren sind eigene Consumer-Slices,
+> nicht Teil der Analyse-Domäne.
 
 Lesen, Obfuskieren und Präsentieren sind Adapter-Aufgaben (rein/raus), **nicht**
 die Domäne. Die Domäne ist die Finanzanalyse und lebt rein und testbar im Kern:

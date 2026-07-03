@@ -1,12 +1,9 @@
 # Hexagonale Architektur — die Domäne kennt keine Dateiformate und keinen LLM-Anbieter
 
-> **Status (seit [ADR-0007](0007-modularer-monolith-feature-slices.md)):
-> verfeinert.** Ports-&-Adapter und „Obfuskierung am eingehenden Adapter" gelten
-> weiter — aber pro **Feature-Slice**, nicht für **eine** geteilte Domäne. Es gibt
-> kein zentrales `Buchung`-Modell mehr; jeder Slice hat seine eigene Domäne, und
-> ein Port gibt nach außen einen DTO heraus, nie ein Domänenobjekt. Die vier
-> genannten Ports beschreiben weiter die Fachfunktionen; ihre Zuordnung zu Slices
-> und die Crate-Topologie regelt ADR-0007.
+> **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md), [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
+> Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
+> bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (bzw. [ADR-0007](0007-modularer-monolith-feature-slices.md)).
 
 Wir bauen wartbare Software, kein Skript. Die Domäne arbeitet ausschließlich mit
 dem Domänenmodell `Buchung` und kennt weder Exportformate noch konkrete externe
