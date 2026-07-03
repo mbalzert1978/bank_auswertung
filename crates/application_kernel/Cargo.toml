@@ -1,0 +1,10 @@
+[package]
+name = "application_kernel"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+shared_kernel = { path = "../shared_kernel" }

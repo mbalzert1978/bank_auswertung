@@ -132,6 +132,30 @@ fn shared_kernel_ist_interface_only() {
 }
 
 #[test]
+fn application_kernel_ist_slice_intern_nur_adapter_haengt_daran() {
+    let crates = workspace_crates();
+    let violations: Vec<String> = crates
+        .iter()
+        .filter(|item| item.name != "architecture")
+        .flat_map(|item| {
+            item.internal_deps()
+                .filter(|dep| *dep == "application_kernel")
+                .filter(move |_| !item.name.ends_with("_adapter"))
+                .map(move |_| {
+                    format!(
+                        "`{}` hängt an `application_kernel` — die slice-internen Handler-Konventionen sieht nur ein `_adapter`, nie `io`/`_domain`/`_specs`",
+                        item.name
+                    )
+                })
+        })
+        .collect();
+    assert_no_violations(
+        &violations,
+        "`application_kernel` ist slice-intern (nur `_adapter` bindet ihn)",
+    );
+}
+
+#[test]
 fn nur_das_io_crate_bindet_externe_fremd_crates() {
     let crates = workspace_crates();
     let violations: Vec<String> = crates
