@@ -15,6 +15,16 @@
 > (Triade `_domain`/`_adapter`/`_specs`, dünner `shared_kernel`, kein geteiltes
 > `domain`-Crate). Fachfunktionen, Datenschutz-Invarianten und Baureihenfolge
 > bleiben gültig; nur ihre Verortung ändert sich.
+>
+> **Maßgeblich ist jetzt
+> [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):** eine
+> **event-getriebene Pipeline aus Slices mit Outbox** (`einlesen → obfuskieren →
+> auswerten → report`), die ADR-0007 in Teilen verfeinert/supersedet. Sie ändert
+> die **Ablauf-Verortung** — jeder Schritt ist ein eigener Consumer-Slice, gekoppelt
+> nur über Outbox-Messages — und **reframt die Datenschutz-Grenze** von „`Iban`/`Bic`
+> sind nie serialisierbar" auf „roh verlässt die Maschine nie" (Grenze an
+> `obfuskieren`, s. u.). Die Fachfunktionen und das Datenschutz-*Ziel* bleiben
+> unverändert. Supersession-Index über alle ADRs: [docs/adr/README.md](../adr/).
 
 ## Problemstellung
 
@@ -189,6 +199,47 @@ Software mit Claude).
   `serde`, sondern darauf, dass die Rohdaten-Newtypes (`Iban`, `Bic`) kein
   `Serialize` ableiten und in keinen serialisierbaren DTO einbettbar sind — ein
   Versuch ist ein Compile-Fehler ([ADR-0003](../adr/0003-rust-als-sprache.md)).
+  > **Datenschutz-Verortung superseded durch
+  > [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):** die
+  > „kein `Serialize`"-Sperre sitzt nicht mehr auf `Iban`/`Bic`, sondern auf den
+  > **Egress-DTOs**. Details unten unter „Datenschutz-Invarianten". Das Ziel (kein
+  > realer Identifikator verlässt den Rechner) bleibt unverändert.
+
+### Event-getriebene Pipeline aus Slices ([ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md))
+
+Diese Sektion ist der aktuelle Stand der Architektur-Verortung; die Verteilung der
+Domänen-Module auf Crates aus „Domänen-Module (tief, …)" ist entsprechend
+verschoben (s. dort den Supersession-Hinweis).
+
+- **Pipeline `einlesen → obfuskieren → auswerten → report`.** Jeder Schritt ist ein
+  eigener **Consumer-Slice** (Triade `_domain`/`_adapter`/`_specs`), der **ein**
+  eingehendes Command verarbeitet und in **einer** Transaktion (`UnitOfWork`) (a)
+  seine eigene Tabelle und (b) eine **Outbox-Message** für den nächsten Schritt
+  schreibt (Outbox-Pattern → atomar, at-least-once, wiederaufsetzbar). Kein Schritt
+  ruft den nächsten synchron; die Kopplung läuft **nur** über die Message.
+- **Kategorisieren ist kein Pipeline-Schritt**, sondern eine Domänen-Entscheidung
+  im `auswerten`-Slice: entscheidet die Domäne, dass ein Fingerabdruck unbekannt
+  ist, ruft der Handler den injizierten `Kategorisierer`-Port (LLM als Orakel). Die
+  bewusste Asymmetrie zu `obfuskieren` (mechanische, immer nötige Grenze = eigener
+  Schritt) folgt [ADR-0004](../adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md).
+- **Rollen je Slice:** der **Handler** (crate-intern) orchestriert das reiche
+  Aggregat über **Domänen-Typen** (assoziierte `Command`/`Response`/`Error`, **kein**
+  public IO); der **Adapter** ist die Anpassung an die Außenwelt — **Consume-Bridge**
+  (`OutboxHandlerBase`-Muster: Message → Domänen-Command → Handler → `HandleOutcome`),
+  **Publisher-Bridge** (Domänen-Command → Wire-DTO `OutboxCommand` → Outbox) und
+  **Port-Bridges** (implementieren die Domänen-Ports via public Seams); die **Domäne**
+  bleibt blind und kennt keinen Adapter, keinen fremden Slice, keine Wire-Form.
+- **`shared_kernel`** bleibt dünn und interface-only (nur `std`), trägt aber die
+  **Messaging-/Outbox-Verträge**: `Handler`/`Command`/`Publisher` sowie
+  `OutboxMessage`/`OutboxCommand`/`OutboxPublisher`/`OutboxHandler`/`HandleOutcome`/
+  `Severity`/`UnitOfWork` (+ JSON-Konvention). Die blinde Domäne nutzt sie nie.
+- **Testbar jetzt, echtes IO später:** jeder Slice fährt als Black-Box über seine
+  Fluent-TestApi mit **Fakes** (Fake-`OutboxPublisher`, Fake-Stores, Fake-Quelle);
+  das echte `io`-Crate (SQLite-Outbox + -Stores, Datei/CSV-Parse) erfüllt später
+  dieselben Seams.
+- **Referenz:** die interne C#-Vorlage unter `examples/` (Slices `Downloader`/
+  `Stager`, `Outbox`, `Common`) ist das kanonische Vorbild für Handler, Bridges und
+  Outbox-Verträge.
 
 ### Domänenmodell ([ADR-0005](../adr/0005-domaenenmodell-value-objects-und-summentypen.md))
 
@@ -210,6 +261,11 @@ Software mit Claude).
 
 - **`Umsatzquelle` (rein)** → CSV-CAMT-v8-Adapter zuerst. Obfuskiert beim Mappen,
   sodass die Domäne nur obfuskierte Value Objects erhält.
+  > **Superseded durch [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):**
+  > `obfuskieren` ist **kein** Inline-Schritt des Einlese-Adapters mehr, sondern ein
+  > **nachgelagerter Consumer-Slice** in der Pipeline (`einlesen → obfuskieren`); die
+  > Kopplung ist die Outbox-Message, nicht ein synchroner Bridge-Aufruf. Der
+  > `einlesen`-Slice darf roh lokal erfassen; erst `obfuskieren` ist die Grenze.
 - **`Kategorisierer` (raus)** → spricht **eigene schmale DTOs**, nicht die
   `Buchung`-DTO: Hinweg `KategorieAnfrage` (Fingerabdruck + `ObfuskierterText` für
   Empfänger/Verwendungszweck), Rückweg `KategorieAntwort` (Fingerabdruck → Kategorie; schlüsselt auf dem
@@ -223,6 +279,14 @@ Software mit Claude).
   ist nur ein Attribut einer `Buchung`.
 
 ### Domänen-Module (tief, am DTO-Vertrag testbar)
+
+> **Verortung superseded durch [ADR-0007](../adr/0007-modularer-monolith-feature-slices.md)
+> / [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):** die Module
+> liegen **nicht mehr in einem Domänen-Crate**, sondern verteilt auf die
+> Pipeline-Slices — Obfuskierung (D3) im `obfuskieren`-Slice, Fingerabdruck (D2),
+> Analyse-Kern (D4) und Kategorie-Register (D5) im `auswerten`-Slice, der
+> Buchung-Kern (D1) im einlesenden/`auswerten`-Slice. Die fachliche Aufteilung und
+> die Testbarkeit am DTO-Vertrag bleiben; nur die Crate-Verortung ändert sich.
 
 - **D1 Buchung-Kern** — die Value Objects + die Projektion
   `Buchung`→`KategorieAnfrage`.
@@ -259,6 +323,15 @@ Invarianten aus Nutzersicht._
   gescrubbtem Freitext.
 - **Strukturelle Identifikatoren** (eigene IBAN/Kontonr., Gegen-IBAN, BIC) nie —
   **compilergeprüft** (`Iban`/`Bic` ohne `Serialize`, in keinem DTO).
+  > **Superseded durch [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):**
+  > nicht mehr „roh ist nie serialisierbar", sondern **„roh verlässt die Maschine
+  > nie"**. Roh darf **lokal existieren und persistieren** (die `einlesen`-Tabelle und
+  > die `einlesen → obfuskieren`-Message tragen rohe Werte — kein Unterschied zur
+  > lokal liegenden `.csv`). Die compilergeprüfte **`assert_not_impl_any!`-„kein
+  > `Serialize`"-Sperre wandert von `Iban`/`Bic` auf die Egress-DTOs** (LLM-Anfrage
+  > und Report-Output) — genau die Punkte, an denen Daten die Maschine verlassen.
+  > `Iban` **muss** für den lokalen `einlesen → obfuskieren`-Hop serialisierbar sein.
+  > Das Ziel (kein realer Name/Identifikator zum LLM/Report) bleibt unverändert.
 - In Freitext **eingebettete** Identifikatoren werden best-effort gescrubbt
   (heuristisch, **nicht beweisbar vollständig**), fail-safe — die ehrliche Grenze
   des Modells.
@@ -268,6 +341,10 @@ Invarianten aus Nutzersicht._
   nur obfuskierte Value Objects; die **Gläubiger-ID** (öffentlicher
   Firmen-Schlüssel) bleibt bewusst als Analyse-Anker.
 - **Obfuskierung lebt am eingehenden Adapter.**
+  > **Superseded durch [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):**
+  > **`obfuskieren` ist die Datenschutz-Grenze** und ein **eigener nachgelagerter
+  > Pipeline-Schritt** hinter `einlesen`, kein Inline-Teil des Einlese-Adapters. Ab
+  > `obfuskieren` laufen nur noch Token.
 
 ### Baureihenfolge (Tracer-Bullet, vertikale Slices)
 
@@ -281,6 +358,12 @@ Invarianten aus Nutzersicht._
    Privatperson→`PERSON_x`, Gegen-IBAN → `Gegenkonto::Eigen(Rolle)|Fremd` via
    Eigene-Konten-Config, Freitext → `ObfuskierterText` (best-effort gescrubbt);
    sichert eine einheitliche Währung zu.
+   > **Superseded durch [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):**
+   > gesplittet in zwei Pipeline-Schritte — **`einlesen`** (Rohdaten prüfen/erfassen,
+   > CSV-CAMT-v8 ist nur eine Eingabeform hinter dem Quell-Seam) und das nachgelagerte
+   > **`obfuskieren`** (Token-Vergabe + Freitext-Scrubbing). Die **Slice-Umbenennung
+   > `csv_camt_v8` → `einlesen`** ist **beschlossen, aber noch nicht ausgeführt**
+   > (Crates/Code führen bis zum Bau weiter `csv_camt_v8`).
 3. **Analyse-Kern**: Wiederkehr + Gebühren + Aderlass + Pareto. Schon ohne LLM
    wertvoll (Lackmustest).
 4. **`Speicher` (SQLite)** für DTOs + Kategorie-Register.
