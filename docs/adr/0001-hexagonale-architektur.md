@@ -3,7 +3,7 @@
 > **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md), [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
 > Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
 > bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
-> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (bzw. [ADR-0007](0007-modularer-monolith-feature-slices.md)).
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).
 
 Wir bauen wartbare Software, kein Skript. Die Domäne arbeitet ausschließlich mit
 dem Domänenmodell `Buchung` und kennt weder Exportformate noch konkrete externe
@@ -38,4 +38,12 @@ testbar ohne Datei und ohne Netz.
   Firmen-Schlüssel, nicht personenbezogen) bleibt als Analyse-Anker erhalten.
   Der `Kategorisierer`-Adapter kann nichts strukturell Rohes weitergeben
   (compilergeprüft, [ADR-0003](0003-rust-als-sprache.md)).
+
+  > ⚠ **Reversiert durch [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
+  > (nicht nur verfeinert):** Obfuskieren lebt heute **nicht** inline am eingehenden
+  > Adapter, sondern ist ein **nachgelagerter Consumer-Slice** in der Pipeline
+  > (`einlesen → obfuskieren`), gekoppelt über eine Outbox-Message. Roh darf darum
+  > **lokal existieren und persistieren** (kein Unterschied zur lokal liegenden
+  > `.csv`); **`obfuskieren` ist die Grenze**, ab der nur noch Token laufen. Das Ziel
+  > (kein personen-/kontobeziehbarer Identifikator verlässt die Maschine) bleibt.
 - Ein weiteres Eingabeformat kostet einen Adapter, keine Domänenänderung.

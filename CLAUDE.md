@@ -10,7 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > `architecture` (Dependency-Richtungs-Test über `cargo_metadata`). Das geteilte
 > `domain`-Crate ist aufgelöst; jeder Slice hat eigene Value Objects und gibt nach
 > außen nur DTOs heraus. Der „Current state" unten beschreibt diesen Stand;
-> maßgeblich bleibt ADR-0007.
+> **maßgeblich ist jetzt [ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md)**
+> (event-getriebene Pipeline aus Slices mit Outbox), das ADR-0007 in Teilen
+> supersedet/verfeinert.
 
 ## What this is
 

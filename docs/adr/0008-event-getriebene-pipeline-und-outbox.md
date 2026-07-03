@@ -46,9 +46,9 @@ ausschließlich über die Message.
 
 ## Der Handler arbeitet auf Domänen-Typen
 
-Ein Slice hat **einen** Handler (`shared_kernel::Handler<Command, Response>`). Seine
-`Command`/`Response`/`Error` sind **interne Domänen-Typen** — kein public IO weiß von
-ihnen. Er bekommt seine **Domänen-Ports** (in `<slice>_domain` definiert) und einen
+Ein Slice hat **einen** Handler (`shared_kernel::Handler` mit den assoziierten Typen
+`Command`/`Response`/`Error`). Diese sind **interne Domänen-Typen** — kein public IO
+weiß von ihnen. Er bekommt seine **Domänen-Ports** (in `<slice>_domain` definiert) und einen
 `Publisher` **injiziert** und **orchestriert das Aggregat über dessen Methoden**
 (reiche Domäne, nicht anämisch). Er kennt **keinen** konkreten Adapter, **keinen**
 fremden Slice-Typ und **keine** Wire-/IO-Form. Vorbild: `Stager/Handlers/StagerHandler.cs`.

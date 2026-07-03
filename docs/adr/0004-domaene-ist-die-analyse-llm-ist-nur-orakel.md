@@ -3,7 +3,7 @@
 > **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md), [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
 > Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
 > bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
-> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (bzw. [ADR-0007](0007-modularer-monolith-feature-slices.md)).
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).
 
 Lesen, Obfuskieren und Präsentieren sind Adapter-Aufgaben (rein/raus), **nicht**
 die Domäne. Die Domäne ist die Finanzanalyse und lebt rein und testbar im Kern:
