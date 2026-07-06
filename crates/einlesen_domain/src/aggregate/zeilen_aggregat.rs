@@ -1,8 +1,8 @@
 use crate::fehler::ZeilenError;
 use crate::ports::{Kalender, Rohzeile};
 use crate::value_objects::{
-    Betrag, Buchungstext, Datum, Empfänger, Iban, Kalendertag, NonEmptyString, Richtung,
-    Verwendungszweck, Währung,
+    Betrag, Buchungstext, Datum, Empfänger, Empfängername, GläubigerId, Iban, Kalendertag,
+    NonEmptyString, Richtung, Verwendungszweck, Währung,
 };
 
 /// Eine eingelesene, validierte Buchungszeile — das Aggregat des Slice. Es entsteht
@@ -42,7 +42,10 @@ impl ZeilenAggregat {
             .map(Iban::from)
             .ok_or(ZeilenError::AuftragskontoFehlt)?;
         let gegenkonto = zeile.gegenkonto().map(Iban::from);
-        let empfänger = Empfänger::aus_teilen(zeile.empfänger_name(), zeile.gläubiger_id())?;
+        let empfänger = Empfänger::aus_teilen(
+            zeile.empfänger_name().map(Empfängername::from),
+            zeile.gläubiger_id().map(GläubigerId::from),
+        )?;
         let verwendungszweck = zeile.verwendungszweck().map(Verwendungszweck::from);
         let buchungstext = zeile.buchungstext().map(Buchungstext::from);
         Ok(Self {

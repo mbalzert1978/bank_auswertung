@@ -61,15 +61,12 @@ impl Empfänger {
     /// Pflicht: sein Fehlen (`None`) heißt keine identifizierbare Gegenpartei
     /// (`EmpfängerFehlt`, terminal). Eine fehlende Gläubiger-ID ist kein Fehler.
     pub fn aus_teilen(
-        name: Option<NonEmptyString>,
-        gläubiger_id: Option<NonEmptyString>,
+        name: Option<Empfängername>,
+        gläubiger_id: Option<GläubigerId>,
     ) -> Result<Self, ZeilenError> {
-        let name = name
-            .map(Empfängername::from)
-            .ok_or(ZeilenError::EmpfängerFehlt)?;
+        let name = name.ok_or(ZeilenError::EmpfängerFehlt)?;
         Ok(Self {
-            name,
-            gläubiger_id: gläubiger_id.map(GläubigerId::from),
+            name, gläubiger_id
         })
     }
 
