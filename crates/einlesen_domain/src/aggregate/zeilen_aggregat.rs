@@ -34,8 +34,18 @@ impl ZeilenAggregat {
         let währung = Währung::aus_code(&zeile.währung().ok_or(ZeilenError::WährungFehlt)?)?;
         let roh_betrag = zeile.betrag().ok_or(ZeilenError::BetragFehlt)?;
         let (betrag, richtung) = Betrag::mit_richtung(&roh_betrag, währung)?;
-        let buchungstag = deute_datum(kalender, zeile.buchungstag())?;
-        let valuta = deute_datum(kalender, zeile.valuta())?;
+        let buchungstag = deute_datum(
+            kalender,
+            zeile.buchungstag(),
+            ZeilenError::BuchungstagFehlt,
+            ZeilenError::BuchungstagUngültig,
+        )?;
+        let valuta = deute_datum(
+            kalender,
+            zeile.valuta(),
+            ZeilenError::ValutaFehlt,
+            ZeilenError::ValutaUngültig,
+        )?;
         let datum = Datum::aus_tagen(buchungstag, valuta);
         let auftragskonto = zeile
             .auftragskonto()
@@ -100,11 +110,11 @@ impl ZeilenAggregat {
 fn deute_datum(
     kalender: &dyn Kalender,
     roh: Option<NonEmptyString>,
+    fehlt: ZeilenError,
+    ungültig: ZeilenError,
 ) -> Result<Kalendertag, ZeilenError> {
-    let roh = roh.ok_or(ZeilenError::DatumFehlt)?;
-    kalender
-        .deute(&roh)
-        .ok_or_else(|| ZeilenError::DatumUngültig(roh.as_str().to_string()))
+    let roh = roh.ok_or(fehlt)?;
+    kalender.deute(&roh).ok_or(ungültig)
 }
 
 #[cfg(test)]
@@ -265,17 +275,17 @@ mod tests {
     }
 
     #[test]
-    fn fehlender_buchungstag_wird_als_datum_fehlt_abgelehnt() {
+    fn fehlender_buchungstag_wird_terminal_abgelehnt() {
         let mut zeile = FakeZeile::gültig();
         zeile.buchungstag = None;
-        assert_eq!(deute(&zeile), Err(ZeilenError::DatumFehlt));
+        assert_eq!(deute(&zeile), Err(ZeilenError::BuchungstagFehlt));
     }
 
     #[test]
-    fn fehlende_valuta_wird_als_datum_fehlt_abgelehnt() {
+    fn fehlende_valuta_wird_terminal_abgelehnt() {
         let mut zeile = FakeZeile::gültig();
         zeile.valuta = None;
-        assert_eq!(deute(&zeile), Err(ZeilenError::DatumFehlt));
+        assert_eq!(deute(&zeile), Err(ZeilenError::ValutaFehlt));
     }
 
     #[test]
@@ -297,5 +307,20 @@ mod tests {
         let mut zeile = FakeZeile::gültig();
         zeile.betrag = text("50,00");
         assert_eq!(deute(&zeile), Err(ZeilenError::VorzeichenFehlt));
+    }
+
+    #[test]
+    fn fehler_display_spiegelt_den_rohwert_nicht() {
+        // Bei Spaltenverschub landet z. B. eine IBAN im Betragsfeld; die Fehlermeldung
+        // darf den Rohwert nicht spiegeln (er könnte in einem persistierten Dead-Letter
+        // landen).
+        let leck = "DE89370400440532013000";
+        let mut zeile = FakeZeile::gültig();
+        zeile.betrag = text(&format!("-{leck}"));
+        let fehler = deute(&zeile).expect_err("ungültiger Betrag");
+        assert!(
+            !format!("{fehler}").contains(leck),
+            "Display leakt den Rohwert: {fehler}"
+        );
     }
 }

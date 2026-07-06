@@ -6,49 +6,58 @@ use std::fmt;
 /// Herkunfts-/IO-Fehler sind retryable, und die entstehen außerhalb der Domäne).
 ///
 /// Die Domäne ist dependency-frei: `Display`/`Error` sind von Hand geschrieben, kein
-/// `thiserror`. Datenschutz: die Meldungen tragen nur den rohen Betrag, Währungscode
-/// bzw. das rohe Datum — **kein** struktureller Identifikator (Auftragskonto o. Ä.)
-/// steht je in einer Meldung.
+/// `thiserror`. **Datenschutz:** keine Variante trägt den rohen Feldinhalt. Gerade die
+/// „ungültig/unbekannt"-Fälle feuern, wenn ein Feld *nicht* das Erwartete enthält — bei
+/// einem Spaltenverschub stünde sonst z. B. eine IBAN in einer (in ein Dead-Letter
+/// persistierbaren) Meldung. Eine Meldung benennt darum nur Feld und Fehlerart, nie den
+/// Inhalt; auch `Debug` kann so keinen Identifikator spiegeln. Für die zwei Datumsfelder
+/// benennt sie zusätzlich, **welches** betroffen ist (Buchungstag vs. Valuta).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ZeilenError {
-    /// Der Betrag ist kein gültiger deutscher Geldbetrag (`-1.234,56`).
-    BetragUngültig(String),
-    /// Der Währungscode ist keiner, den die Domäne kennt.
-    WährungUnbekannt(String),
-    /// Das Auftragskonto fehlt — ohne eigenes Konto ist die Zeile nicht zuordenbar.
-    AuftragskontoFehlt,
-    /// Weder Gläubiger-ID noch Name — die Gegenpartei ist nicht identifizierbar.
-    EmpfängerFehlt,
-    /// Der rohe Datumswert ergibt kein gültiges Kalenderdatum.
-    DatumUngültig(String),
-    /// Die Währung fehlt ganz (Pflichtfeld leer/nicht vorhanden).
-    WährungFehlt,
+    /// Der Betrag ist kein gültiger deutscher Geldbetrag.
+    BetragUngültig,
     /// Der Betrag fehlt ganz (Pflichtfeld leer/nicht vorhanden).
     BetragFehlt,
     /// Das Betragsfeld trägt kein führendes Vorzeichen — die Richtung ist nicht deutbar.
     VorzeichenFehlt,
-    /// Ein Datum (Buchungstag oder Valuta) fehlt ganz (Pflichtfeld leer/nicht vorhanden).
-    DatumFehlt,
+    /// Der Währungscode ist keiner, den die Domäne kennt.
+    WährungUnbekannt,
+    /// Die Währung fehlt ganz (Pflichtfeld leer/nicht vorhanden).
+    WährungFehlt,
+    /// Das Auftragskonto fehlt — ohne eigenes Konto ist die Zeile nicht zuordenbar.
+    AuftragskontoFehlt,
+    /// Weder Gläubiger-ID noch Name — die Gegenpartei ist nicht identifizierbar.
+    EmpfängerFehlt,
+    /// Der Buchungstag fehlt ganz (Pflichtfeld leer/nicht vorhanden).
+    BuchungstagFehlt,
+    /// Der Buchungstag ist kein gültiges Kalenderdatum.
+    BuchungstagUngültig,
+    /// Die Valuta (Wertstellung) fehlt ganz (Pflichtfeld leer/nicht vorhanden).
+    ValutaFehlt,
+    /// Die Valuta (Wertstellung) ist kein gültiges Kalenderdatum.
+    ValutaUngültig,
 }
 
 impl fmt::Display for ZeilenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ZeilenError::BetragUngültig(roh) => {
-                write!(f, "kein gültiger deutscher Geldbetrag: {roh}")
-            }
-            ZeilenError::WährungUnbekannt(code) => write!(f, "unbekannte Währung: {code}"),
-            ZeilenError::AuftragskontoFehlt => write!(f, "Auftragskonto fehlt"),
-            ZeilenError::EmpfängerFehlt => {
-                write!(f, "Empfänger fehlt: weder Gläubiger-ID noch Name vorhanden")
-            }
-            ZeilenError::DatumUngültig(roh) => write!(f, "kein gültiges Datum: {roh}"),
-            ZeilenError::WährungFehlt => write!(f, "Währung fehlt"),
+            ZeilenError::BetragUngültig => write!(f, "kein gültiger deutscher Geldbetrag"),
             ZeilenError::BetragFehlt => write!(f, "Betrag fehlt"),
             ZeilenError::VorzeichenFehlt => {
                 write!(f, "Vorzeichen fehlt: Richtung nicht deutbar")
             }
-            ZeilenError::DatumFehlt => write!(f, "Datum fehlt (Buchungstag oder Valuta)"),
+            ZeilenError::WährungUnbekannt => write!(f, "unbekannte Währung"),
+            ZeilenError::WährungFehlt => write!(f, "Währung fehlt"),
+            ZeilenError::AuftragskontoFehlt => write!(f, "Auftragskonto fehlt"),
+            ZeilenError::EmpfängerFehlt => {
+                write!(f, "Empfänger fehlt: weder Gläubiger-ID noch Name vorhanden")
+            }
+            ZeilenError::BuchungstagFehlt => write!(f, "Buchungstag fehlt"),
+            ZeilenError::BuchungstagUngültig => {
+                write!(f, "Buchungstag ist kein gültiges Datum")
+            }
+            ZeilenError::ValutaFehlt => write!(f, "Valuta fehlt"),
+            ZeilenError::ValutaUngültig => write!(f, "Valuta ist kein gültiges Datum"),
         }
     }
 }

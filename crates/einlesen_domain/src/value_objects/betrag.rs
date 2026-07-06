@@ -15,7 +15,7 @@ impl Währung {
     pub fn aus_code(roh: &NonEmptyString) -> Result<Self, ZeilenError> {
         match roh.as_str().to_ascii_uppercase().as_str() {
             "EUR" => Ok(Self::Euro),
-            _ => Err(ZeilenError::WährungUnbekannt(roh.as_str().to_string())),
+            _ => Err(ZeilenError::WährungUnbekannt),
         }
     }
 }
@@ -44,8 +44,7 @@ impl Betrag {
         let s = roh.as_str();
         let (richtung, ziffern) =
             Richtung::aus_vorzeichen(s).ok_or(ZeilenError::VorzeichenFehlt)?;
-        let cent = cent_aus_deutschen_ziffern(ziffern)
-            .ok_or_else(|| ZeilenError::BetragUngültig(s.to_string()))?;
+        let cent = cent_aus_deutschen_ziffern(ziffern).ok_or(ZeilenError::BetragUngültig)?;
         Ok((Self { cent, währung }, richtung))
     }
 
@@ -103,7 +102,7 @@ mod tests {
     fn unbekannte_währung_wird_abgelehnt() {
         assert_eq!(
             Währung::aus_code(&roh("USD")),
-            Err(ZeilenError::WährungUnbekannt("USD".to_string()))
+            Err(ZeilenError::WährungUnbekannt)
         );
     }
 
@@ -157,7 +156,7 @@ mod tests {
     fn betrag_mit_drei_nachkommastellen_ist_ungültig() {
         assert_eq!(
             Betrag::mit_richtung(&roh("-1,234"), Währung::Euro),
-            Err(ZeilenError::BetragUngültig("-1,234".to_string()))
+            Err(ZeilenError::BetragUngültig)
         );
     }
 
@@ -165,7 +164,7 @@ mod tests {
     fn nicht_numerischer_betrag_ist_ungültig() {
         assert_eq!(
             Betrag::mit_richtung(&roh("-abc"), Währung::Euro),
-            Err(ZeilenError::BetragUngültig("-abc".to_string()))
+            Err(ZeilenError::BetragUngültig)
         );
     }
 }
