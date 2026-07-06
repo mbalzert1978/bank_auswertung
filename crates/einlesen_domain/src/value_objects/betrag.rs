@@ -1,4 +1,4 @@
-use super::NonEmptyString;
+use super::{NonEmptyString, Richtung};
 use crate::fehler::ZeilenError;
 
 /// Die Währung eines Betrags. Bewusst ein Summentyp statt eines rohen Codes: nur
@@ -22,7 +22,8 @@ impl Währung {
 
 /// Ein Geldbetrag als **vorzeichenlose** Menge in Cent mit Währung — das Vorzeichen
 /// lebt allein in der [`Richtung`](crate::Richtung), ein negativer Betrag ist dadurch
-/// unkonstruierbar (ADR-0005). Parst sich selbst aus dem deutschen Betragsformat.
+/// unkonstruierbar (ADR-0005). Betrag und Richtung entstehen **gemeinsam** aus dem
+/// signierten Betragsfeld (`mit_richtung`) — die einzige Parse-Autorität für dieses Feld.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Betrag {
     cent: u64,
@@ -30,48 +31,27 @@ pub struct Betrag {
 }
 
 impl Betrag {
-    /// Deutet einen deutschen Geldbetrag (`1.234,56`, optional mit Vorzeichen) zur
-    /// vorzeichenlosen Cent-Menge: das Vorzeichen wird verworfen (es lebt in der
-    /// Richtung), Tausenderpunkte entfallen, das Komma trennt genau zwei
-    /// Nachkommastellen. Ungültiges Format wird abgewiesen.
-    pub fn aus_deutschem_betrag(
+    /// Deutet das **signierte** deutsche Betragsfeld an *einem* Ort und ist damit die
+    /// einzige Parse-Autorität für dieses Feld: das führende Vorzeichen bestimmt die
+    /// Richtung (`-` → Ausgang, `+` → Eingang) und wird abgestreift, die Restziffern
+    /// (`1.234,56`) ergeben den vorzeichenlosen Betrag. Ein fehlendes führendes `+`/`-`
+    /// macht die Richtung unbestimmbar (`VorzeichenFehlt`); ungültige Restziffern ergeben
+    /// `BetragUngültig`. So lebt das Vorzeichen allein in der Richtung (ADR-0005).
+    pub fn mit_richtung(
         roh: &NonEmptyString,
         währung: Währung,
-    ) -> Result<Self, ZeilenError> {
+    ) -> Result<(Self, Richtung), ZeilenError> {
         let s = roh.as_str();
-        let ungültig = || ZeilenError::BetragUngültig(s.to_string());
-        let ohne_vorzeichen = s
-            .strip_prefix('-')
-            .or_else(|| s.strip_prefix('+'))
-            .unwrap_or(s);
-        let normalisiert = ohne_vorzeichen.replace('.', "");
-        let mut teile = normalisiert.split(',');
-        let euro_teil = teile.next().unwrap_or_default();
-        let cent_teil = teile.next();
-        if teile.next().is_some() {
-            return Err(ungültig());
-        }
-        if euro_teil.is_empty() || !euro_teil.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(ungültig());
-        }
-        let euro: u64 = euro_teil.parse().ok().ok_or_else(ungültig)?;
-        let cent: u64 = match cent_teil {
-            None => 0,
-            Some(nachkomma) => {
-                if nachkomma.len() != 2 || !nachkomma.bytes().all(|b| b.is_ascii_digit()) {
-                    return Err(ungültig());
-                }
-                nachkomma.parse().ok().ok_or_else(ungültig)?
-            }
+        let (richtung, ziffern) = if let Some(rest) = s.strip_prefix('-') {
+            (Richtung::Ausgang, rest)
+        } else if let Some(rest) = s.strip_prefix('+') {
+            (Richtung::Eingang, rest)
+        } else {
+            return Err(ZeilenError::VorzeichenFehlt);
         };
-        let gesamt = euro
-            .checked_mul(100)
-            .and_then(|betrag| betrag.checked_add(cent))
-            .ok_or_else(ungültig)?;
-        Ok(Self {
-            cent: gesamt,
-            währung,
-        })
+        let cent = cent_aus_deutschen_ziffern(ziffern)
+            .ok_or_else(|| ZeilenError::BetragUngültig(s.to_string()))?;
+        Ok((Self { cent, währung }, richtung))
     }
 
     pub fn cent(&self) -> u64 {
@@ -83,9 +63,34 @@ impl Betrag {
     }
 }
 
+/// Deutet die **vorzeichenlosen** deutschen Betragsziffern (`1.234,56`) zur Cent-Menge:
+/// Tausenderpunkte entfallen, das Komma trennt genau zwei Nachkommastellen (fehlt es,
+/// sind es null). Ungültiges ergibt `None`.
+fn cent_aus_deutschen_ziffern(ziffern: &str) -> Option<u64> {
+    let normalisiert = ziffern.replace('.', "");
+    let (euro_teil, cent_teil) = match normalisiert.split_once(',') {
+        Some((euro, cent)) => (euro, Some(cent)),
+        None => (normalisiert.as_str(), None),
+    };
+    if euro_teil.is_empty() || !euro_teil.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let euro: u64 = euro_teil.parse().ok()?;
+    let cent: u64 = match cent_teil {
+        None => 0,
+        Some(nachkomma) => {
+            if nachkomma.len() != 2 || !nachkomma.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            nachkomma.parse().ok()?
+        }
+    };
+    euro.checked_mul(100)?.checked_add(cent)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Betrag, Währung};
+    use super::{Betrag, Richtung, Währung};
     use crate::fehler::ZeilenError;
     use crate::value_objects::NonEmptyString;
 
@@ -108,39 +113,64 @@ mod tests {
     }
 
     #[test]
-    fn deutscher_betrag_mit_tausenderpunkt_wird_zu_cent() {
-        let betrag = Betrag::aus_deutschem_betrag(&roh("1.234,56"), Währung::Euro).expect("gültig");
+    fn negativer_betrag_mit_tausenderpunkt_wird_zu_ausgang_und_cent() {
+        let (betrag, richtung) =
+            Betrag::mit_richtung(&roh("-1.234,56"), Währung::Euro).expect("gültig");
         assert_eq!(betrag.cent(), 123_456);
         assert_eq!(betrag.währung(), Währung::Euro);
+        assert_eq!(richtung, Richtung::Ausgang);
     }
 
     #[test]
-    fn vorzeichen_wird_verworfen_betrag_bleibt_vorzeichenlos() {
-        let negativ = Betrag::aus_deutschem_betrag(&roh("-50,00"), Währung::Euro).expect("gültig");
-        let positiv = Betrag::aus_deutschem_betrag(&roh("+50,00"), Währung::Euro).expect("gültig");
-        assert_eq!(negativ.cent(), 5_000);
+    fn positiver_betrag_wird_zu_eingang() {
+        let (betrag, richtung) =
+            Betrag::mit_richtung(&roh("+50,00"), Währung::Euro).expect("gültig");
+        assert_eq!(betrag.cent(), 5_000);
+        assert_eq!(richtung, Richtung::Eingang);
+    }
+
+    #[test]
+    fn gleicher_betrag_mit_verschiedenem_vorzeichen_hat_gleichen_cent_wert() {
+        let (negativ, _) = Betrag::mit_richtung(&roh("-50,00"), Währung::Euro).expect("gültig");
+        let (positiv, _) = Betrag::mit_richtung(&roh("+50,00"), Währung::Euro).expect("gültig");
         assert_eq!(negativ, positiv);
     }
 
     #[test]
     fn betrag_ohne_nachkommastellen_ist_gültig() {
-        let betrag = Betrag::aus_deutschem_betrag(&roh("1000"), Währung::Euro).expect("gültig");
+        let (betrag, _) = Betrag::mit_richtung(&roh("-1000"), Währung::Euro).expect("gültig");
         assert_eq!(betrag.cent(), 100_000);
+    }
+
+    #[test]
+    fn fehlendes_vorzeichen_wird_als_vorzeichen_fehlt_abgelehnt() {
+        assert_eq!(
+            Betrag::mit_richtung(&roh("50,00"), Währung::Euro),
+            Err(ZeilenError::VorzeichenFehlt)
+        );
+    }
+
+    #[test]
+    fn fremdes_vorzeichen_wird_als_vorzeichen_fehlt_abgelehnt() {
+        assert_eq!(
+            Betrag::mit_richtung(&roh("*50,00"), Währung::Euro),
+            Err(ZeilenError::VorzeichenFehlt)
+        );
     }
 
     #[test]
     fn betrag_mit_drei_nachkommastellen_ist_ungültig() {
         assert_eq!(
-            Betrag::aus_deutschem_betrag(&roh("1,234"), Währung::Euro),
-            Err(ZeilenError::BetragUngültig("1,234".to_string()))
+            Betrag::mit_richtung(&roh("-1,234"), Währung::Euro),
+            Err(ZeilenError::BetragUngültig("-1,234".to_string()))
         );
     }
 
     #[test]
     fn nicht_numerischer_betrag_ist_ungültig() {
         assert_eq!(
-            Betrag::aus_deutschem_betrag(&roh("abc"), Währung::Euro),
-            Err(ZeilenError::BetragUngültig("abc".to_string()))
+            Betrag::mit_richtung(&roh("-abc"), Währung::Euro),
+            Err(ZeilenError::BetragUngültig("-abc".to_string()))
         );
     }
 }

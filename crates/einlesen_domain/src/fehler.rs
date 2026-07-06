@@ -25,6 +25,8 @@ pub enum ZeilenError {
     WährungFehlt,
     /// Der Betrag fehlt ganz (Pflichtfeld leer/nicht vorhanden).
     BetragFehlt,
+    /// Das Betragsfeld trägt kein führendes Vorzeichen — die Richtung ist nicht deutbar.
+    VorzeichenFehlt,
     /// Ein Datum (Buchungstag oder Valuta) fehlt ganz (Pflichtfeld leer/nicht vorhanden).
     DatumFehlt,
 }
@@ -43,6 +45,9 @@ impl fmt::Display for ZeilenError {
             ZeilenError::DatumUngültig(roh) => write!(f, "kein gültiges Datum: {roh}"),
             ZeilenError::WährungFehlt => write!(f, "Währung fehlt"),
             ZeilenError::BetragFehlt => write!(f, "Betrag fehlt"),
+            ZeilenError::VorzeichenFehlt => {
+                write!(f, "Vorzeichen fehlt: Richtung nicht deutbar")
+            }
             ZeilenError::DatumFehlt => write!(f, "Datum fehlt (Buchungstag oder Valuta)"),
         }
     }

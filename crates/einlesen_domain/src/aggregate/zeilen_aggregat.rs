@@ -32,8 +32,7 @@ impl ZeilenAggregat {
     ) -> Result<Self, ZeilenError> {
         let währung = Währung::aus_code(&zeile.währung().ok_or(ZeilenError::WährungFehlt)?)?;
         let roh_betrag = zeile.betrag().ok_or(ZeilenError::BetragFehlt)?;
-        let betrag = Betrag::aus_deutschem_betrag(&roh_betrag, währung)?;
-        let richtung = Richtung::aus_deutschem_betrag(&roh_betrag)?;
+        let (betrag, richtung) = Betrag::mit_richtung(&roh_betrag, währung)?;
         let buchungstag = kalender.deute(&zeile.buchungstag().ok_or(ZeilenError::DatumFehlt)?)?;
         let valuta = kalender.deute(&zeile.valuta().ok_or(ZeilenError::DatumFehlt)?)?;
         let datum = Datum::aus_tagen(buchungstag, valuta);
@@ -284,14 +283,11 @@ mod tests {
     }
 
     #[test]
-    fn vorzeichenloser_betrag_wird_über_die_richtung_verworfen() {
-        // „50,00" ist als vorzeichenloser Betrag gültig, aber ohne Vorzeichen ist die
-        // Richtung nicht deutbar — die Zeile wird terminal verworfen.
+    fn vorzeichenloser_betrag_wird_wegen_fehlendem_vorzeichen_verworfen() {
+        // „50,00" ist als Betrag wohlgeformt, aber ohne Vorzeichen ist die Richtung
+        // nicht deutbar — die Zeile wird terminal verworfen (nicht als BetragUngültig).
         let mut zeile = FakeZeile::gültig();
         zeile.betrag = text("50,00");
-        assert_eq!(
-            deute(&zeile),
-            Err(ZeilenError::BetragUngültig("50,00".to_string()))
-        );
+        assert_eq!(deute(&zeile), Err(ZeilenError::VorzeichenFehlt));
     }
 }
