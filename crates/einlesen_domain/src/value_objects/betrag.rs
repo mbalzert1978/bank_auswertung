@@ -31,24 +31,19 @@ pub struct Betrag {
 }
 
 impl Betrag {
-    /// Deutet das **signierte** deutsche Betragsfeld an *einem* Ort und ist damit die
-    /// einzige Parse-Autorität für dieses Feld: das führende Vorzeichen bestimmt die
-    /// Richtung (`-` → Ausgang, `+` → Eingang) und wird abgestreift, die Restziffern
-    /// (`1.234,56`) ergeben den vorzeichenlosen Betrag. Ein fehlendes führendes `+`/`-`
-    /// macht die Richtung unbestimmbar (`VorzeichenFehlt`); ungültige Restziffern ergeben
-    /// `BetragUngültig`. So lebt das Vorzeichen allein in der Richtung (ADR-0005).
+    /// Deutet das **signierte** deutsche Betragsfeld an *einem* Ort: das führende
+    /// Vorzeichen deutet `Richtung::aus_vorzeichen` (dort lebt die Vorzeichen-Grammatik)
+    /// und wird abgestreift, die Restziffern (`1.234,56`) ergeben den vorzeichenlosen
+    /// Betrag. Ein fehlendes führendes `+`/`-` macht die Richtung unbestimmbar
+    /// (`VorzeichenFehlt`); ungültige Restziffern ergeben `BetragUngültig`. So lebt das
+    /// Vorzeichen allein in der Richtung (ADR-0005).
     pub fn mit_richtung(
         roh: &NonEmptyString,
         währung: Währung,
     ) -> Result<(Self, Richtung), ZeilenError> {
         let s = roh.as_str();
-        let (richtung, ziffern) = if let Some(rest) = s.strip_prefix('-') {
-            (Richtung::Ausgang, rest)
-        } else if let Some(rest) = s.strip_prefix('+') {
-            (Richtung::Eingang, rest)
-        } else {
-            return Err(ZeilenError::VorzeichenFehlt);
-        };
+        let (richtung, ziffern) =
+            Richtung::aus_vorzeichen(s).ok_or(ZeilenError::VorzeichenFehlt)?;
         let cent = cent_aus_deutschen_ziffern(ziffern)
             .ok_or_else(|| ZeilenError::BetragUngültig(s.to_string()))?;
         Ok((Self { cent, währung }, richtung))
