@@ -1,7 +1,8 @@
 use crate::fehler::ZeilenError;
 use crate::ports::{Kalender, Rohzeile};
 use crate::value_objects::{
-    Betrag, Buchungstext, Datum, Empfänger, Iban, Richtung, Verwendungszweck, Währung,
+    Betrag, Buchungstext, Datum, Empfänger, Iban, Kalendertag, NonEmptyString, Richtung,
+    Verwendungszweck, Währung,
 };
 
 /// Eine eingelesene, validierte Buchungszeile — das Aggregat des Slice. Es entsteht
@@ -33,8 +34,8 @@ impl ZeilenAggregat {
         let währung = Währung::aus_code(&zeile.währung().ok_or(ZeilenError::WährungFehlt)?)?;
         let roh_betrag = zeile.betrag().ok_or(ZeilenError::BetragFehlt)?;
         let (betrag, richtung) = Betrag::mit_richtung(&roh_betrag, währung)?;
-        let buchungstag = kalender.deute(&zeile.buchungstag().ok_or(ZeilenError::DatumFehlt)?)?;
-        let valuta = kalender.deute(&zeile.valuta().ok_or(ZeilenError::DatumFehlt)?)?;
+        let buchungstag = deute_datum(kalender, zeile.buchungstag())?;
+        let valuta = deute_datum(kalender, zeile.valuta())?;
         let datum = Datum::aus_tagen(buchungstag, valuta);
         let auftragskonto = zeile
             .auftragskonto()
@@ -87,6 +88,20 @@ impl ZeilenAggregat {
     pub fn buchungstext(&self) -> Option<&Buchungstext> {
         self.buchungstext.as_ref()
     }
+}
+
+/// Deutet ein rohes Datumsfeld über den `Kalender`-Port und mappt an *einem* Ort auf die
+/// terminalen Datumsfehler: ein fehlendes Feld → `DatumFehlt`, ein unlesbares Datum →
+/// `DatumUngültig`. Der Port selbst trägt nur `Option` — die Slice-Fehlbedeutung entsteht
+/// hier, wo der rohe Wert noch vorliegt.
+fn deute_datum(
+    kalender: &dyn Kalender,
+    roh: Option<NonEmptyString>,
+) -> Result<Kalendertag, ZeilenError> {
+    let roh = roh.ok_or(ZeilenError::DatumFehlt)?;
+    kalender
+        .deute(&roh)
+        .ok_or_else(|| ZeilenError::DatumUngültig(roh.as_str().to_string()))
 }
 
 #[cfg(test)]
@@ -172,21 +187,11 @@ mod tests {
     struct DeutscherKalender;
 
     impl Kalender for DeutscherKalender {
-        fn deute(&self, roh: &NonEmptyString) -> Result<Kalendertag, ZeilenError> {
-            let fehler = || ZeilenError::DatumUngültig(roh.as_str().to_string());
+        fn deute(&self, roh: &NonEmptyString) -> Option<Kalendertag> {
             let mut teile = roh.as_str().split('.');
-            let tag: u8 = teile
-                .next()
-                .and_then(|t| t.parse().ok())
-                .ok_or_else(fehler)?;
-            let monat: u8 = teile
-                .next()
-                .and_then(|t| t.parse().ok())
-                .ok_or_else(fehler)?;
-            let jahr: u16 = teile
-                .next()
-                .and_then(|t| t.parse().ok())
-                .ok_or_else(fehler)?;
+            let tag: u8 = teile.next()?.parse().ok()?;
+            let monat: u8 = teile.next()?.parse().ok()?;
+            let jahr: u16 = teile.next()?.parse().ok()?;
             Kalendertag::aus_bestandteilen(jahr, monat, tag)
         }
     }

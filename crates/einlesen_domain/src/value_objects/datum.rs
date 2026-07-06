@@ -1,5 +1,3 @@
-use crate::fehler::ZeilenError;
-
 /// Ein einzelner Kalendertag als reine Wert-Bestandteile (Jahr/Monat/Tag) —
 /// **dependency-frei** getragen (die Domäne bindet kein `chrono`). Die *feine*
 /// Kalender-Gültigkeit (dass es keinen 30. Februar gibt) garantiert der `Kalender`-Port,
@@ -17,14 +15,14 @@ pub struct Kalendertag {
 impl Kalendertag {
     /// Baut einen Kalendertag aus seinen Bestandteilen — der Konstruktor, den der
     /// `Kalender`-Port (in `io`, mit `chrono`) nach dem Deuten aufruft. Grobe
-    /// Bereichsprüfung; ein unmöglicher Monat/Tag ergibt **kein** Datum (`DatumUngültig`).
-    pub fn aus_bestandteilen(jahr: u16, monat: u8, tag: u8) -> Result<Self, ZeilenError> {
+    /// Bereichsprüfung; ein unmöglicher Monat/Tag ergibt **kein** Datum (`None`). Die
+    /// terminale `DatumUngültig`-Meldung erzeugt der Aufrufer (das Aggregat), nicht dieser
+    /// Konstruktor — so trägt er keinen Slice-Fehler.
+    pub fn aus_bestandteilen(jahr: u16, monat: u8, tag: u8) -> Option<Self> {
         if (1..=12).contains(&monat) && (1..=31).contains(&tag) {
-            Ok(Self { jahr, monat, tag })
+            Some(Self { jahr, monat, tag })
         } else {
-            Err(ZeilenError::DatumUngültig(format!(
-                "{tag:02}.{monat:02}.{jahr}"
-            )))
+            None
         }
     }
 
@@ -73,7 +71,6 @@ impl Datum {
 #[cfg(test)]
 mod tests {
     use super::Kalendertag;
-    use crate::fehler::ZeilenError;
 
     #[test]
     fn gültige_bestandteile_ergeben_einen_kalendertag() {
@@ -82,18 +79,12 @@ mod tests {
     }
 
     #[test]
-    fn monat_ausserhalb_eins_bis_zwölf_wird_abgelehnt() {
-        assert_eq!(
-            Kalendertag::aus_bestandteilen(2024, 13, 1),
-            Err(ZeilenError::DatumUngültig("01.13.2024".to_string()))
-        );
+    fn monat_ausserhalb_eins_bis_zwölf_ergibt_kein_datum() {
+        assert!(Kalendertag::aus_bestandteilen(2024, 13, 1).is_none());
     }
 
     #[test]
-    fn tag_null_wird_abgelehnt() {
-        assert_eq!(
-            Kalendertag::aus_bestandteilen(2024, 6, 0),
-            Err(ZeilenError::DatumUngültig("00.06.2024".to_string()))
-        );
+    fn tag_null_ergibt_kein_datum() {
+        assert!(Kalendertag::aus_bestandteilen(2024, 6, 0).is_none());
     }
 }
