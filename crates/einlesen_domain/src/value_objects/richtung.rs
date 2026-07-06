@@ -9,16 +9,19 @@ pub enum Richtung {
 }
 
 impl Richtung {
+    const POSITIVE: char = '+';
+    const NEGATIVE: char = '-';
+
     /// Deutet das **führende Vorzeichen** eines Betragsfelds und streift es ab:
     /// `-` → Ausgang, `+` → Eingang, jeweils mit den Restziffern. Ohne führendes `+`/`-`
     /// ist die Richtung nicht deutbar (`None`) — kein stilles `Eingang`. Der einzige Ort
     /// der Vorzeichen-Grammatik.
     pub fn aus_vorzeichen(feld: &str) -> Option<(Self, &str)> {
-        if let Some(ziffern) = feld.strip_prefix('-') {
-            Some((Self::Ausgang, ziffern))
-        } else {
-            feld.strip_prefix('+')
-                .map(|ziffern| (Self::Eingang, ziffern))
+        match feld.strip_prefix(Self::NEGATIVE) {
+            Some(ziffern) => Some((Self::Ausgang, ziffern)),
+            None => feld
+                .strip_prefix(Self::POSITIVE)
+                .map(|ziffern| (Self::Eingang, ziffern)),
         }
     }
 }
