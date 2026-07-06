@@ -13,9 +13,10 @@ impl Währung {
     /// Deutet einen Währungscode (`EUR`, case-insensitiv). Ein unbekannter Code wird
     /// abgewiesen, statt still falsch weiterzurechnen.
     pub fn aus_code(roh: &NonEmptyString) -> Result<Self, ZeilenError> {
-        match roh.as_str().to_ascii_uppercase().as_str() {
-            "EUR" => Ok(Self::Euro),
-            _ => Err(ZeilenError::WährungUnbekannt),
+        if roh.as_str().eq_ignore_ascii_case("EUR") {
+            Ok(Self::Euro)
+        } else {
+            Err(ZeilenError::WährungUnbekannt)
         }
     }
 }
