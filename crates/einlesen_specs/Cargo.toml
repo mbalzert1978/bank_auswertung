@@ -1,0 +1,16 @@
+[package]
+name = "einlesen_specs"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+einlesen_adapter = { path = "../einlesen_adapter" }
+# Die Blackbox referenziert die io-facing Outbox-Ergebnisform (`OutboxError`) direkt aus
+# dem interface-only `shared_kernel` — der Adapter re-exportiert sie bewusst nicht (genau
+# eine öffentliche Adapter-Fläche). Die Architektur-Regel `specs_haengen_nur_am_eigenen_adapter`
+# lässt diese eine Ausnahme ausdrücklich zu.
+shared_kernel = { path = "../shared_kernel" }
