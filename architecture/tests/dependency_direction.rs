@@ -198,6 +198,13 @@ fn kein_crate_haengt_am_domain_eines_fremden_slice() {
     );
 }
 
+/// Neben dem eigenen `_adapter` darf eine Blackbox-Spec zusätzlich das **io-facing**
+/// `shared_kernel` referenzieren: die Outbox-Seams (`OutboxMessage`/`OutboxError`/…) sind
+/// der öffentliche Vertrag, gegen den eine Pipeline-Stufe end-to-end spezifiziert wird —
+/// so muss der Adapter diese Kernel-Typen nicht re-exportieren (genau eine öffentliche
+/// Adapter-Fläche). Eine Lockerung, **nicht** das (bewusst nicht gehärtete) adapter→adapter.
+const SPEC_ZUSATZ_DEPS: &[&str] = &["shared_kernel"];
+
 #[test]
 fn specs_haengen_nur_am_eigenen_adapter() {
     let crates = workspace_crates();
@@ -207,18 +214,21 @@ fn specs_haengen_nur_am_eigenen_adapter() {
         .flat_map(|(item, slice)| {
             let erwartet = format!("{slice}_adapter");
             item.deps.iter().filter_map(move |dep| {
-                if dep.name == erwartet {
+                if dep.name == erwartet || SPEC_ZUSATZ_DEPS.contains(&dep.name.as_str()) {
                     None
                 } else {
                     Some(format!(
-                        "`{}` hängt an `{}`, erlaubt ist nur `{erwartet}`",
+                        "`{}` hängt an `{}`, erlaubt ist nur `{erwartet}` (plus io-facing `shared_kernel`)",
                         item.name, dep.name
                     ))
                 }
             })
         })
         .collect();
-    assert_no_violations(&violations, "_specs hängt nur am eigenen `_adapter`");
+    assert_no_violations(
+        &violations,
+        "_specs hängt nur am eigenen `_adapter` (plus io-facing `shared_kernel`)",
+    );
 }
 
 #[test]
