@@ -1,110 +1,117 @@
 //! Black-Box-Spezifikation des einlesen-Slice — nur über die **eine** öffentliche
-//! Adapter-Fläche (Fluent-`EinlesenTestApi`, der `Rohsatz`-Arrange-Builder, das `Zeile`-DTO
-//! und die aus `shared_kernel` referenzierte Outbox-Ergebnisform `OutboxError`), nie über
-//! Interna. `ausführen` fährt die **echte** Bridge-Kette (Consume-Bridge → `EinleseHandler`
-//! → Port-/Publisher-Bridges) gegen öffentliche Fakes.
+//! Adapter-Fläche (Fluent-`EinlesenTestApi`, das `Rohsatz`-DTO und die aus `shared_kernel`
+//! referenzierte Outbox-Ergebnisform `OutboxError`), nie über Interna. `ausführen` fährt die
+//! **echte** Bridge-Kette (Consume-Bridge → Kalender-Bridge + `EinleseHandler` →
+//! Publisher-Bridge) gegen öffentliche Fakes der Abstractions.
 //!
-//! **Der maßgebliche Ablauf (Transaktionsgrenze):** (a) alle Rohzeilen werden aus der Quelle
-//! gelesen — ein transienter Lesefehler ist retryable und wird zu `OutboxError::Retry`; (b)
-//! die Domäne deutet **pro Zeile** ein `ZeilenAggregat` — scheitert eine (von io gelesene,
-//! strukturell valide) Zeile am Aggregat, ist das **terminal**: der Handler steigt mit dem
-//! Fehler aus, der über die Consume-Bridge zu `OutboxError::Warning` bubblet, und die io-Outbox
-//! dead-lettert die Nachricht (der Slice dead-lettert nicht selbst); (c–f) die gültigen
-//! Aggregate werden **gemeinsam mit je genau einem** ausgehenden `Eingelesen`-Command gestaget
-//! und atomar committet (der Commit gehört io).
+//! **Der maßgebliche Ablauf (Transaktionsgrenze):** das Kommando trägt bereits den ganzen
+//! Batch (alle Rohzeilen); die Domäne deutet **pro Zeile** ein `ZeilenAggregat` — scheitert
+//! eine Zeile am Aggregat, ist das **terminal**: der Handler steigt mit dem Fehler aus, der
+//! über die Consume-Bridge zu `OutboxError::Warning` bubblet, und die io-Outbox dead-lettert
+//! die Nachricht (der Slice dead-lettert nicht selbst). Die gültigen Aggregate werden erst
+//! **nach** vollständigem Durchlauf (`collect`) publiziert und atomar committet (der Commit
+//! gehört io).
 //!
 //! **Warum es KEIN gemischtes „einige verworfen, andere laufen durch"-Szenario gibt**
 //! (bewusst bestätigt, nicht getestet): Das ist kein konstruierbarer Zustand. Es ist
 //! **alles-oder-nichts** — die erste terminal ungültige Zeile lässt den ganzen Lauf aussteigen
-//! (nichts wird gestaget/veröffentlicht), sonst laufen alle Zeilen durch. Die Invariante lautet
-//! **Aggregat ⇔ Command atomar** — ein Aggregat ohne (oder mit fehlendem) Command kann nie
-//! entstehen. Gültige und ungültige Zeilen werden darum je **isoliert** spezifiziert; die
-//! Zusammensetzung ist die triviale Superposition dieser Einheiten, kein eigener Zustand.
+//! (nichts wird veröffentlicht), sonst laufen alle Zeilen durch.
+//!
+//! **Feld-Treue der `Zeile`-Projektion** (originalgetreue Übernahme aller Felder,
+//! Pflicht-/Optional-Verhalten) ist **kein** Blackbox-Szenario mehr: sie ist ein direkter
+//! Unit-Test von `Zeile::aus_aggregat` im Adapter (`crates/einlesen_adapter/src/zeile.rs`) —
+//! reine Mapping-Algorithmik, kein Pipeline-Verhalten.
+//!
+//! **`Rohsatz` trägt keine Test-Ergonomie** (bewusst): die Fixture unten ist spec-lokal, nicht
+//! Teil der Adapter-API.
 
-use einlesen_adapter::{EinlesenTestApi, Richtung, Rohsatz};
+use einlesen_adapter::{EinlesenTestApi, Rohsatz};
 use shared_kernel::OutboxError;
 
-/// Die Quelle, aus der eine `UmsätzeEinlesen`-Nachricht ihre Rohzeilen bezieht (im Fake
-/// vorab per `mit_zeile` bestückt; die Kennung adressiert später die echte io-Quelle).
+/// Die Quelle, aus der eine `UmsätzeEinlesen`-Nachricht ihren Batch bezieht (Aggregat-/
+/// Partition-Identität).
 const QUELLE: &str = "auszug-juni";
+
+fn feld(wert: &str) -> Option<String> {
+    Some(wert.to_string())
+}
+
+/// Ein vollständig gültiger Rohsatz — spec-lokale Fixture; Feld-Overrides passieren direkt
+/// (die Felder sind `pub`, kein Fluent-Bauer nötig).
+fn gültiger_rohsatz() -> Rohsatz {
+    Rohsatz {
+        auftragskonto: feld("DE89370400440532013000"),
+        buchungstag: feld("13.06.2024"),
+        valuta: feld("14.06.2024"),
+        betrag: feld("-50,00"),
+        währung: feld("EUR"),
+        empfänger_name: feld("EDEKA SAGT DANKE"),
+        gläubiger_id: feld("DE98ZZZ09999999999"),
+        gegenkonto: feld("DE11520513735120710131"),
+        verwendungszweck: feld("Einkauf"),
+        buchungstext: feld("LASTSCHRIFT"),
+    }
+}
 
 // --- Eine gültige Zeile: genau ein Aggregat + genau ein Command -------------------
 
 #[test]
 fn eine_gültige_zeile_wird_zu_einem_eingelesen_command() {
-    let mut api = EinlesenTestApi::new().mit_zeile(Rohsatz::gültig());
+    let api = EinlesenTestApi::new().mit_zeile(gültiger_rohsatz());
 
     let ergebnis = api.ausführen(QUELLE);
 
     assert_eq!(ergebnis, Ok(()));
-    assert_eq!(api.gestagte_zeilen().len(), 1);
-    assert_eq!(api.veröffentlichte_eingelesen().len(), 1);
-}
-
-#[test]
-fn die_felder_der_zeile_werden_originalgetreu_übernommen() {
-    let mut api = EinlesenTestApi::new().mit_zeile(Rohsatz::gültig());
-
-    api.ausführen(QUELLE).expect("gültige Zeile");
-
-    let zeilen = api.gestagte_zeilen();
-    let zeile = zeilen.first().expect("eine gestagte Zeile");
-    assert_eq!(zeile.auftragskonto, "DE89370400440532013000");
-    assert_eq!(zeile.gegenkonto.as_deref(), Some("DE11520513735120710131"));
-    assert_eq!(zeile.betrag_cent, 5_000);
-    assert_eq!(zeile.richtung, Richtung::Ausgang);
-    assert_eq!(zeile.empfänger_name, "EDEKA SAGT DANKE");
-    assert_eq!(zeile.gläubiger_id.as_deref(), Some("DE98ZZZ09999999999"));
-    assert_eq!(zeile.buchungstag.tag(), 13);
-    assert_eq!(zeile.valuta.tag(), 14);
-    assert_eq!(zeile.verwendungszweck.as_deref(), Some("Einkauf"));
-    assert_eq!(zeile.buchungstext.as_deref(), Some("LASTSCHRIFT"));
-}
-
-#[test]
-fn fehlende_optionalfelder_ergeben_eine_zeile_ohne_diese_felder() {
-    let mut api = EinlesenTestApi::new().mit_zeile(
-        Rohsatz::gültig()
-            .ohne_gegenkonto()
-            .ohne_verwendungszweck()
-            .ohne_buchungstext(),
+    assert_eq!(api.veröffentlichte_message_types(), vec!["Eingelesen"]);
+    assert_eq!(
+        api.veröffentlichte_partition_keys(),
+        vec!["DE89370400440532013000"]
     );
-
-    api.ausführen(QUELLE).expect("Pflichtfelder gesetzt");
-
-    let zeilen = api.gestagte_zeilen();
-    let zeile = zeilen.first().expect("eine gestagte Zeile");
-    assert!(zeile.gegenkonto.is_none());
-    assert!(zeile.verwendungszweck.is_none());
-    assert!(zeile.buchungstext.is_none());
 }
 
-// --- Fan-out: pro Zeile genau ein Aggregat+Command-Paar (kein Batch) --------------
+// --- Fan-out: pro Zeile genau ein Command (kein Batch stromabwärts) --------------
 
 #[test]
-fn mehrere_zeilen_fächern_zu_je_einem_aggregat_command_paar_auf() {
-    let mut api = EinlesenTestApi::new()
-        .mit_zeile(Rohsatz::gültig().mit_empfänger_name("EDEKA"))
-        .mit_zeile(Rohsatz::gültig().mit_empfänger_name("REWE"))
-        .mit_zeile(Rohsatz::gültig().mit_empfänger_name("ALDI"));
+fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
+    let mut erste = gültiger_rohsatz();
+    erste.empfänger_name = feld("EDEKA");
+    let mut zweite = gültiger_rohsatz();
+    zweite.empfänger_name = feld("REWE");
+    let mut dritte = gültiger_rohsatz();
+    dritte.empfänger_name = feld("ALDI");
+
+    let api = EinlesenTestApi::new()
+        .mit_zeile(erste)
+        .mit_zeile(zweite)
+        .mit_zeile(dritte);
 
     api.ausführen(QUELLE).expect("gültige Zeilen");
 
-    // Fan-out: drei Zeilen → drei Aggregate → drei Commands; die Zähl-Gleichheit
-    // beobachtet die Invariante „Aggregat ⇔ Command atomar".
-    assert_eq!(api.gestagte_zeilen().len(), 3);
-    assert_eq!(api.veröffentlichte_eingelesen().len(), 3);
+    assert_eq!(
+        api.veröffentlichte_message_types(),
+        vec!["Eingelesen", "Eingelesen", "Eingelesen"]
+    );
+    assert_eq!(
+        api.veröffentlichte_partition_keys(),
+        vec![
+            "DE89370400440532013000",
+            "DE89370400440532013000",
+            "DE89370400440532013000"
+        ]
+    );
 }
 
 // --- Eine ungültige Zeile: terminaler Fehler bubblet auf (io dead-lettert) ---------
 // Die Zeile kam über io (strukturell valide), ist aber am Aggregat kaputt: das ist terminal und
 // muss reportet werden — der Handler steigt mit dem Fehler aus, er wird zu `OutboxError::Warning`
-// (Dead-Letter). Nichts wird gestaget/veröffentlicht (die Transaktion umschließt erst die
-// vollständig gültigen Aggregate).
+// (Dead-Letter). Nichts wird veröffentlicht (die Transaktion umschließt erst die vollständig
+// gültigen Aggregate).
 
 #[test]
 fn eine_zeile_ohne_betrag_scheitert_terminal() {
-    let mut api = EinlesenTestApi::new().mit_zeile(Rohsatz::gültig().ohne_betrag());
+    let mut rohsatz = gültiger_rohsatz();
+    rohsatz.betrag = None;
+    let api = EinlesenTestApi::new().mit_zeile(rohsatz);
 
     let ergebnis = api.ausführen(QUELLE);
 
@@ -112,13 +119,15 @@ fn eine_zeile_ohne_betrag_scheitert_terminal() {
         matches!(ergebnis, Err(OutboxError::Warning { .. })),
         "ein am Aggregat ungültiges Feld muss terminal (Dead-Letter) scheitern, war: {ergebnis:?}"
     );
-    assert!(api.gestagte_zeilen().is_empty());
-    assert!(api.veröffentlichte_eingelesen().is_empty());
+    assert!(api.veröffentlichte_message_types().is_empty());
+    assert!(api.veröffentlichte_partition_keys().is_empty());
 }
 
 #[test]
 fn eine_zeile_mit_ungültigem_datum_scheitert_terminal() {
-    let mut api = EinlesenTestApi::new().mit_zeile(Rohsatz::gültig().mit_valuta("kein-datum"));
+    let mut rohsatz = gültiger_rohsatz();
+    rohsatz.valuta = feld("kein-datum");
+    let api = EinlesenTestApi::new().mit_zeile(rohsatz);
 
     let ergebnis = api.ausführen(QUELLE);
 
@@ -126,8 +135,8 @@ fn eine_zeile_mit_ungültigem_datum_scheitert_terminal() {
         matches!(ergebnis, Err(OutboxError::Warning { .. })),
         "ein ungültiges Datum muss terminal scheitern, war: {ergebnis:?}"
     );
-    assert!(api.gestagte_zeilen().is_empty());
-    assert!(api.veröffentlichte_eingelesen().is_empty());
+    assert!(api.veröffentlichte_message_types().is_empty());
+    assert!(api.veröffentlichte_partition_keys().is_empty());
 }
 
 #[test]
@@ -136,8 +145,9 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
     // Dead-Letter-reason der Outbox persistiert — er darf den Rohwert nicht spiegeln. Die
     // Redaktion ist Domänen-Invariante; hier prüfen wir, dass sie bis in die Outbox-Meldung trägt.
     let leck = "DE89370400440532013000";
-    let mut api =
-        EinlesenTestApi::new().mit_zeile(Rohsatz::gültig().mit_betrag(&format!("-{leck}")));
+    let mut rohsatz = gültiger_rohsatz();
+    rohsatz.betrag = feld(&format!("-{leck}"));
+    let api = EinlesenTestApi::new().mit_zeile(rohsatz);
 
     let ergebnis = api.ausführen(QUELLE);
 
@@ -147,21 +157,16 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
     );
 }
 
-// --- Retry: transienter Lesefehler der Quelle → nichts wird sichtbar --------------
-
 #[test]
-fn ein_lesefehler_der_quelle_führt_zu_retry() {
-    let mut api = EinlesenTestApi::new()
-        .mit_zeile(Rohsatz::gültig())
-        .mit_quellenfehler("Quelle kurzzeitig nicht lesbar");
-
-    let ergebnis = api.ausführen(QUELLE);
+fn ungueltiger_payload_wird_zu_critical() {
+    // Slice-spezifische Blackbox: ein kaputter JSON-Payload einer
+    // `UmsätzeEinlesen`-Nachricht darf nicht als Warning/Retry laufen, sondern
+    // muss als Critical enden.
+    let api = EinlesenTestApi::new();
+    let ergebnis = api.ausführen_mit_payload(QUELLE, "{ kaputt-json".to_string());
 
     assert!(
-        matches!(ergebnis, Err(OutboxError::Retry { .. })),
-        "ein transienter Lesefehler muss Retry auslösen, war: {ergebnis:?}"
+        matches!(&ergebnis, Err(OutboxError::Critical { source, .. }) if source == "UmsätzeEinlesen"),
+        "ungültiger Payload muss als Critical enden, war: {ergebnis:?}"
     );
-    // Der Lesefehler fällt vor der Transaktion — nichts wird gestaget oder veröffentlicht.
-    assert!(api.gestagte_zeilen().is_empty());
-    assert!(api.veröffentlichte_eingelesen().is_empty());
 }

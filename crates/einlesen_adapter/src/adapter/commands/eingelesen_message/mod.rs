@@ -1,9 +1,9 @@
-use einlesen_domain::{Kalendertag, Richtung};
 use serde::Serialize;
 use shared_kernel::OutboxCommand;
 
-use crate::Zeile;
+use crate::abstractions::Kalendertag;
 use crate::eingelesen::MESSAGE_TYPE;
+use crate::zeile::{Richtung, Zeile};
 
 /// Das serialisierbare **Wire-DTO** des `Eingelesen`-Commands: die flache, serde-fähige
 /// Form, die io in die Outbox schreibt und der nächste Slice mit derselben Konvention wieder
@@ -48,7 +48,7 @@ impl EingelesenMessage {
 
 /// Flacht einen Kalendertag auf die ISO-Textform `JJJJ-MM-TT` ab.
 fn als_iso(tag: Kalendertag) -> String {
-    format!("{:04}-{:02}-{:02}", tag.jahr(), tag.monat(), tag.tag())
+    format!("{:04}-{:02}-{:02}", tag.jahr, tag.monat, tag.tag)
 }
 
 impl OutboxCommand for EingelesenMessage {
