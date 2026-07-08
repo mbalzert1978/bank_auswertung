@@ -99,64 +99,7 @@ cashflow + Pareto — valuable without the LLM). No binary yet.
 
 ## Language convention
 
-The project language is **German**: docs, the glossary, commit messages, and the
-**domain vocabulary in code** are German. Code identifiers split by whether they
-carry that vocabulary:
-
-- **Domain vocabulary (the ubiquitous language / UBQL, per
-  [CONTEXT.md](CONTEXT.md)) stays German** — types, their fields, noun-getters,
-  and every name _component_ that is a glossary term: `Buchung`, `Betrag`,
-  `Empfänger`, `Verwendungszweck`, `Buchungstext`/`Buchungsart`, `Gläubiger-ID`,
-  `Fingerabdruck`, `Umbuchung`, `Gebühr`, `Richtung`, `Gegenkonto`,
-  `Kategorie(Anfrage)`, `Währung`, … — do not anglicize them, and prefer the
-  glossary's chosen word over its listed _Avoid_ synonyms. "Structural
-  identifiers" (`strukturelle_identifikatoren`) counts as UBQL too — it names the
-  privacy concept CONTEXT.md defines.
-- **Every identifier that does NOT carry domain vocabulary is English** — in
-  particular constructors and utility/conversion methods, purely technical helper
-  types, and generic local/parameter names. Concretely: `::neu` is a no-go →
-  `::new`; likewise `as_str`, `inner`, `resolve`, `identity_key`, the shared
-  non-empty-text core `NonEmptyString`, and locals like `value`/`trimmed`. A
-  compound name is translated per component — keep the glossary noun, anglicize
-  the generic verb/preposition: `aus_buchung` → `from_buchung`,
-  `zu_kategorie_anfrage` → `to_kategorie_anfrage`.
-- **The deciding test: "must a domain expert read/understand this name?"** — yes
-  ⇒ UBQL, German; no (pure code mechanics) ⇒ English. It cuts _within_ a type: a
-  struct `Kontoauszug` and its domain action `Kontoauszug::drucken()` stay
-  German, but the technical `Kontoauszug::parse()` is English. **Function
-  internals** — locals, parameters, and technical helpers no domain expert reads
-  — are English **even inside a German-named function**:
-  `eingabe`/`normalisiert`/`länge`/`zeichen`/`länderkürzel_ok`/`prüfziffern_ok`
-  → `input`/`normalized`/`length`/`c`/`country_code_ok`/`check_digits_ok`. The
-  four architectural **ports** are a German-named category of their own
-  ([ADR-0001](docs/adr/0001-hexagonale-architektur.md): `Umsatzquelle`,
-  `Kategorisierer`, `Speicher`, `Bericht`); a new port and its immediate
-  vocabulary join it in German (e.g. `Konfigquelle`), even where the concept is
-  infrastructural.
-- **`#[test]` function names are fully German** — a test is living documentation
-  a domain expert reads, so the whole name is a German specification sentence,
-  verbs included: `negativer_betrag_ist_nicht_konstruierbar`,
-  `empfänger_ohne_gläubiger_id_wird_fail_safe_als_person_aufgelöst`,
-  `unbekannte_rolle_wird_abgelehnt`, `iban_mit_falscher_prüfsumme_wird_abgelehnt`.
-  This is the one deliberate exception to the "non-UBQL ⇒ English" rule above —
-  the name's job is to communicate the problem and the solution to a domain
-  expert, not to be code mechanics. **Test-internal helpers and port fakes**
-  (`fixture_konten`, an `iban(…)` builder, a `FileSource` fake, `dummy_path`) are
-  plumbing no domain expert reads → they keep the normal split (English mechanics,
-  German glossary nouns). Only German _artifact prose_ — doc comments and
-  assertion/`expect` messages — stays German everywhere.
-- **The crate/package names are English** — `shared_kernel`, `architecture`, and
-  the `<slice>_domain`/`_adapter`/`_specs` suffixes carry no glossary vocabulary,
-  so the rule applies to them like any other non-UBQL identifier. Only the slice
-  _stem_ that is a glossary term stays German (`eigene_konten`, `obfuskierung`).
-
-- Die **Ausgabesprache des Agenten** (Claude) ist in diesem Repository immer
-  **Deutsch** — unabhängig davon, in welcher Sprache der Nutzer schreibt. Das
-  gilt für alle Chat-Antworten des Agenten, zusätzlich zur obigen Regel, dass
-  Docs, Glossar, UBQL-Code-Bezeichner und Commit-Messages Deutsch sind (nicht vom
-  UBQL abhängige Bezeichner dagegen Englisch, z. B. `::neu` → `::new`);
-  domänenspezifische Begriffe aus [CONTEXT.md](CONTEXT.md) bleiben davon
-  unberührt (weiterhin exakt wie dort definiert, nicht eindeutschen).
+The project language is **German**, so all docs and tests are written in **German**. Everything else, including code, is written in **English**.
 
 ## Commands
 

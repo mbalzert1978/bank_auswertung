@@ -7,12 +7,14 @@ Transaktionen aus, ändert keine Kontodaten.
 ## Sprache
 
 > **Code-Bezeichner-Regel:** Die hier definierten Begriffe sind das
-> Domänenvokabular (UBQL) und bleiben im Code **deutsch** (Typen, Felder,
-> Substantiv-Getter, sowie deutsche Namensbestandteile). Bezeichner **ohne**
-> Domänenbezug — Konstruktoren, Utility-/Konvertierungsmethoden, technische
-> Hilfstypen, generische Lokal-/Parameternamen sowie Testnamen/-helfer — sind
-> dagegen **englisch** (z. B. `::neu` → `::new`). Nur deutsche _Artefakt-Prosa_
-> (Doc-Comments, `expect`-Meldungen) bleibt deutsch. Ausführlich im Abschnitt
+> Domänenvokabular (UBQL) und benennen die **Sprache** — Doc-Comments,
+> Testnamen/-helfer und `expect`-Meldungen bleiben **deutsch**. Der **Code**
+> dagegen ist durchgängig **englisch**: Typen, Felder, Varianten und Methoden
+> tragen englische Namen, die den deutschen Begriff übersetzen (im einlesen-Slice
+> z. B. „Empfänger" → `Recipient`, „Betrag" → `Amount`, „Richtung" → `Direction`
+> mit `Incoming`/`Outgoing`, „Verwendungszweck" → `Purpose`, „Buchungstext" →
+> `BookingText`, „Gläubiger-ID" → `CreditorId`, „Rohzeile" → `RawLine`). Kein
+> Deutsch im Code außer in Doc-Comments und Tests. Ausführlich im Abschnitt
 > „Language convention" von [CLAUDE.md](CLAUDE.md).
 
 **Buchung**:
