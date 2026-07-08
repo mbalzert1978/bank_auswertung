@@ -3,11 +3,11 @@
 //! [ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)).
 //!
 //! Der Kopf der event-getriebenen Pipeline liest Rohzeilen ein und deutet sie in ein
-//! `ZeilenAggregat` aus Wert-Typen, die sich **selbst** aus dem `NonEmptyString` parsen,
+//! `LineAggregate` aus Wert-Typen, die sich **selbst** aus dem `NonEmptyString` parsen,
 //! den die Domäne an ihrer Grenze anfordert (parse, don't validate) und dabei `Result`
 //! liefern; das Aggregat orchestriert seine Wert-Typen und kennt seine Grenzen (eine
-//! Zeile). Die Rohdaten bezieht es über den Port `Rohzeile` — **wie** eine Zeile
-//! adressiert wird, ist Sache des Adapters.
+//! Zeile). Die Rohdaten trägt der Batch als `RawLine`-Werte — **wie** eine Zeile
+//! adressiert und gelesen wird, ist Sache des Adapters.
 //!
 //! **Roh & obfuskierungs-frei:** die Domäne trägt rohe Werte (IBANs, Klarname)
 //! unverändert weiter — das Obfuskieren ist der nachgelagerte `obfuskieren`-Slice,
@@ -16,19 +16,21 @@
 //! durch die lokale Outbox — kein Egress.
 //!
 //! **Aufbau:** die Wert-Objekte liegen in `value_objects/`, die von der Domäne
-//! verlangten Ports in `ports/`, das Zeilen-Aggregat in `aggregate/`; `lib.rs` zieht die
-//! öffentlichen Typen auf Modulebene, sodass Konsumenten `einlesen_domain::Betrag`
-//! schreiben, nicht `einlesen_domain::value_objects::Betrag`.
+//! verlangten Ports in `ports/`, das Kommando samt Nutzlast in `commands/`, das
+//! Zeilen-Aggregat in `aggregate/`; `lib.rs` zieht die öffentlichen Typen auf
+//! Modulebene, sodass Konsumenten `einlesen_domain::Amount` schreiben, nicht
+//! `einlesen_domain::value_objects::Amount`.
 
 mod aggregate;
-mod fehler;
+mod commands;
+mod error;
+mod handler;
 mod ports;
 mod value_objects;
 
-pub use aggregate::ZeilenAggregat;
-pub use fehler::ZeilenError;
-pub use ports::{Kalender, Rohzeile};
-pub use value_objects::{
-    Betrag, Buchungstext, Datum, Empfänger, Empfängername, GläubigerId, Iban, Kalendertag,
-    NonEmptyString, Richtung, Verwendungszweck, Währung,
-};
+pub use aggregate::LineAggregate;
+pub use commands::{RawLine, ReadTransactions};
+pub use error::LineError;
+pub use handler::ReadHandler;
+pub use ports::{Calendar, EventSink, Store};
+pub use value_objects::{CalendarDay, Direction, NonEmptyString};
