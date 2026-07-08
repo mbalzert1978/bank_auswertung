@@ -118,8 +118,8 @@ mod tests {
         let kalender = crate::kalender_bridge::KalenderBridge {
             seam: &DeutscherKalenderSeam,
         };
-        let aggregat = ZeilenAggregat::aus_rohzeile(&gültiger_rohsatz(), &kalender)
-            .expect("gültige Zeile");
+        let aggregat =
+            ZeilenAggregat::aus_rohzeile(&gültiger_rohsatz(), &kalender).expect("gültige Zeile");
 
         let zeile = Zeile::aus_aggregat(&aggregat);
 
@@ -158,7 +158,8 @@ mod tests {
         rohsatz.gegenkonto = None;
         rohsatz.verwendungszweck = None;
         rohsatz.buchungstext = None;
-        let aggregat = ZeilenAggregat::aus_rohzeile(&rohsatz, &kalender).expect("Pflichtfelder gesetzt");
+        let aggregat =
+            ZeilenAggregat::aus_rohzeile(&rohsatz, &kalender).expect("Pflichtfelder gesetzt");
 
         let zeile = Zeile::aus_aggregat(&aggregat);
 
