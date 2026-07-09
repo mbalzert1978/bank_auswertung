@@ -65,7 +65,7 @@ fn erwartete_zeile() -> Line {
         amount_cent: 5_000,
         currency: Currency::Euro,
         direction: Direction::Outgoing,
-        recipient_name: "EDEKA SAGT DANKE".to_string(),
+        recipient_name: Some("EDEKA SAGT DANKE".to_string()),
         creditor_id: Some("DE98ZZZ09999999999".to_string()),
         booking_day: CalendarDay {
             year: 2024,

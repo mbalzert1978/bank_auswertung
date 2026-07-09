@@ -6,4 +6,5 @@ mod line;
 mod raw_record;
 
 pub use line::{Currency, Direction, Line};
+pub(crate) use raw_record::MissingMandatoryField;
 pub use raw_record::RawRecord;

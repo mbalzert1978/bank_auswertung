@@ -35,7 +35,9 @@ pub struct Line {
     pub amount_cent: u64,
     pub currency: Currency,
     pub direction: Direction,
-    pub recipient_name: String,
+    /// **Optional** — eine Entgelt-/Gebührenzeile bucht ohne Empfänger (siehe
+    /// `einlesen_domain::Recipient`); fehlt er, bleibt er `None`.
+    pub recipient_name: Option<String>,
     pub creditor_id: Option<String>,
     pub booking_day: CalendarDay,
     pub value_date: CalendarDay,
@@ -63,7 +65,7 @@ impl Line {
                 einlesen_domain::Direction::Incoming => Direction::Incoming,
                 einlesen_domain::Direction::Outgoing => Direction::Outgoing,
             },
-            recipient_name: recipient.name().as_str().to_string(),
+            recipient_name: recipient.name().map(|name| name.as_str().to_string()),
             creditor_id: recipient.creditor_id().map(|id| id.as_str().to_string()),
             booking_day: CalendarDay {
                 year: booking_day.year(),

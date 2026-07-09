@@ -1,3 +1,5 @@
+use std::fmt;
+
 use einlesen_domain::{NonEmptyString, RawLine};
 use serde::{Deserialize, Serialize};
 
@@ -24,26 +26,54 @@ pub struct RawRecord {
 }
 
 impl RawRecord {
-    /// Bildet den Wire-DTO auf den Domänen-VO [`RawLine`] ab (ACL, „außen → innen"):
-    /// jede rohe Zelle wird zu `Option<NonEmptyString>` am Domänen-Rand geprüft.
-    pub(crate) fn to_raw_line(&self) -> RawLine {
-        RawLine {
-            ordering_account: as_nonempty(&self.ordering_account),
-            booking_day: as_nonempty(&self.booking_day),
-            value_date: as_nonempty(&self.value_date),
-            amount: as_nonempty(&self.amount),
-            currency: as_nonempty(&self.currency),
+    /// Bildet den Wire-DTO auf den Domänen-VO [`RawLine`] ab (ACL, „außen → innen"). **Hier
+    /// erzwingt der Adapter die Präsenz** der Pflichtfelder: ein fehlendes/leeres Pflichtfeld
+    /// wird zu `Err(MissingMandatoryField)` (die Domäne *fordert* Präsenz im Typ, prüft sie
+    /// aber nicht — das ist ACL-Mechanik). Optionale Zellen werden zu `Option<NonEmptyString>`.
+    pub(crate) fn to_raw_line(&self) -> Result<RawLine, MissingMandatoryField> {
+        Ok(RawLine {
+            ordering_account: mandatory(&self.ordering_account, "ordering_account")?,
+            booking_day: mandatory(&self.booking_day, "booking_day")?,
+            value_date: mandatory(&self.value_date, "value_date")?,
+            amount: mandatory(&self.amount, "amount")?,
+            currency: mandatory(&self.currency, "currency")?,
             recipient_name: as_nonempty(&self.recipient_name),
             creditor_id: as_nonempty(&self.creditor_id),
             counter_account: as_nonempty(&self.counter_account),
             purpose: as_nonempty(&self.purpose),
             booking_text: as_nonempty(&self.booking_text),
-        }
+        })
     }
 }
 
-/// Reicht eine rohe Zelle als `NonEmptyString` an die Domänengrenze (leer/`None` → `None`); der
-/// `NonEmptyString`-Kern trimmt und weist Leeres genau hier ab.
+/// Ein Pflichtfeld fehlt (leer/nicht vorhanden) in der Rohzeile — **terminaler**
+/// Adapter-Fehler der „außen → innen"-Abbildung; die Consume-Bridge mappt ihn auf ein
+/// Dead-Letter. **Datenschutz (Redaktions-Invariante):** trägt **nur** den statischen
+/// Feldnamen, nie den Rohwert — auch `Debug` spiegelt so keinen Identifikator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MissingMandatoryField {
+    field: &'static str,
+}
+
+impl fmt::Display for MissingMandatoryField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "mandatory field missing: {}", self.field)
+    }
+}
+
+impl std::error::Error for MissingMandatoryField {}
+
+/// Erzwingt ein Pflichtfeld: reicht die Zelle als `NonEmptyString` an die Domänengrenze,
+/// oder — fehlt/leer sie — den redigierten [`MissingMandatoryField`] mit nur dem Feldnamen.
+fn mandatory(
+    raw: &Option<String>,
+    field: &'static str,
+) -> Result<NonEmptyString, MissingMandatoryField> {
+    as_nonempty(raw).ok_or(MissingMandatoryField { field })
+}
+
+/// Reicht eine optionale rohe Zelle als `NonEmptyString` an die Domänengrenze (leer/`None` →
+/// `None`); der `NonEmptyString`-Kern trimmt und weist Leeres genau hier ab.
 fn as_nonempty(raw: &Option<String>) -> Option<NonEmptyString> {
     raw.as_deref().and_then(NonEmptyString::new)
 }

@@ -5,7 +5,7 @@ use einlesen_domain::{LineError, ReadHandler, ReadTransactions};
 use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 
 use crate::commands::ReadTransactionsMessage;
-use crate::dto::RawRecord;
+use crate::dto::{MissingMandatoryField, RawRecord};
 
 /// Die **Consume-Bridge**: der öffentliche Outbox-Seam für `ReadTransactions`-Nachrichten.
 /// Deserialisiert den Envelope-Inhalt (JSON, [`outbox_payload`](shared_kernel::outbox_payload)-
@@ -30,10 +30,18 @@ impl TypedOutboxHandler for ConsumeBridge<'_> {
     }
 
     fn dispatch(&self, request: Self::Request) -> Result<(), Self::Error> {
-        let lines = request.lines.iter().map(RawRecord::to_raw_line).collect();
+        // Erst **den ganzen Batch** „außen → innen" abbilden: fehlt *irgendwo* ein Pflichtfeld,
+        // scheitert das `collect` und der **ganze** Batch dead-lettert (batch-atomar), bevor der
+        // Handler eine einzige Zeile deutet.
+        let lines = request
+            .lines
+            .iter()
+            .map(RawRecord::to_raw_line)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(TerminalError::MissingField)?;
         self.handler
             .handle(ReadTransactions::new(lines))
-            .map_err(TerminalError)
+            .map_err(TerminalError::Line)
     }
 }
 
@@ -43,16 +51,25 @@ impl OutboxHandler for ConsumeBridge<'_> {
     }
 }
 
-/// Lokaler Fehler-Wrapper um den terminalen `LineError` (Orphan-Regel: weder `LineError`
-/// (Domäne) noch `OutboxError` (Kernel) sind lokal — dieser Newtype ist es, und macht
-/// `impl From<...>` in beide Richtungen zulässig). Jeder Aggregat-Fehler ist terminal →
-/// Dead-Letter.
+/// Lokaler Fehler-Wrapper über die **zwei** terminalen Quellen des Slice: ein fehlendes
+/// Pflichtfeld der ACL-Abbildung ([`MissingMandatoryField`]) und ein Deutungs-Fehler der
+/// Domäne (`LineError`). Beide sind terminal → Dead-Letter. Der lokale Typ trägt zugleich die
+/// Orphan-Regel: weder Domänen- noch Kernel-Fehler sind lokal, dieser Newtype ist es und macht
+/// das `impl From<TerminalError> for OutboxError` zulässig.
 #[derive(Debug)]
-pub(crate) struct TerminalError(LineError);
+pub(crate) enum TerminalError {
+    /// Ein Pflichtfeld fehlte in der Rohzeile (Adapter-ACL, vor dem Deuten).
+    MissingField(MissingMandatoryField),
+    /// Ein vorhandener Wert war nicht deutbar (Domäne).
+    Line(LineError),
+}
 
 impl fmt::Display for TerminalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        match self {
+            TerminalError::MissingField(error) => write!(f, "{error}"),
+            TerminalError::Line(error) => write!(f, "{error}"),
+        }
     }
 }
 
@@ -60,10 +77,10 @@ impl std::error::Error for TerminalError {}
 
 impl From<TerminalError> for OutboxError {
     fn from(error: TerminalError) -> Self {
-        // Der Grund ist der **redigierte** LineError (kein Rohwert) — ein Spaltenverschub
-        // leakt so keine IBAN in die persistierte Dead-Letter-Meldung.
+        // Der Grund ist die **redigierte** Meldung (Feldname bzw. Fehlerart, nie ein Rohwert)
+        // — ein Spaltenverschub leakt so keine IBAN in die persistierte Dead-Letter-Meldung.
         OutboxError::Warning {
-            reason: error.0.to_string(),
+            reason: error.to_string(),
         }
     }
 }

@@ -1,5 +1,4 @@
 use super::NonEmptyString;
-use crate::error::LineError;
 
 /// Die **Gläubiger-Identifikation** (SEPA Creditor ID) einer Firma — der eine
 /// strukturelle Identifikator, der die Maschine verlassen darf: eine öffentliche
@@ -38,8 +37,14 @@ impl RecipientName {
     }
 }
 
-/// Die Gegenpartei einer Buchung — **roh** getragen: ihr Name (Pflicht, wichtigstes
-/// Kategorie-Signal) und, falls der Datensatz sie führt, ihre `CreditorId`.
+/// Die Gegenpartei einer Buchung — **roh** getragen: ihr Name (**optional**, aber das
+/// wichtigste Kategorie-Signal) und, falls der Datensatz sie führt, ihre `CreditorId`.
+///
+/// **Warum der Name optional ist:** nicht jede Buchung hat eine Gegenpartei — eine
+/// Entgelt-/Gebührenzeile (z. B. `ENTGELTABSCHLUSS`, Zweck „Entgeltabrechnung siehe
+/// Anlage") bucht die Bank auf das eigene Konto **ohne Empfänger**. Ein Pflichtfeld würde
+/// genau solche Zeilen dead-lettern und damit ein Kern-Analyseziel (Gebühren-/
+/// Umbuchungskosten, CONTEXT.md) verfehlen. Fehlt der Name, bleibt er `None`.
 ///
 /// Die Einlese-Stufe **deutet nicht**, ob Firma oder Privatperson. Diese
 /// Unterscheidung ist laut CONTEXT.md bewusst **heuristisch und fail-safe**: nur eine
@@ -47,29 +52,25 @@ impl RecipientName {
 /// Person (es könnte eine per Überweisung zahlende Firma sein). Weil sie damit nicht
 /// sicher validierbar ist und über das Pseudonymisieren entscheidet, gehört sie in
 /// den nachgelagerten `obfuskieren`-Slice — `einlesen` reicht nur die validierten
-/// Rohdaten weiter. Das `Option`-Feld ist deshalb kein Zustands-Flag (ADR-0005),
-/// sondern ein genuin optionales Datenfeld; der Summentyp Firma/Person entsteht erst
+/// Rohdaten weiter. Beide `Option`-Felder sind deshalb kein Zustands-Flag (ADR-0005),
+/// sondern genuin optionale Datenfelder; der Summentyp Firma/Person entsteht erst
 /// dort, wo die Deutung fällt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipient {
-    name: RecipientName,
+    name: Option<RecipientName>,
     creditor_id: Option<CreditorId>,
 }
 
 impl Recipient {
-    /// Baut die Gegenpartei aus ihren — bereits nicht-leeren — Teilen. Der Name ist
-    /// Pflicht: sein Fehlen (`None`) heißt keine identifizierbare Gegenpartei
-    /// (`RecipientMissing`, terminal). Eine fehlende Gläubiger-ID ist kein Fehler.
-    pub fn from_parts(
-        name: Option<RecipientName>,
-        creditor_id: Option<CreditorId>,
-    ) -> Result<Self, LineError> {
-        let name = name.ok_or(LineError::RecipientMissing)?;
-        Ok(Self { name, creditor_id })
+    /// Baut die Gegenpartei aus ihren — bereits nicht-leeren — Teilen. Beide sind genuin
+    /// optional: ein fehlender Name (`None`) heißt eine Buchung ohne Gegenpartei (Gebühr),
+    /// kein Fehler; eine fehlende Gläubiger-ID ebenso wenig.
+    pub fn from_parts(name: Option<RecipientName>, creditor_id: Option<CreditorId>) -> Self {
+        Self { name, creditor_id }
     }
 
-    pub fn name(&self) -> &RecipientName {
-        &self.name
+    pub fn name(&self) -> Option<&RecipientName> {
+        self.name.as_ref()
     }
 
     pub fn creditor_id(&self) -> Option<&CreditorId> {

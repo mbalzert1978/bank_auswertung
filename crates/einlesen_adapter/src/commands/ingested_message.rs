@@ -24,7 +24,9 @@ pub(crate) struct IngestedMessage {
     /// Betrag stromabwärts deutbar bleibt (round-trippt mit `Currency::from_code`).
     currency: &'static str,
     direction: &'static str,
-    recipient_name: String,
+    /// **Optional** — eine Gebührenzeile bucht ohne Empfänger (siehe [`Line`]); fehlt er,
+    /// serialisiert das Feld als `null`.
+    recipient_name: Option<String>,
     creditor_id: Option<String>,
     booking_day: String,
     value_date: String,
