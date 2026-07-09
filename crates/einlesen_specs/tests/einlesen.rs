@@ -99,6 +99,16 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
             "DE89370400440532013000"
         ]
     );
+    // Aggregat **und** Ereignis werden atomar gestaged (ADR-0008): je gültiger Zeile liegt ihr
+    // Auftragskonto am Speicher-Seam — in Lesereihenfolge, nicht nur der Fan-out stromabwärts.
+    assert_eq!(
+        api.stored_ordering_accounts(),
+        vec![
+            "DE89370400440532013000",
+            "DE89370400440532013000",
+            "DE89370400440532013000"
+        ]
+    );
 }
 
 // --- Eine ungültige Zeile: terminaler Fehler bubblet auf (io dead-lettert) ---------
@@ -121,6 +131,9 @@ fn eine_zeile_ohne_betrag_scheitert_terminal() {
     );
     assert!(api.published_message_types().is_empty());
     assert!(api.published_partition_keys().is_empty());
+    // Beim terminalen Abbruch wird **nichts** gestaged — weder Ereignis noch Aggregat (die
+    // Arbeitseinheit umschließt erst die vollständig gültigen Aggregate, den Commit besorgt io).
+    assert!(api.stored_ordering_accounts().is_empty());
 }
 
 #[test]
