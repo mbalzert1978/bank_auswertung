@@ -5,5 +5,5 @@
 mod line;
 mod raw_record;
 
-pub use line::{Direction, Line};
+pub use line::{Currency, Direction, Line};
 pub use raw_record::RawRecord;

@@ -18,7 +18,7 @@
 //! **Genau ein öffentlicher Zugang** (Direktive: eine Adapter-Grenze): die [`ReadTestApi`],
 //! die DTOs ([`Line`], [`RawRecord`]) und die öffentlichen Abstractions
 //! ([`CalendarSeam`] + sein Rückgabetyp [`CalendarDay`], [`MoneySeam`] + seine Rückgabetypen
-//! [`DecodedAmount`]/[`Sign`]) — dazu das adapter-eigene [`Direction`].
+//! [`DecodedAmount`]/[`Sign`]) — dazu die adapter-eigenen [`Direction`]/[`Currency`].
 //! **Alles andere ist crate-privat**: der Handler, alle Bridges, die adapter-lokalen Wire-DTOs
 //! (`ReadTransactionsMessage`/`IngestedMessage`) und die Fakes — keiner dieser Typen ist von
 //! außen erreichbar. Weder `Direction` noch `CalendarDay` der Domäne werden re-exportiert —
@@ -36,5 +36,5 @@ mod dto;
 mod testapi;
 
 pub use abstractions::{CalendarDay, CalendarSeam, DecodedAmount, MoneySeam, Sign};
-pub use dto::{Direction, Line, RawRecord};
+pub use dto::{Currency, Direction, Line, RawRecord};
 pub use testapi::ReadTestApi;

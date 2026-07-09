@@ -4,7 +4,7 @@ use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 use super::fakes::{FakeCalendarSeam, FakeMoneySeam, FakeOutboxPublisher, FakeStoreSeam};
 use crate::bridges::{CalendarBridge, ConsumeBridge, IngestedPublisher, MoneyBridge, StoreBridge};
 use crate::commands::read_transactions_message::{self, ReadTransactionsMessage};
-use crate::dto::RawRecord;
+use crate::dto::{Line, RawRecord};
 
 /// Fluent-TestApi des einlesen-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md)):
 /// die **Eingangsfläche spricht nur DTOs** (`RawRecord` arrangieren), `run` fährt dann eine
@@ -90,6 +90,13 @@ impl ReadTestApi {
     /// Reihenfolge — so prüft ein Spec, dass je gültiger Zeile persistiert wurde.
     pub fn stored_ordering_accounts(&self) -> Vec<String> {
         self.store_seam.ordering_accounts()
+    }
+
+    /// Die **gestageten** [`Line`]-DTOs am Speicher-Seam, in Lesereihenfolge — so prüft ein
+    /// Spec die Feld-Treue der Projektion (alle Felder inkl. Währung und Optional-`none`) am
+    /// realen Durchlauf, am konkreten DTO statt per generischem Serialisieren.
+    pub fn stored_lines(&self) -> Vec<Line> {
+        self.store_seam.lines()
     }
 }
 

@@ -17,15 +17,17 @@
 //! **alles-oder-nichts** — die erste terminal ungültige Zeile lässt den ganzen Lauf aussteigen
 //! (nichts wird veröffentlicht), sonst laufen alle Zeilen durch.
 //!
-//! **Feld-Treue der `Line`-Projektion** (originalgetreue Übernahme aller Felder,
-//! Pflicht-/Optional-Verhalten) ist **kein** Blackbox-Szenario mehr: sie ist ein direkter
-//! Unit-Test von `Line::from_aggregate` im Adapter (`crates/einlesen_adapter/src/dto/line.rs`) —
-//! reine Mapping-Algorithmik, kein Pipeline-Verhalten.
+//! **Feld-Treue der `Line`-Projektion** (originalgetreue Übernahme **aller** Felder inkl.
+//! Währung, Pflicht-/Optional-Verhalten) ist ein **Blackbox-Szenario**: `RawRecord` arrangieren,
+//! `run` **einmal real** fahren, die gestagete `Line` am Speicher-Seam (`stored_lines`)
+//! assertieren — kein Unit-Test der Projektion, sondern beobachtetes Pipeline-Verhalten. Das
+//! ausgehende DTO wird am **konkreten** Seam-Typ beobachtet, nicht per generischem Serialisieren
+//! (der `OutboxPublisher::publish`-Seam trägt bewusst keine `Serialize`-Schranke).
 //!
 //! **`RawRecord` trägt keine Test-Ergonomie** (bewusst): die Fixture unten ist spec-lokal, nicht
 //! Teil der Adapter-API.
 
-use einlesen_adapter::{RawRecord, ReadTestApi};
+use einlesen_adapter::{CalendarDay, Currency, Direction, Line, RawRecord, ReadTestApi};
 use shared_kernel::OutboxError;
 
 /// Die Quelle, aus der eine `ReadTransactions`-Nachricht ihren Batch bezieht (Aggregat-/
@@ -50,6 +52,33 @@ fn gültiger_rohsatz() -> RawRecord {
         counter_account: feld("DE11520513735120710131"),
         purpose: feld("Einkauf"),
         booking_text: feld("LASTSCHRIFT"),
+    }
+}
+
+/// Die erwartete Projektion des [`gültiger_rohsatz`] auf das ausgehende `Line`-DTO — spec-lokale
+/// Fixture, damit die Feld-Treue-Specs eine **ganze** `Line` vergleichen (`assert_eq!`), statt
+/// Feld für Feld zu assertieren. Die `Line`-Felder sind `pub`, ein Struct-Literal genügt.
+fn erwartete_zeile() -> Line {
+    Line {
+        ordering_account: "DE89370400440532013000".to_string(),
+        counter_account: Some("DE11520513735120710131".to_string()),
+        amount_cent: 5_000,
+        currency: Currency::Euro,
+        direction: Direction::Outgoing,
+        recipient_name: "EDEKA SAGT DANKE".to_string(),
+        creditor_id: Some("DE98ZZZ09999999999".to_string()),
+        booking_day: CalendarDay {
+            year: 2024,
+            month: 6,
+            day: 13,
+        },
+        value_date: CalendarDay {
+            year: 2024,
+            month: 6,
+            day: 14,
+        },
+        purpose: Some("Einkauf".to_string()),
+        booking_text: Some("LASTSCHRIFT".to_string()),
     }
 }
 
@@ -109,6 +138,44 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
             "DE89370400440532013000"
         ]
     );
+}
+
+// --- Feld-Treue: die gestagete Zeile übernimmt alle Felder originalgetreu ----------
+// Realer Durchlauf, Beobachtung am konkreten `Line`-DTO des Speicher-Seams (`stored_lines`):
+// jedes projizierte Feld — inkl. der **Währung** neben dem Cent-Betrag — kommt originalgetreu an.
+
+#[test]
+fn die_gestagte_zeile_übernimmt_alle_felder_originalgetreu() {
+    let api = ReadTestApi::new().with_line(gültiger_rohsatz());
+
+    api.run(QUELLE).expect("gültige Zeile");
+
+    // Die gestagete `Line` als Ganzes gegen die erwartete Projektion — ein `assert_eq!` statt
+    // Feld-für-Feld, inkl. der Währung neben dem Cent-Betrag.
+    assert_eq!(api.stored_lines(), vec![erwartete_zeile()]);
+}
+
+// --- Feld-Treue: fehlende Optionalfelder werden als `none` gestaged ----------------
+
+#[test]
+fn fehlende_optionalfelder_werden_als_none_gestaged() {
+    let mut rohsatz = gültiger_rohsatz();
+    rohsatz.counter_account = None;
+    rohsatz.purpose = None;
+    rohsatz.booking_text = None;
+    let api = ReadTestApi::new().with_line(rohsatz);
+
+    api.run(QUELLE).expect("Pflichtfelder gesetzt");
+
+    // Erwartung = dieselbe Projektion, nur die drei Optionalfelder auf `None` (Struct-Update);
+    // der Ganz-`Line`-Vergleich beweist zugleich, dass **nur** diese Felder `none` werden.
+    let erwartet = Line {
+        counter_account: None,
+        purpose: None,
+        booking_text: None,
+        ..erwartete_zeile()
+    };
+    assert_eq!(api.stored_lines(), vec![erwartet]);
 }
 
 // --- Redaktion: der Dead-Letter-Grund spiegelt keinen Rohwert ----------------------

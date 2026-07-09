@@ -2,7 +2,7 @@ use serde::Serialize;
 use shared_kernel::OutboxCommand;
 
 use crate::abstractions::CalendarDay;
-use crate::dto::{Direction, Line};
+use crate::dto::{Currency, Direction, Line};
 
 /// Der Dispatch-Key des ausgehenden Commands — die **eine** Quelle, auf die der Outbox-Prozessor
 /// des nachgelagerten Slice seine Consume-Bridge auflöst. Das Domänen-Aggregat `LineAggregate`
@@ -20,6 +20,9 @@ pub(crate) struct IngestedMessage {
     ordering_account: String,
     counter_account: Option<String>,
     amount_cent: u64,
+    /// Die Währung als ISO-Code (`EUR`) — reist **neben** dem Cent-Betrag mit, damit der
+    /// Betrag stromabwärts deutbar bleibt (round-trippt mit `Currency::from_code`).
+    currency: &'static str,
     direction: &'static str,
     recipient_name: String,
     creditor_id: Option<String>,
@@ -36,6 +39,9 @@ impl IngestedMessage {
             ordering_account: line.ordering_account.clone(),
             counter_account: line.counter_account.clone(),
             amount_cent: line.amount_cent,
+            currency: match line.currency {
+                Currency::Euro => "EUR",
+            },
             direction: match line.direction {
                 Direction::Incoming => "Incoming",
                 Direction::Outgoing => "Outgoing",
