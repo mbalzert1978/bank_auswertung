@@ -1,10 +1,10 @@
 /// Ein einzelner Kalendertag als reine Wert-Bestandteile (Jahr/Monat/Tag) —
-/// **dependency-frei** getragen (die Domäne bindet kein `chrono`). Die *feine*
-/// Kalender-Gültigkeit (dass es keinen 30. Februar gibt) garantiert der `Calendar`-Port,
-/// hinter dem in `io` `chrono` steckt; dieses Wert-Objekt prüft im Konstruktor nur die
-/// groben Feld-Bereiche (Monat `1..=12`, Tag `1..=31`) und trägt danach den Beweis.
-/// Jahr/Monat/Tag geben Zahlen heraus, weil die spätere Rhythmus-Erkennung (`auswerten`)
-/// auf Monat und Jahr rechnet.
+/// **dependency-frei** getragen (die Domäne bindet kein `chrono`). Die **gesamte**
+/// Kalender-Gültigkeit — Feld-Bereiche (Monat `1..=12`, Tag `1..=31`) **wie** die feine
+/// Regel (keinen 30. Februar) — garantiert der `Calendar`-Port, hinter dem in `io`
+/// `chrono` steckt; ein ungültiges Datum hat den Port schon als `None` verlassen. Dieses
+/// Wert-Objekt bündelt danach nur die geprüften Bestandteile. Jahr/Monat/Tag geben Zahlen
+/// heraus, weil die spätere Rhythmus-Erkennung (`auswerten`) auf Monat und Jahr rechnet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CalendarDay {
     year: u16,
@@ -13,17 +13,12 @@ pub struct CalendarDay {
 }
 
 impl CalendarDay {
-    /// Baut einen Kalendertag aus seinen Bestandteilen — der Konstruktor, den der
-    /// `Calendar`-Port (in `io`, mit `chrono`) nach dem Deuten aufruft. Grobe
-    /// Bereichsprüfung; ein unmöglicher Monat/Tag ergibt **kein** Datum (`None`). Die
-    /// terminale `BookingDayInvalid`/`ValueDateInvalid`-Meldung erzeugt der Aufrufer (das
-    /// Aggregat), nicht dieser Konstruktor — so trägt er keinen Slice-Fehler.
-    pub fn from_parts(year: u16, month: u8, day: u8) -> Option<Self> {
-        if (1..=12).contains(&month) && (1..=31).contains(&day) {
-            Some(Self { year, month, day })
-        } else {
-            None
-        }
+    /// Bündelt die Bestandteile eines **bereits gültigen** Kalendertags — der Konstruktor,
+    /// den der `Calendar`-Port (in `io`, mit `chrono`) nach dem erfolgreichen Deuten aufruft.
+    /// **Unfehlbar:** die Gültigkeit (inkl. Bereich) prüft der Port, ein ungültiges Datum ist
+    /// dort schon `None` geworden; hier gibt es nichts mehr abzuweisen.
+    pub fn from_parts(year: u16, month: u8, day: u8) -> Self {
+        Self { year, month, day }
     }
 
     pub fn year(&self) -> u16 {

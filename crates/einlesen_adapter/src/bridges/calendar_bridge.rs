@@ -13,7 +13,10 @@ pub(crate) struct CalendarBridge<'a, S: CalendarSeam> {
 
 impl<S: CalendarSeam> Calendar for CalendarBridge<'_, S> {
     fn parse(&self, raw: &NonEmptyString) -> Option<CalendarDay> {
-        let parts = self.seam.parse(raw.as_str())?;
-        CalendarDay::from_parts(parts.year, parts.month, parts.day)
+        // Der Seam trägt die **ganze** Gültigkeit (inkl. Bereich): ein ungültiges Datum ist
+        // schon `None`. Bleibt es `Some`, bündelt der (nun unfehlbare) Konstruktor die Teile.
+        self.seam
+            .parse(raw.as_str())
+            .map(|parts| CalendarDay::from_parts(parts.year, parts.month, parts.day))
     }
 }
