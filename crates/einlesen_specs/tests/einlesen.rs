@@ -24,6 +24,14 @@
 //! ausgehende DTO wird am **konkreten** Seam-Typ beobachtet, nicht per generischem Serialisieren
 //! (der `OutboxPublisher::publish`-Seam trägt bewusst keine `Serialize`-Schranke).
 //!
+//! **Was hier sehr wohl abgelehnt wird — und warum das Slice-Verhalten ist:** die *Präsenz*
+//! eines Pflichtfelds erzwingt der **Adapter** (ACL, „außen → innen": `RawRecord` → `RawLine`);
+//! fehlt eins, dead-lettert der **ganze** Batch redigiert (nur Feldname, nie ein Rohwert). Das
+//! ist beobachtbares Slice-Verhalten, kein io-Detail — darum prüfen Specs es. Ebenso ist
+//! „unbekannte Währung" eine **Domänen**-Deutungsentscheidung (`Currency::from_code`), kein
+//! Format-/Präsenz-Check. Weiterhin **nicht** getestet wird reine io-Mechanik (Datei lesen,
+//! echtes Dekodieren von deutschem Datum/Zahlenformat) — die liegt hinter den Seams.
+//!
 //! **`RawRecord` trägt keine Test-Ergonomie** (bewusst): die Fixture unten ist spec-lokal, nicht
 //! Teil der Adapter-API.
 
@@ -200,4 +208,69 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
         matches!(&ergebnis, Err(OutboxError::Warning { reason }) if !reason.contains(leck)),
         "der Dead-Letter-Grund leakt den Rohwert: {ergebnis:?}"
     );
+}
+
+// --- Präsenz: ein fehlendes Pflichtfeld lettert den GANZEN Batch ins Dead-Letter ---------
+// Die Präsenz eines Pflichtfelds erzwingt der Adapter (ACL). Fehlt eins irgendwo, scheitert die
+// „außen → innen"-Abbildung des Batches, bevor der Handler eine Zeile deutet — batch-atomar:
+// nichts wird gestaged/veröffentlicht, auch nicht die gültige Zeile daneben. Der Grund ist
+// redigiert (nur der Feldname).
+
+#[test]
+fn ein_fehlendes_pflichtfeld_lettert_den_ganzen_batch() {
+    let gültige = gültiger_rohsatz();
+    let mut ohne_betrag = gültiger_rohsatz();
+    ohne_betrag.amount = None;
+    let api = ReadTestApi::new().with_line(gültige).with_line(ohne_betrag);
+
+    let ergebnis = api.run(QUELLE);
+
+    // Dead-Letter, dessen Grund nur den Feldnamen benennt (kein Rohwert).
+    assert!(
+        matches!(&ergebnis, Err(OutboxError::Warning { reason }) if reason.contains("amount")),
+        "erwartet redigierter Dead-Letter (nur Feldname): {ergebnis:?}"
+    );
+    // Batch-atomar: nichts wird gestaged oder veröffentlicht — auch die gültige Zeile nicht.
+    assert!(api.stored_lines().is_empty());
+    assert!(api.published_message_types().is_empty());
+}
+
+// --- Optionaler Empfänger: eine Gebührenzeile ohne Empfänger läuft durch -----------------
+// Eine Entgelt-/Gebührenzeile hat keine Gegenpartei (B2); der Empfängername ist optional. Die
+// Zeile wird **nicht** abgewiesen, sondern mit `recipient_name == None` gestaged. Der
+// Ganz-`Line`-Vergleich beweist zugleich, dass **nur** dieses Feld `None` wird.
+
+#[test]
+fn eine_gebührenzeile_ohne_empfänger_wird_ohne_namen_gestaged() {
+    let mut gebühr = gültiger_rohsatz();
+    gebühr.recipient_name = None;
+    let api = ReadTestApi::new().with_line(gebühr);
+
+    api.run(QUELLE)
+        .expect("optionaler Empfänger fehlt — kein Fehler");
+
+    let erwartet = Line {
+        recipient_name: None,
+        ..erwartete_zeile()
+    };
+    assert_eq!(api.stored_lines(), vec![erwartet]);
+}
+
+// --- Deutung: eine unbekannte Währung lettert ins Dead-Letter ----------------------------
+// „Kennt die Domäne diese Währung?" ist eine Domänen-Deutungsentscheidung (`Currency::from_code`),
+// kein Präsenz-/Format-Check: die Zelle ist da, aber nicht deutbar → terminaler `CurrencyUnknown`.
+
+#[test]
+fn eine_unbekannte_währung_lettert_ins_dead_letter() {
+    let mut rohsatz = gültiger_rohsatz();
+    rohsatz.currency = feld("XYZ");
+    let api = ReadTestApi::new().with_line(rohsatz);
+
+    let ergebnis = api.run(QUELLE);
+
+    assert!(
+        matches!(&ergebnis, Err(OutboxError::Warning { .. })),
+        "erwartet Dead-Letter bei unbekannter Währung: {ergebnis:?}"
+    );
+    assert!(api.stored_lines().is_empty());
 }
