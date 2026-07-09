@@ -51,12 +51,6 @@ impl ReadTestApi {
             message: format!("ReadTransactions not serializable: {error}"),
             source: read_transactions_message::MESSAGE_TYPE.to_string(),
         })?;
-        self.run_with_payload(source, content)
-    }
-
-    /// Fährt dieselbe Bridge-Kette wie [`run`](Self::run), aber mit
-    /// frei vorgegebenem Outbox-`content` (z. B. für ungültige Payload-Tests).
-    pub fn run_with_payload(&self, source: &str, content: String) -> Result<(), OutboxError> {
         let calendar = CalendarBridge {
             seam: &self.calendar_seam,
         };

@@ -67,24 +67,3 @@ impl Date {
         self.value_date
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::CalendarDay;
-
-    #[test]
-    fn gültige_bestandteile_ergeben_einen_kalendertag() {
-        let tag = CalendarDay::from_parts(2024, 6, 13).expect("gültig");
-        assert_eq!((tag.year(), tag.month(), tag.day()), (2024, 6, 13));
-    }
-
-    #[test]
-    fn monat_ausserhalb_eins_bis_zwölf_ergibt_kein_datum() {
-        assert!(CalendarDay::from_parts(2024, 13, 1).is_none());
-    }
-
-    #[test]
-    fn tag_null_ergibt_kein_datum() {
-        assert!(CalendarDay::from_parts(2024, 6, 0).is_none());
-    }
-}

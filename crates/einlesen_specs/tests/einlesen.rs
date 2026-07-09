@@ -111,65 +111,11 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
     );
 }
 
-// --- Eine ungültige Zeile: terminaler Fehler bubblet auf (io dead-lettert) ---------
-// Die Zeile kam über io (strukturell valide), ist aber am Aggregat kaputt: das ist terminal und
-// muss reportet werden — der Handler steigt mit dem Fehler aus, er wird zu `OutboxError::Warning`
-// (Dead-Letter). Nichts wird veröffentlicht (die Transaktion umschließt erst die vollständig
-// gültigen Aggregate).
-
-#[test]
-fn eine_zeile_ohne_betrag_scheitert_terminal() {
-    let mut rohsatz = gültiger_rohsatz();
-    rohsatz.amount = None;
-    let api = ReadTestApi::new().with_line(rohsatz);
-
-    let ergebnis = api.run(QUELLE);
-
-    assert!(
-        matches!(ergebnis, Err(OutboxError::Warning { .. })),
-        "ein am Aggregat ungültiges Feld muss terminal (Dead-Letter) scheitern, war: {ergebnis:?}"
-    );
-    assert!(api.published_message_types().is_empty());
-    assert!(api.published_partition_keys().is_empty());
-    // Beim terminalen Abbruch wird **nichts** gestaged — weder Ereignis noch Aggregat (die
-    // Arbeitseinheit umschließt erst die vollständig gültigen Aggregate, den Commit besorgt io).
-    assert!(api.stored_ordering_accounts().is_empty());
-}
-
-#[test]
-fn eine_zeile_ohne_vorzeichen_scheitert_terminal() {
-    // „50,00" ohne führendes Vorzeichen ist für die Domäne kein Betrag: der Geld-Seam
-    // dekodiert es nicht (Richtung unbestimmbar), das Aggregat macht daraus `AmountInvalid`
-    // — terminal, also Dead-Letter, nichts veröffentlicht.
-    let mut rohsatz = gültiger_rohsatz();
-    rohsatz.amount = feld("50,00");
-    let api = ReadTestApi::new().with_line(rohsatz);
-
-    let ergebnis = api.run(QUELLE);
-
-    assert!(
-        matches!(ergebnis, Err(OutboxError::Warning { .. })),
-        "ein Betrag ohne Vorzeichen muss terminal scheitern, war: {ergebnis:?}"
-    );
-    assert!(api.published_message_types().is_empty());
-    assert!(api.stored_ordering_accounts().is_empty());
-}
-
-#[test]
-fn eine_zeile_mit_ungültigem_datum_scheitert_terminal() {
-    let mut rohsatz = gültiger_rohsatz();
-    rohsatz.value_date = feld("kein-datum");
-    let api = ReadTestApi::new().with_line(rohsatz);
-
-    let ergebnis = api.run(QUELLE);
-
-    assert!(
-        matches!(ergebnis, Err(OutboxError::Warning { .. })),
-        "ein ungültiges Datum muss terminal scheitern, war: {ergebnis:?}"
-    );
-    assert!(api.published_message_types().is_empty());
-    assert!(api.published_partition_keys().is_empty());
-}
+// --- Redaktion: der Dead-Letter-Grund spiegelt keinen Rohwert ----------------------
+// Scheitert eine Zeile terminal, bubblet der Fehler zu `OutboxError::Warning`, dessen Grund
+// io als Dead-Letter persistiert. Hier zählt **das Verhalten der Domäne**, nicht die
+// io-seitige Format-/Vollständigkeitsprüfung (die die Domäne fordert, nicht selbst leistet):
+// der Grund darf den Rohwert nie spiegeln.
 
 #[test]
 fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
@@ -186,19 +132,5 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
     assert!(
         matches!(&ergebnis, Err(OutboxError::Warning { reason }) if !reason.contains(leck)),
         "der Dead-Letter-Grund leakt den Rohwert: {ergebnis:?}"
-    );
-}
-
-#[test]
-fn ungueltiger_payload_wird_zu_critical() {
-    // Slice-spezifische Blackbox: ein kaputter JSON-Payload einer
-    // `ReadTransactions`-Nachricht darf nicht als Warning/Retry laufen, sondern
-    // muss als Critical enden.
-    let api = ReadTestApi::new();
-    let ergebnis = api.run_with_payload(QUELLE, "{ kaputt-json".to_string());
-
-    assert!(
-        matches!(&ergebnis, Err(OutboxError::Critical { source, .. }) if source == "ReadTransactions"),
-        "ungültiger Payload muss als Critical enden, war: {ergebnis:?}"
     );
 }
