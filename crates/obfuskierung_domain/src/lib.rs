@@ -1,27 +1,32 @@
 //! Obfuskierungs-Slice — **Domäne** (blind, ohne interne Dependencies,
-//! [ADR-0007](../../../docs/adr/0007-modularer-monolith-feature-slices.md)).
+//! [ADR-0007](../../../docs/adr/0007-modularer-monolith-feature-slices.md) /
+//! [ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)).
 //!
-//! Fachlicher Kern: die First-Seen-Vergabe stabiler Ersatz-Token für eigene
-//! Konten (`KONTO_x`) und Personen (`PERSON_x`) sowie der Freitext-Engpass. Rohe
-//! Identifikatoren gehen hinein, heraus kommen nur die obfuskierten Token-Werte
-//! [`KontoIdEntity`]/[`PseudonymEntity`]/[`ObfuskierterTextEntity`].
+//! Der zweite Pipeline-Schritt und die **Datenschutz-Grenze**. Der [`ObfuscationHandler`]
+//! orchestriert wie der `ReadHandler` gegen verlangte Ports: er **liest** das rohe Aggregat per ID
+//! aus dem einlesen-Speicher ([`RawBookingSource`]), **obfuskiert** es seed-basiert
+//! ([`Obfuscator`]), **legt** es ins Repository ([`ObfuscatedRepository`]) und **publiziert** seine
+//! ID als Zeiger ([`BookingPublisher`]).
 //!
-//! Öffentlich ist die schmale Fläche: das Aggregat [`ObfuskierungsAggregat`] mit
-//! seinen Methoden, die Token-Werte, der von der Domäne **verlangte** Port
-//! [`ZuordnungsSpeicher`] (für die laufübergreifende Stabilität; Persistenz
-//! vertagt) samt [`Zuordnungsbestand`] und [`SpeicherError`]. Die First-Seen-
-//! Register selbst sind gekapselt.
+//! Fachlicher Kern der Obfuskierung: die **seed-basierte** Ersetzung von Konten (`KONTO_…`) und
+//! Privatpersonen (`PERSON_…`), die **Fail-safe-Deutung** Firma vs. Privatperson ([`Recipient`]) und
+//! der Freitext-Engpass ([`ObfuscatedText`]). Gleicher Seed + gleiche Eingabe → gleiches Token
+//! (zustandslos, laufstabil, reproduzierbar), der Seed wird mitpersistiert. Betrag/Datum &c. reist
+//! als [`PassThrough`] unverändert mit.
 //!
-//! Datenschutz: Die Domäne bindet **kein** serde, also kann kein struktureller
-//! Identifikator (die Klartext-Schlüssel im [`Zuordnungsbestand`]) hier ein
-//! `Serialize` ableiten; der compilergeprüfte Guard sitzt am Rand, auf dem
-//! Eingangs-DTO `Iban` des Adapters.
+//! Datenschutz: Die Domäne bindet **kein** serde; der compilergeprüfte „kein Serialize"-Guard sitzt
+//! am Rand, auf dem Egress-DTO `ObfuscatedBooking` des Adapters.
 
-mod aggregat;
-mod non_empty_string;
-mod speicher;
-mod token;
+mod commands;
+mod handler;
+mod ports;
+mod value_objects;
 
-pub use aggregat::{ObfuskierungsAggregat, Zuordnungsbestand};
-pub use speicher::{SpeicherError, ZuordnungsSpeicher};
-pub use token::{KontoIdEntity, ObfuskierterTextEntity, PseudonymEntity};
+pub use commands::ObfuscateBooking;
+pub use handler::{ObfuscationHandler, UnknownBooking};
+pub use ports::{BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource};
+pub use value_objects::{
+    AccountToken, BookingId, CreditorId, IngestedBooking, NonEmptyString, ObfuscatedBooking,
+    ObfuscatedCounterparty, ObfuscatedText, PassThrough, Pseudonym, RawCounterparty, Recipient,
+    Replacement, Seed,
+};
