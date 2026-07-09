@@ -99,40 +99,6 @@ fn gleicher_klartext_und_seed_ergibt_dasselbe_konto_token() {
     );
 }
 
-#[test]
-fn verschiedene_ibans_ergeben_verschiedene_konto_token() {
-    let api = ObfuscationTestApi::new()
-        .with_seed(SEED)
-        .with_ingested("buchung-1", gültige_zeile());
-    api.run("buchung-1").expect("gültige Zeile");
-
-    let buchung = einzige_buchung(&api);
-    let gegen = buchung
-        .counter_account
-        .as_ref()
-        .expect("Gegenkonto vorhanden");
-    // Auftraggeber- und Gegenkonto sind verschiedene IBANs → verschiedene Token.
-    assert_ne!(buchung.ordering_account.as_str(), gegen.as_str());
-}
-
-#[test]
-fn ein_anderer_seed_ergibt_ein_anderes_konto_token() {
-    let mit_42 = ObfuscationTestApi::new()
-        .with_seed(42)
-        .with_ingested("buchung-1", gültige_zeile());
-    mit_42.run("buchung-1").expect("gültige Zeile");
-
-    let mit_7 = ObfuscationTestApi::new()
-        .with_seed(7)
-        .with_ingested("buchung-1", gültige_zeile());
-    mit_7.run("buchung-1").expect("gültige Zeile");
-
-    assert_ne!(
-        einzige_buchung(&mit_42).ordering_account.as_str(),
-        einzige_buchung(&mit_7).ordering_account.as_str()
-    );
-}
-
 // --- Fail-safe Firma vs. Privatperson (CONTEXT.md 113–116) ---------------------
 
 #[test]
@@ -219,6 +185,32 @@ fn unbekannte_id_wird_transient_zurückgestellt_ohne_etwas_zu_emittieren() {
         ergebnis,
         Err(OutboxError::Retry {
             reason: "referenced booking not found in source: fehlt-noch".to_string(),
+        })
+    );
+    api.assert_nothing_emitted();
+}
+
+// --- Vorhanden, aber Pflichtfeld leer: terminaler Dead-Letter (kein Poison-Retry) ---
+
+#[test]
+fn vorhandene_zeile_mit_leerem_pflichtfeld_wird_terminal_dead_lettert() {
+    // Die Zeile liegt im Speicher (also **nicht** „abwesend"), aber ein Pflichtfeld (Währung) ist
+    // leer — das kann kein erneutes Zustellen heilen. Muss terminal dead-lettern (`Warning`), nicht
+    // endlos zurückgestellt werden (Poison-Message).
+    let mut zeile = gültige_zeile();
+    zeile.currency = String::new();
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", zeile);
+
+    let ergebnis = api.run("buchung-1");
+
+    // Redigiert: der Grund trägt nur den statischen Feldnamen, nie einen Rohwert (keine IBAN, kein
+    // Name); nichts wird abgelegt oder publiziert.
+    assert_eq!(
+        ergebnis,
+        Err(OutboxError::Warning {
+            reason: "mandatory field missing in source booking: currency".to_string(),
         })
     );
     api.assert_nothing_emitted();

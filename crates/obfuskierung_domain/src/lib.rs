@@ -23,8 +23,10 @@ mod ports;
 mod value_objects;
 
 pub use commands::ObfuscateBooking;
-pub use handler::{ObfuscationHandler, UnknownBooking};
-pub use ports::{BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource};
+pub use handler::{HandleError, ObfuscationHandler};
+pub use ports::{
+    BookingLookup, BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource,
+};
 pub use value_objects::{
     AccountToken, BookingId, CreditorId, IngestedBooking, NonEmptyString, ObfuscatedBooking,
     ObfuscatedCounterparty, ObfuscatedText, PassThrough, Pseudonym, RawCounterparty, Recipient,

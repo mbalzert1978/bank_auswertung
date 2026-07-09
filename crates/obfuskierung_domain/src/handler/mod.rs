@@ -1,6 +1,8 @@
 use std::fmt;
 
-use crate::ports::{BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource};
+use crate::ports::{
+    BookingLookup, BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource,
+};
 use crate::{BookingId, ObfuscateBooking, Seed};
 
 /// Orchestriert die Obfuskierung **einer** Buchung — er **lebt in der Domäne** und hängt **nur** an
@@ -15,8 +17,9 @@ use crate::{BookingId, ObfuscateBooking, Seed};
 /// 4. seine **ID als Zeiger publizieren** ([`BookingPublisher`]).
 ///
 /// Der Handler kennt **keine** Transaktion: Ablage und Publish *stagen* nur, den atomaren Commit
-/// besorgt io. Ist zur ID (noch) kein Aggregat da, steigt er mit [`UnknownBooking`] aus (der Adapter
-/// mappt das auf einen transienten Outbox-Fehler → erneute Zustellung).
+/// besorgt io. Kann er die Buchung nicht verarbeiten, steigt er mit [`HandleError`] aus — **abwesend**
+/// (noch kein Aggregat) mappt der Adapter transient (Retry), **ungültig** (Pflichtfeld fehlt) terminal
+/// (Dead-Letter, redigiert).
 pub struct ObfuscationHandler<'a> {
     seed: Seed,
     source: &'a dyn RawBookingSource,
@@ -43,12 +46,18 @@ impl<'a> ObfuscationHandler<'a> {
     }
 
     /// Verarbeitet das Kommando: lesen → obfuskieren → (staged) ablegen + Zeiger publizieren.
-    /// `Ok(())` = verarbeitet, `Err(UnknownBooking)` = zur ID liegt (noch) kein Aggregat vor.
-    pub fn handle(&self, command: ObfuscateBooking) -> Result<(), UnknownBooking> {
-        let aggregate = self
-            .source
-            .read(command.id())
-            .ok_or_else(|| UnknownBooking::new(command.id().clone()))?;
+    /// `Ok(())` = verarbeitet; `Err(HandleError)` trennt **abwesend** (transient) von **ungültig**
+    /// (terminal, redigiert) — der Adapter mappt beide auf die passende Outbox-Fehlerklasse.
+    pub fn handle(&self, command: ObfuscateBooking) -> Result<(), HandleError> {
+        let aggregate = match self.source.read(command.id()) {
+            BookingLookup::Found(aggregate) => *aggregate,
+            BookingLookup::Absent => {
+                return Err(HandleError::NotYetAvailable(command.id().clone()));
+            }
+            BookingLookup::Malformed { field } => {
+                return Err(HandleError::MalformedSource { field });
+            }
+        };
         let obfuscated = aggregate.obfuscate(self.seed, self.obfuscator);
         self.repository.save(&obfuscated);
         self.publisher.publish(obfuscated.id());
@@ -56,29 +65,30 @@ impl<'a> ObfuscationHandler<'a> {
     }
 }
 
-/// Zur referenzierten ID liegt (noch) kein rohes Aggregat im einlesen-Speicher vor. Trägt die
-/// [`BookingId`] mit — sie ist ein opaker Identifikator ohne sensible Daten und gehört in den
-/// Dead-Letter-Grund (Diagnose/Wiedervorlage); der Adapter mappt den Fehler auf einen transienten
-/// Outbox-Fehler.
+/// Warum der Handler eine Buchung nicht verarbeiten konnte — die beiden Ausgänge liegen im **Typ**,
+/// nicht in einer überladenen Fehlermeldung, damit der Adapter transient von terminal sauber trennt.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnknownBooking {
-    id: BookingId,
+pub enum HandleError {
+    /// Zur ID liegt (noch) **kein** rohes Aggregat im einlesen-Speicher vor — **transient** (die
+    /// einlesen-Schreibung kann nachhängen). Trägt die opake [`BookingId`] mit (kein sensibler Wert)
+    /// für Diagnose/Wiedervorlage; der Adapter mappt sie auf erneute Zustellung (Retry).
+    NotYetAvailable(BookingId),
+    /// Zur ID liegt ein Aggregat vor, aber ein **Pflichtfeld fehlt/ist leer** — **terminal**
+    /// (Dead-Letter). Trägt **nur** den statischen Feldnamen (redigiert, nie ein Rohwert).
+    MalformedSource { field: &'static str },
 }
 
-impl UnknownBooking {
-    fn new(id: BookingId) -> Self {
-        Self { id }
-    }
-}
-
-impl fmt::Display for UnknownBooking {
+impl fmt::Display for HandleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "referenced booking not found in source: {}",
-            self.id.as_str()
-        )
+        match self {
+            HandleError::NotYetAvailable(id) => {
+                write!(f, "referenced booking not found in source: {}", id.as_str())
+            }
+            HandleError::MalformedSource { field } => {
+                write!(f, "mandatory field missing in source booking: {field}")
+            }
+        }
     }
 }
 
-impl std::error::Error for UnknownBooking {}
+impl std::error::Error for HandleError {}

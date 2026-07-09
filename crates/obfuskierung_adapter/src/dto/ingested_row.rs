@@ -24,11 +24,16 @@ pub struct IngestedRow {
 
 impl IngestedRow {
     /// Deutet die rohe Zeile in das Domänen-Aggregat [`IngestedBooking`] (ACL, „außen → innen").
-    /// `None`, wenn ein Pflichtfeld (Auftraggeberkonto, Währung, Richtung, Datum) leer ist — dann
-    /// ist die Zeile keine verwertbare Buchung; der Adapter behandelt das wie „nicht vorhanden".
-    pub(crate) fn to_booking(&self, id: BookingId) -> Option<IngestedBooking> {
+    /// **Hier erzwingt der Adapter die Präsenz** der Pflichtfelder (Auftraggeberkonto, Währung,
+    /// Richtung, Datum): fehlt/ist eines leer, wird es zu `Err(MissingMandatoryField)` mit **nur**
+    /// dem Feldnamen — ein terminaler Ausgang, den die [`SourceBridge`](crate::bridges::SourceBridge)
+    /// von „nicht vorhanden" trennt (vorhanden-aber-ungültig → Dead-Letter statt Retry).
+    pub(crate) fn to_booking(
+        &self,
+        id: BookingId,
+    ) -> Result<IngestedBooking, MissingMandatoryField> {
         let counterparty = RawCounterparty {
-            ordering_account: NonEmptyString::new(&self.ordering_account)?,
+            ordering_account: mandatory(&self.ordering_account, "ordering_account")?,
             counter_account: as_nonempty(&self.counter_account),
             recipient_name: as_nonempty(&self.recipient_name),
             creditor_id: as_nonempty(&self.creditor_id),
@@ -37,13 +42,36 @@ impl IngestedRow {
         };
         let pass_through = PassThrough {
             amount_cent: self.amount_cent,
-            currency: NonEmptyString::new(&self.currency)?,
-            direction: NonEmptyString::new(&self.direction)?,
-            booking_day: NonEmptyString::new(&self.booking_day)?,
-            value_date: NonEmptyString::new(&self.value_date)?,
+            currency: mandatory(&self.currency, "currency")?,
+            direction: mandatory(&self.direction, "direction")?,
+            booking_day: mandatory(&self.booking_day, "booking_day")?,
+            value_date: mandatory(&self.value_date, "value_date")?,
         };
-        Some(IngestedBooking::new(id, counterparty, pass_through))
+        Ok(IngestedBooking::new(id, counterparty, pass_through))
     }
+}
+
+/// Ein Pflichtfeld fehlt (leer/nicht vorhanden) in der Roh-Zeile — **terminaler** Ausgang der
+/// „außen → innen"-Abbildung (die [`SourceBridge`](crate::bridges::SourceBridge) mappt ihn auf ein
+/// Dead-Letter). **Datenschutz (Redaktions-Invariante):** trägt **nur** den statischen Feldnamen,
+/// nie den Rohwert — auch `Debug` spiegelt so keinen Identifikator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MissingMandatoryField {
+    field: &'static str,
+}
+
+impl MissingMandatoryField {
+    /// Der (statische, unsensible) Name des fehlenden Pflichtfelds — für den redigierten
+    /// Dead-Letter-Grund.
+    pub(crate) fn field(&self) -> &'static str {
+        self.field
+    }
+}
+
+/// Erzwingt ein Pflichtfeld: reicht die Zelle als `NonEmptyString` an die Domänengrenze, oder —
+/// fehlt/leer sie — den redigierten [`MissingMandatoryField`] mit nur dem Feldnamen.
+fn mandatory(raw: &str, field: &'static str) -> Result<NonEmptyString, MissingMandatoryField> {
+    NonEmptyString::new(raw).ok_or(MissingMandatoryField { field })
 }
 
 /// Reicht eine optionale rohe Zelle als `NonEmptyString` an die Domänengrenze (leer/`None` →

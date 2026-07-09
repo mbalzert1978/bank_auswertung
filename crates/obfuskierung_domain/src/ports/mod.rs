@@ -11,4 +11,4 @@ mod raw_booking_source;
 pub use booking_publisher::BookingPublisher;
 pub use obfuscated_repository::ObfuscatedRepository;
 pub use obfuscator::Obfuscator;
-pub use raw_booking_source::RawBookingSource;
+pub use raw_booking_source::{BookingLookup, RawBookingSource};
