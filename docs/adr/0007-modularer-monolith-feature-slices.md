@@ -1,9 +1,12 @@
 # Modularer Monolith aus Feature-Slices — die Domäne ist blind, der Shared-Kernel ist dünn
 
-> **Status: in Teilen superseded — durch [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).**
+> **Status: in Teilen superseded — durch [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
+> und [ADR-0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md).**
 > Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
 > bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** im
-> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md).
+> Abschnitt „Was dieses ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
+> (Pipeline) bzw. [ADR-0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md)
+> (der hier „dünne `shared_kernel`" wird zu **zwei** Kernel-Crates).
 
 Wir schneiden die Software in **Feature-Slices** statt in eine geteilte Domäne
 plus Adapter. Auslöser waren zwei Kopplungen, die der bisherige Aufbau
