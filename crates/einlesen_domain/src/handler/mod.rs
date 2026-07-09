@@ -1,8 +1,8 @@
-use crate::ports::{Calendar, EventSink, Store};
+use crate::ports::{Calendar, EventSink, Money, Store};
 use crate::{LineAggregate, LineError, ReadTransactions};
 
 /// Orchestriert das Einlesen — er **lebt in der Domäne** und hängt **nur** an den von ihr
-/// verlangten Ports (`Calendar`, `Store`, `EventSink`); die Verdrahtung an die
+/// verlangten Ports (`Calendar`, `Money`, `Store`, `EventSink`); die Verdrahtung an die
 /// Außenwelt (io/Fakes) besorgt der Adapter über Port-Bridges. Kein geteiltes
 /// `Handler`/`Command`-Interface (das C#-Mediator-/DI-Residuum trägt in Rust nichts): der
 /// Adapter hält den **konkreten** Handler und ruft `handle` direkt.
@@ -19,6 +19,7 @@ use crate::{LineAggregate, LineError, ReadTransactions};
 /// Arbeitseinheit (Aggregat **und** Ereignis atomar) besorgt io.
 pub struct ReadHandler<'a> {
     calendar: &'a dyn Calendar,
+    money: &'a dyn Money,
     store: &'a dyn Store,
     event_sink: &'a dyn EventSink,
 }
@@ -26,11 +27,13 @@ pub struct ReadHandler<'a> {
 impl<'a> ReadHandler<'a> {
     pub fn new(
         calendar: &'a dyn Calendar,
+        money: &'a dyn Money,
         store: &'a dyn Store,
         event_sink: &'a dyn EventSink,
     ) -> Self {
         Self {
             calendar,
+            money,
             store,
             event_sink,
         }
@@ -42,7 +45,7 @@ impl<'a> ReadHandler<'a> {
         command
             .lines
             .into_iter()
-            .map(|line| LineAggregate::from_raw_line(line, self.calendar))
+            .map(|line| LineAggregate::from_raw_line(line, self.calendar, self.money))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .for_each(|aggregate| {

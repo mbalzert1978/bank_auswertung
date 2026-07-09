@@ -124,8 +124,14 @@ mod tests {
         let kalender = crate::bridges::CalendarBridge {
             seam: &DeutscherKalenderSeam,
         };
-        let aggregat = LineAggregate::from_raw_line(gültiger_rohsatz().to_raw_line(), &kalender)
-            .expect("gültige Zeile");
+        // Der Geld-Seam ist der crate-eigene deterministische Fake — die Format-Regeln
+        // sind bei ihm (fake_money_seam.rs) getestet, hier zählt nur das Mapping.
+        let geld = crate::bridges::MoneyBridge {
+            seam: &crate::testapi::fakes::FakeMoneySeam,
+        };
+        let aggregat =
+            LineAggregate::from_raw_line(gültiger_rohsatz().to_raw_line(), &kalender, &geld)
+                .expect("gültige Zeile");
 
         let zeile = Line::from_aggregate(&aggregat);
 
@@ -163,11 +169,14 @@ mod tests {
         let kalender = crate::bridges::CalendarBridge {
             seam: &DeutscherKalenderSeam,
         };
+        let geld = crate::bridges::MoneyBridge {
+            seam: &crate::testapi::fakes::FakeMoneySeam,
+        };
         let mut rohsatz = gültiger_rohsatz();
         rohsatz.counter_account = None;
         rohsatz.purpose = None;
         rohsatz.booking_text = None;
-        let aggregat = LineAggregate::from_raw_line(rohsatz.to_raw_line(), &kalender)
+        let aggregat = LineAggregate::from_raw_line(rohsatz.to_raw_line(), &kalender, &geld)
             .expect("Pflichtfelder gesetzt");
 
         let zeile = Line::from_aggregate(&aggregat);

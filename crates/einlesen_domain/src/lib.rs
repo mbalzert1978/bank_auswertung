@@ -5,9 +5,11 @@
 //! Der Kopf der event-getriebenen Pipeline liest Rohzeilen ein und deutet sie in ein
 //! `LineAggregate` aus Wert-Typen, die sich **selbst** aus dem `NonEmptyString` parsen,
 //! den die Domäne an ihrer Grenze anfordert (parse, don't validate) und dabei `Result`
-//! liefern; das Aggregat orchestriert seine Wert-Typen und kennt seine Grenzen (eine
-//! Zeile). Die Rohdaten trägt der Batch als `RawLine`-Werte — **wie** eine Zeile
-//! adressiert und gelesen wird, ist Sache des Adapters.
+//! liefern; reine Format-Mechanik (Kalenderdatum, deutsches Zahlenformat) liegt dagegen
+//! hinter den verlangten Ports `Calendar`/`Money` (ADR-0008). Das Aggregat orchestriert
+//! seine Wert-Typen und kennt seine Grenzen (eine Zeile). Die Rohdaten trägt der Batch
+//! als `RawLine`-Werte — **wie** eine Zeile adressiert und gelesen wird, ist Sache des
+//! Adapters.
 //!
 //! **Roh & obfuskierungs-frei:** die Domäne trägt rohe Werte (IBANs, Klarname)
 //! unverändert weiter — das Obfuskieren ist der nachgelagerte `obfuskieren`-Slice,
@@ -32,5 +34,5 @@ pub use aggregate::LineAggregate;
 pub use commands::{RawLine, ReadTransactions};
 pub use error::LineError;
 pub use handler::ReadHandler;
-pub use ports::{Calendar, EventSink, Store};
-pub use value_objects::{CalendarDay, Direction, NonEmptyString};
+pub use ports::{Calendar, EventSink, Money, Store};
+pub use value_objects::{CalendarDay, Direction, NonEmptyString, Sign};

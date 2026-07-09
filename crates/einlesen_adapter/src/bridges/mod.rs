@@ -6,9 +6,11 @@
 mod calendar_bridge;
 mod consume_bridge;
 mod ingested_publisher;
+mod money_bridge;
 mod store_bridge;
 
 pub(crate) use calendar_bridge::CalendarBridge;
 pub(crate) use consume_bridge::ConsumeBridge;
 pub(crate) use ingested_publisher::IngestedPublisher;
+pub(crate) use money_bridge::MoneyBridge;
 pub(crate) use store_bridge::StoreBridge;

@@ -1,6 +1,6 @@
 use crate::commands::RawLine;
 use crate::error::LineError;
-use crate::ports::Calendar;
+use crate::ports::{Calendar, Money};
 use crate::value_objects::{
     Amount, BookingText, CalendarDay, CreditorId, Currency, Date, Direction, Iban, NonEmptyString,
     Purpose, Recipient, RecipientName,
@@ -25,17 +25,26 @@ pub struct LineAggregate {
 
 impl LineAggregate {
     /// Deutet eine Rohzeile zu einem Aggregat — die **einzige** Konstruktion. Zuerst die
-    /// Pflichtwerte (Währung, Betrag/Richtung aus demselben Betragsfeld, Datum aus
-    /// Buchungstag + Valuta über den Kalender, Auftragskonto, Empfänger), dann die
-    /// optionalen (Gegenkonto, Verwendungszweck, Buchungstext). Jeder Fehler ist terminal.
-    pub fn from_raw_line(line: RawLine, calendar: &dyn Calendar) -> Result<Self, LineError> {
+    /// Pflichtwerte (Währung, Betrag/Richtung aus demselben Betragsfeld über den
+    /// `Money`-Port, Datum aus Buchungstag + Valuta über den Kalender, Auftragskonto,
+    /// Empfänger), dann die optionalen (Gegenkonto, Verwendungszweck, Buchungstext).
+    /// Jeder Fehler ist terminal.
+    pub fn from_raw_line(
+        line: RawLine,
+        calendar: &dyn Calendar,
+        money: &dyn Money,
+    ) -> Result<Self, LineError> {
         // Zuerst die per Referenz gelesenen Pflichtwerte deuten (Währung, Betrag/Richtung,
         // Buchungstag, Valuta) — **bevor** die Move-Felder unten aus `line` bewegt werden,
         // sonst kollidiert der Borrow mit dem Teil-Move.
         let currency =
             Currency::from_code(line.currency.as_ref().ok_or(LineError::CurrencyMissing)?)?;
         let raw_amount = line.amount.as_ref().ok_or(LineError::AmountMissing)?;
-        let (amount, direction) = Amount::with_direction(raw_amount, currency)?;
+        // Der Port trägt nur „kein gültiger Betrag" als `None` — die terminale Meldung
+        // entsteht hier; die Deutung der Bestandteile (Vorzeichen → Richtung bzw.
+        // `SignMissing`) liegt im Konstruktor.
+        let (cent, sign) = money.decode(raw_amount).ok_or(LineError::AmountInvalid)?;
+        let (amount, direction) = Amount::with_direction(cent, sign, currency)?;
         let booking_day = parse_date(
             calendar,
             line.booking_day.as_ref(),
@@ -124,9 +133,9 @@ mod tests {
     use super::LineAggregate;
     use crate::commands::RawLine;
     use crate::error::LineError;
-    use crate::ports::Calendar;
+    use crate::ports::{Calendar, Money};
     use crate::value_objects::{
-        BookingText, CalendarDay, CreditorId, Direction, Iban, NonEmptyString, Purpose,
+        BookingText, CalendarDay, CreditorId, Direction, Iban, NonEmptyString, Purpose, Sign,
     };
 
     fn text(wert: &str) -> Option<NonEmptyString> {
@@ -164,8 +173,38 @@ mod tests {
         }
     }
 
+    /// Deterministisches Geld: dekodiert „[+|-]EE…[,CC]" ohne Tausenderpunkte — genug für
+    /// die Aggregat-Tests; das echte deutsche Zahlenformat lebt hinter dem Seam im
+    /// Adapter. Ein fehlendes Vorzeichen wird als `Sign::Missing` gemeldet, nie positiv.
+    struct EinfachesGeld;
+
+    impl Money for EinfachesGeld {
+        fn decode(&self, raw: &NonEmptyString) -> Option<(u64, Sign)> {
+            let feld = raw.as_str();
+            let (vorzeichen, ziffern) = feld
+                .strip_prefix('-')
+                .map(|rest| (Sign::Negative, rest))
+                .or_else(|| feld.strip_prefix('+').map(|rest| (Sign::Positive, rest)))
+                .unwrap_or((Sign::Missing, feld));
+            let (euro_teil, cent_teil) = match ziffern.split_once(',') {
+                Some((euro, cent)) => (euro, Some(cent)),
+                None => (ziffern, None),
+            };
+            if !euro_teil.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            let euro: u64 = euro_teil.parse().ok()?;
+            let cent: u64 = match cent_teil {
+                None => 0,
+                Some(nachkomma) if nachkomma.len() == 2 => nachkomma.parse().ok()?,
+                Some(_) => return None,
+            };
+            Some((euro.checked_mul(100)?.checked_add(cent)?, vorzeichen))
+        }
+    }
+
     fn deute(zeile: RawLine) -> Result<LineAggregate, LineError> {
-        LineAggregate::from_raw_line(zeile, &DeutscherKalender)
+        LineAggregate::from_raw_line(zeile, &DeutscherKalender, &EinfachesGeld)
     }
 
     #[test]

@@ -14,7 +14,7 @@ mod recipient;
 pub use amount::{Amount, Currency};
 pub use booking_text::BookingText;
 pub use date::{CalendarDay, Date};
-pub use direction::Direction;
+pub use direction::{Direction, Sign};
 pub use iban::Iban;
 pub use non_empty_string::NonEmptyString;
 pub use purpose::Purpose;

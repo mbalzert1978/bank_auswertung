@@ -1,7 +1,7 @@
 //! Black-Box-Spezifikation des einlesen-Slice — nur über die **eine** öffentliche
 //! Adapter-Fläche (Fluent-`ReadTestApi`, das `RawRecord`-DTO und die aus `shared_kernel`
 //! referenzierte Outbox-Ergebnisform `OutboxError`), nie über Interna. `run` fährt die
-//! **echte** Bridge-Kette (Consume-Bridge → Kalender-Bridge + `ReadHandler` →
+//! **echte** Bridge-Kette (Consume-Bridge → Kalender-/Geld-Bridge + `ReadHandler` →
 //! Publisher-Bridge) gegen öffentliche Fakes der Abstractions.
 //!
 //! **Der maßgebliche Ablauf (Transaktionsgrenze):** das Kommando trägt bereits den ganzen

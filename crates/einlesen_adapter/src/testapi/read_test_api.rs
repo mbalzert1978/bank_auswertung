@@ -1,14 +1,14 @@
 use einlesen_domain::ReadHandler;
 use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 
-use super::fakes::{FakeCalendarSeam, FakeOutboxPublisher, FakeStoreSeam};
-use crate::bridges::{CalendarBridge, ConsumeBridge, IngestedPublisher, StoreBridge};
+use super::fakes::{FakeCalendarSeam, FakeMoneySeam, FakeOutboxPublisher, FakeStoreSeam};
+use crate::bridges::{CalendarBridge, ConsumeBridge, IngestedPublisher, MoneyBridge, StoreBridge};
 use crate::commands::read_transactions_message::{self, ReadTransactionsMessage};
 use crate::dto::RawRecord;
 
 /// Fluent-TestApi des einlesen-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md)):
 /// die **Eingangsfläche spricht nur DTOs** (`RawRecord` arrangieren), `run` fährt dann eine
-/// **echte** Kette Consume-Bridge → Kalender-/Speicher-Bridge + domänen-interner
+/// **echte** Kette Consume-Bridge → Kalender-/Geld-/Speicher-Bridge + domänen-interner
 /// [`ReadHandler`] → Publisher-Bridge gegen öffentliche Fakes (Vorbild `DownloaderTestApi`:
 /// echte Bridges gegen Fakes der public Abstractions, nie gegen interne Domänen-Ports direkt).
 /// Beobachtet wird zweifach: die veröffentlichten „Eingelesen"-Commands (Fan-out) **und** die
@@ -17,6 +17,7 @@ use crate::dto::RawRecord;
 pub struct ReadTestApi {
     lines: Vec<RawRecord>,
     calendar_seam: FakeCalendarSeam,
+    money_seam: FakeMoneySeam,
     store_seam: FakeStoreSeam,
     outbox: FakeOutboxPublisher,
 }
@@ -27,6 +28,7 @@ impl ReadTestApi {
         Self {
             lines: Vec::new(),
             calendar_seam: FakeCalendarSeam,
+            money_seam: FakeMoneySeam,
             store_seam: FakeStoreSeam::default(),
             outbox: FakeOutboxPublisher::default(),
         }
@@ -58,13 +60,16 @@ impl ReadTestApi {
         let calendar = CalendarBridge {
             seam: &self.calendar_seam,
         };
+        let money = MoneyBridge {
+            seam: &self.money_seam,
+        };
         let store = StoreBridge {
             seam: &self.store_seam,
         };
         let publisher = IngestedPublisher {
             outbox: &self.outbox,
         };
-        let handler = ReadHandler::new(&calendar, &store, &publisher);
+        let handler = ReadHandler::new(&calendar, &money, &store, &publisher);
         let bridge = ConsumeBridge { handler };
         let message = OutboxMessage {
             id: "test-message".to_string(),

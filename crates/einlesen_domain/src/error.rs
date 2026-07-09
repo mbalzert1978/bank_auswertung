@@ -14,7 +14,8 @@ use std::fmt;
 /// benennt sie zusätzlich, **welches** betroffen ist (Buchungstag vs. Valuta).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LineError {
-    /// Der Betrag ist kein gültiger deutscher Geldbetrag.
+    /// Der Betrag ist kein dekodierbarer Geldbetrag (der `Money`-Port konnte das Feld
+    /// nicht deuten).
     AmountInvalid,
     /// Der Betrag fehlt ganz (Pflichtfeld leer/nicht vorhanden).
     AmountMissing,
@@ -26,7 +27,7 @@ pub enum LineError {
     CurrencyMissing,
     /// Das Auftragskonto fehlt — ohne eigenes Konto ist die Zeile nicht zuordenbar.
     OrderingAccountMissing,
-    /// Weder Gläubiger-ID noch Name — die Gegenpartei ist nicht identifizierbar.
+    /// Der Name fehlt — die Gegenpartei ist nicht identifizierbar.
     RecipientMissing,
     /// Der Buchungstag fehlt ganz (Pflichtfeld leer/nicht vorhanden).
     BookingDayMissing,
@@ -41,15 +42,13 @@ pub enum LineError {
 impl fmt::Display for LineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LineError::AmountInvalid => write!(f, "not a valid German money amount"),
+            LineError::AmountInvalid => write!(f, "not a decodable money amount"),
             LineError::AmountMissing => write!(f, "amount missing"),
             LineError::SignMissing => write!(f, "sign missing: direction cannot be inferred"),
             LineError::CurrencyUnknown => write!(f, "unknown currency"),
             LineError::CurrencyMissing => write!(f, "currency missing"),
             LineError::OrderingAccountMissing => write!(f, "ordering account missing"),
-            LineError::RecipientMissing => {
-                write!(f, "recipient missing: neither creditor id nor name present")
-            }
+            LineError::RecipientMissing => write!(f, "recipient name missing"),
             LineError::BookingDayMissing => write!(f, "booking day missing"),
             LineError::BookingDayInvalid => write!(f, "booking day is not a valid date"),
             LineError::ValueDateMissing => write!(f, "value date missing"),

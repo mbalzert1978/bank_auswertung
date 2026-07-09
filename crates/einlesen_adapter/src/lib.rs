@@ -8,8 +8,8 @@
 //! bubblet — die **io-Outbox** dead-lettert die Nachricht (der Slice dead-lettert nicht selbst).
 //!
 //! **Schichtung (die eine Aufgabe dieses Layers):** ein interner [`ReadHandler`](einlesen_domain::ReadHandler)
-//! hängt **ausschließlich** an den von `einlesen_domain` verlangten Ports (`Calendar`, `Store`,
-//! `EventSink`) — nie an adapter-erfundenen Ports. **Darüber** mappen Port-Bridges (Modul
+//! hängt **ausschließlich** an den von `einlesen_domain` verlangten Ports (`Calendar`, `Money`,
+//! `Store`, `EventSink`) — nie an adapter-erfundenen Ports. **Darüber** mappen Port-Bridges (Modul
 //! [`bridges`]) die öffentlichen, mechanischen Abstractions (Modul [`abstractions`], die IO
 //! erfüllt) auf genau diese internen Domänen-Ports. Vorbild: `examples/Downloader`
 //! (`DownloaderHandler` hängt nur an `IFilePuller`/`IDownloadLedger`; `SftpPullerAdapter` mappt
@@ -17,7 +17,8 @@
 //!
 //! **Genau ein öffentlicher Zugang** (Direktive: eine Adapter-Grenze): die [`ReadTestApi`],
 //! die DTOs ([`Line`], [`RawRecord`]) und die öffentlichen Abstractions
-//! ([`CalendarSeam`] + ihr Rückgabetyp [`CalendarDay`]) — dazu das adapter-eigene [`Direction`].
+//! ([`CalendarSeam`] + sein Rückgabetyp [`CalendarDay`], [`MoneySeam`] + seine Rückgabetypen
+//! [`DecodedAmount`]/[`Sign`]) — dazu das adapter-eigene [`Direction`].
 //! **Alles andere ist crate-privat**: der Handler, alle Bridges, die adapter-lokalen Wire-DTOs
 //! (`ReadTransactionsMessage`/`IngestedMessage`) und die Fakes — keiner dieser Typen ist von
 //! außen erreichbar. Weder `Direction` noch `CalendarDay` der Domäne werden re-exportiert —
@@ -34,6 +35,6 @@ mod commands;
 mod dto;
 mod testapi;
 
-pub use abstractions::{CalendarDay, CalendarSeam};
+pub use abstractions::{CalendarDay, CalendarSeam, DecodedAmount, MoneySeam, Sign};
 pub use dto::{Direction, Line, RawRecord};
 pub use testapi::ReadTestApi;
