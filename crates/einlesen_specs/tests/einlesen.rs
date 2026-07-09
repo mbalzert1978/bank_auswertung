@@ -137,6 +137,25 @@ fn eine_zeile_ohne_betrag_scheitert_terminal() {
 }
 
 #[test]
+fn eine_zeile_ohne_vorzeichen_scheitert_terminal() {
+    // „50,00" ohne führendes Vorzeichen ist für die Domäne kein Betrag: der Geld-Seam
+    // dekodiert es nicht (Richtung unbestimmbar), das Aggregat macht daraus `AmountInvalid`
+    // — terminal, also Dead-Letter, nichts veröffentlicht.
+    let mut rohsatz = gültiger_rohsatz();
+    rohsatz.amount = feld("50,00");
+    let api = ReadTestApi::new().with_line(rohsatz);
+
+    let ergebnis = api.run(QUELLE);
+
+    assert!(
+        matches!(ergebnis, Err(OutboxError::Warning { .. })),
+        "ein Betrag ohne Vorzeichen muss terminal scheitern, war: {ergebnis:?}"
+    );
+    assert!(api.published_message_types().is_empty());
+    assert!(api.stored_ordering_accounts().is_empty());
+}
+
+#[test]
 fn eine_zeile_mit_ungültigem_datum_scheitert_terminal() {
     let mut rohsatz = gültiger_rohsatz();
     rohsatz.value_date = feld("kein-datum");

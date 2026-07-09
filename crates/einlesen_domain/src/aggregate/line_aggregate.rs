@@ -40,11 +40,11 @@ impl LineAggregate {
         let currency =
             Currency::from_code(line.currency.as_ref().ok_or(LineError::CurrencyMissing)?)?;
         let raw_amount = line.amount.as_ref().ok_or(LineError::AmountMissing)?;
-        // Der Port trägt nur „kein gültiger Betrag" als `None` — die terminale Meldung
-        // entsteht hier; die Deutung der Bestandteile (Vorzeichen → Richtung bzw.
-        // `SignMissing`) liegt im Konstruktor.
-        let (cent, sign) = money.decode(raw_amount).ok_or(LineError::AmountInvalid)?;
-        let (amount, direction) = Amount::with_direction(cent, sign, currency)?;
+        // Der Port trägt nur „kein gültiger Betrag" (inkl. fehlendem Vorzeichen) als
+        // `None` — die terminale `AmountInvalid`-Meldung entsteht hier; das fertig
+        // dekodierte VO deutet der Konstruktor unfehlbar (Vorzeichen → Richtung).
+        let decoded = money.decode(raw_amount).ok_or(LineError::AmountInvalid)?;
+        let (amount, direction) = Amount::with_direction(decoded, currency);
         let booking_day = parse_date(
             calendar,
             line.booking_day.as_ref(),
@@ -135,7 +135,8 @@ mod tests {
     use crate::error::LineError;
     use crate::ports::{Calendar, Money};
     use crate::value_objects::{
-        BookingText, CalendarDay, CreditorId, Direction, Iban, NonEmptyString, Purpose, Sign,
+        BookingText, CalendarDay, CreditorId, DecodedAmount, Direction, Iban, NonEmptyString,
+        Purpose, Sign,
     };
 
     fn text(wert: &str) -> Option<NonEmptyString> {
@@ -173,33 +174,38 @@ mod tests {
         }
     }
 
-    /// Deterministisches Geld: dekodiert „[+|-]EE…[,CC]" ohne Tausenderpunkte — genug für
-    /// die Aggregat-Tests; das echte deutsche Zahlenformat lebt hinter dem Seam im
-    /// Adapter. Ein fehlendes Vorzeichen wird als `Sign::Missing` gemeldet, nie positiv.
+    /// Deterministischer Geld-Stub ohne Format-Anspruch (Vorbild `DeutscherKalender`):
+    /// streift das Vorzeichen ab und parst die Restziffern naiv (Punkt entfällt, Komma
+    /// trennt die Nachkommastellen) — genug für die Fixtures; das echte deutsche
+    /// Zahlenformat lebt hinter dem Seam in io. Ohne deutbares Vorzeichen oder bei
+    /// Nicht-Ziffern ergibt sich `None` (das Aggregat macht daraus `AmountInvalid`).
     struct EinfachesGeld;
 
     impl Money for EinfachesGeld {
-        fn decode(&self, raw: &NonEmptyString) -> Option<(u64, Sign)> {
-            let feld = raw.as_str();
-            let (vorzeichen, ziffern) = feld
+        fn decode(&self, raw: &NonEmptyString) -> Option<DecodedAmount> {
+            let (sign, ziffern) = raw
+                .as_str()
                 .strip_prefix('-')
                 .map(|rest| (Sign::Negative, rest))
-                .or_else(|| feld.strip_prefix('+').map(|rest| (Sign::Positive, rest)))
-                .unwrap_or((Sign::Missing, feld));
-            let (euro_teil, cent_teil) = match ziffern.split_once(',') {
-                Some((euro, cent)) => (euro, Some(cent)),
-                None => (ziffern, None),
+                .or_else(|| {
+                    raw.as_str()
+                        .strip_prefix('+')
+                        .map(|rest| (Sign::Positive, rest))
+                })?;
+            let (euro, cent) = match ziffern.split_once(',') {
+                Some((euro, cent)) => (euro, cent),
+                None => (ziffern, ""),
             };
-            if !euro_teil.bytes().all(|byte| byte.is_ascii_digit()) {
-                return None;
-            }
-            let euro: u64 = euro_teil.parse().ok()?;
-            let cent: u64 = match cent_teil {
-                None => 0,
-                Some(nachkomma) if nachkomma.len() == 2 => nachkomma.parse().ok()?,
-                Some(_) => return None,
+            let euro: u64 = euro.replace('.', "").parse().ok()?;
+            let cent: u64 = if cent.is_empty() {
+                0
+            } else {
+                cent.parse().ok()?
             };
-            Some((euro.checked_mul(100)?.checked_add(cent)?, vorzeichen))
+            Some(DecodedAmount::new(
+                euro.checked_mul(100)?.checked_add(cent)?,
+                sign,
+            ))
         }
     }
 
@@ -295,12 +301,13 @@ mod tests {
     }
 
     #[test]
-    fn vorzeichenloser_betrag_wird_wegen_fehlendem_vorzeichen_verworfen() {
-        // „50,00" ist als Betrag wohlgeformt, aber ohne Vorzeichen ist die Richtung
-        // nicht deutbar — die Zeile wird terminal verworfen (nicht als AmountInvalid).
+    fn vorzeichenloser_betrag_wird_als_ungültiger_betrag_verworfen() {
+        // „50,00" ist ohne führendes Vorzeichen für die Domäne kein Betrag: der
+        // `Money`-Port weist es als `None` ab, das Aggregat macht daraus `AmountInvalid`
+        // (die Richtung ist nicht deutbar).
         let mut zeile = gültige_rohzeile();
         zeile.amount = text("50,00");
-        assert_eq!(deute(zeile), Err(LineError::SignMissing));
+        assert_eq!(deute(zeile), Err(LineError::AmountInvalid));
     }
 
     #[test]

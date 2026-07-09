@@ -1,4 +1,4 @@
-use super::{Direction, NonEmptyString, Sign};
+use super::{DecodedAmount, Direction, NonEmptyString};
 use crate::error::LineError;
 
 /// Die Währung eines Betrags. Bewusst ein Summentyp statt eines rohen Codes: nur
@@ -23,8 +23,8 @@ impl Currency {
 
 /// Ein Geldbetrag als **vorzeichenlose** Menge in Cent mit Währung — das Vorzeichen
 /// lebt allein in der [`Direction`](crate::Direction), ein negativer Betrag ist dadurch
-/// unkonstruierbar (ADR-0005). Betrag und Richtung entstehen **gemeinsam** aus den
-/// dekodierten Bestandteilen des Betragsfelds (`with_direction`); die *Zahlenformat*-
+/// unkonstruierbar (ADR-0005). Betrag und Richtung entstehen **gemeinsam** aus dem vom
+/// `Money`-Port dekodierten [`DecodedAmount`](crate::DecodedAmount); die *Zahlenformat*-
 /// Dekodierung (deutscher Tausenderpunkt, Dezimalkomma) ist Format-Mechanik und lebt
 /// hinter dem `Money`-Port im Adapter/io (ADR-0008), nicht in der Domäne.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,18 +34,21 @@ pub struct Amount {
 }
 
 impl Amount {
-    /// Baut Betrag und Richtung **gemeinsam** aus den vom `Money`-Port dekodierten
-    /// Bestandteilen: der vorzeichenlosen Cent-Menge und dem drei-wertigen Vorzeichen.
-    /// Das Vorzeichen deutet `Direction::from_sign` (dort lebt seine Bedeutung); fehlt
-    /// es, ist die Richtung unbestimmbar (`SignMissing`) — kein stilles `Incoming`. So
-    /// lebt das Vorzeichen allein in der Richtung (ADR-0005).
-    pub fn with_direction(
-        cent: u64,
-        sign: Sign,
-        currency: Currency,
-    ) -> Result<(Self, Direction), LineError> {
-        let direction = Direction::from_sign(sign).ok_or(LineError::SignMissing)?;
-        Ok((Self { cent, currency }, direction))
+    /// Baut Betrag und Richtung **gemeinsam** aus dem vom `Money`-Port dekodierten
+    /// [`DecodedAmount`](crate::DecodedAmount): die vorzeichenlose Cent-Menge wird zum
+    /// Betrag, das zwei-wertige Vorzeichen deutet `Direction::from_sign` (dort lebt seine
+    /// Bedeutung). **Unfehlbar** — ein nicht dekodierbares Feld hat den Port schon als
+    /// `None` verlassen (im Aggregat `AmountInvalid`); hier gibt es nichts mehr
+    /// abzuweisen. So lebt das Vorzeichen allein in der Richtung (ADR-0005).
+    pub fn with_direction(decoded: DecodedAmount, currency: Currency) -> (Self, Direction) {
+        let direction = Direction::from_sign(decoded.sign());
+        (
+            Self {
+                cent: decoded.cent(),
+                currency,
+            },
+            direction,
+        )
     }
 
     pub fn cent(&self) -> u64 {
@@ -59,9 +62,9 @@ impl Amount {
 
 #[cfg(test)]
 mod tests {
-    use super::{Amount, Currency, Direction, Sign};
+    use super::{Amount, Currency, Direction};
     use crate::error::LineError;
-    use crate::value_objects::NonEmptyString;
+    use crate::value_objects::{DecodedAmount, NonEmptyString, Sign};
 
     fn roh(wert: &str) -> NonEmptyString {
         NonEmptyString::new(wert).expect("Testwert nicht leer")
@@ -84,7 +87,7 @@ mod tests {
     #[test]
     fn negatives_vorzeichen_wird_zu_ausgang() {
         let (betrag, richtung) =
-            Amount::with_direction(123_456, Sign::Negative, Currency::Euro).expect("deutbar");
+            Amount::with_direction(DecodedAmount::new(123_456, Sign::Negative), Currency::Euro);
         assert_eq!(betrag.cent(), 123_456);
         assert_eq!(betrag.currency(), Currency::Euro);
         assert_eq!(richtung, Direction::Outgoing);
@@ -93,7 +96,7 @@ mod tests {
     #[test]
     fn positives_vorzeichen_wird_zu_eingang() {
         let (betrag, richtung) =
-            Amount::with_direction(5_000, Sign::Positive, Currency::Euro).expect("deutbar");
+            Amount::with_direction(DecodedAmount::new(5_000, Sign::Positive), Currency::Euro);
         assert_eq!(betrag.cent(), 5_000);
         assert_eq!(richtung, Direction::Incoming);
     }
@@ -101,17 +104,9 @@ mod tests {
     #[test]
     fn gleicher_betrag_mit_verschiedenem_vorzeichen_hat_gleichen_cent_wert() {
         let (negativ, _) =
-            Amount::with_direction(5_000, Sign::Negative, Currency::Euro).expect("deutbar");
+            Amount::with_direction(DecodedAmount::new(5_000, Sign::Negative), Currency::Euro);
         let (positiv, _) =
-            Amount::with_direction(5_000, Sign::Positive, Currency::Euro).expect("deutbar");
+            Amount::with_direction(DecodedAmount::new(5_000, Sign::Positive), Currency::Euro);
         assert_eq!(negativ, positiv);
-    }
-
-    #[test]
-    fn fehlendes_vorzeichen_wird_als_vorzeichen_fehlt_abgelehnt() {
-        assert_eq!(
-            Amount::with_direction(5_000, Sign::Missing, Currency::Euro),
-            Err(LineError::SignMissing)
-        );
     }
 }

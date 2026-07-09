@@ -5,6 +5,7 @@
 mod amount;
 mod booking_text;
 mod date;
+mod decoded_amount;
 mod direction;
 mod iban;
 mod non_empty_string;
@@ -14,6 +15,7 @@ mod recipient;
 pub use amount::{Amount, Currency};
 pub use booking_text::BookingText;
 pub use date::{CalendarDay, Date};
+pub use decoded_amount::DecodedAmount;
 pub use direction::{Direction, Sign};
 pub use iban::Iban;
 pub use non_empty_string::NonEmptyString;

@@ -73,7 +73,10 @@ impl Line {
 
 #[cfg(test)]
 mod tests {
-    use crate::abstractions::{CalendarDay as AdapterKalendertag, CalendarSeam};
+    use crate::abstractions::{
+        CalendarDay as AdapterKalendertag, CalendarSeam, DecodedAmount as AdapterBetrag, MoneySeam,
+        Sign,
+    };
 
     use super::{CalendarDay, Direction, Line, LineAggregate};
     use crate::dto::RawRecord;
@@ -119,16 +122,41 @@ mod tests {
         }
     }
 
+    /// Lokaler, dummer Geld-Seam für die Mapping-Prüfung (analog `DeutscherKalenderSeam`):
+    /// Vorzeichen abstreifen, Restziffern naiv parsen — genug für die Fixture „-50,00".
+    struct GeldSeam;
+
+    impl MoneySeam for GeldSeam {
+        fn decode(&self, roh: &str) -> Option<AdapterBetrag> {
+            let (sign, ziffern) = roh
+                .strip_prefix('-')
+                .map(|rest| (Sign::Negative, rest))
+                .or_else(|| roh.strip_prefix('+').map(|rest| (Sign::Positive, rest)))?;
+            let (euro, cent) = match ziffern.split_once(',') {
+                Some((euro, cent)) => (euro, cent),
+                None => (ziffern, ""),
+            };
+            let euro: u64 = euro.replace('.', "").parse().ok()?;
+            let cent: u64 = if cent.is_empty() {
+                0
+            } else {
+                cent.parse().ok()?
+            };
+            Some(AdapterBetrag {
+                cent: euro.checked_mul(100)?.checked_add(cent)?,
+                sign,
+            })
+        }
+    }
+
     #[test]
     fn aus_aggregat_übernimmt_alle_felder_originalgetreu() {
         let kalender = crate::bridges::CalendarBridge {
             seam: &DeutscherKalenderSeam,
         };
-        // Der Geld-Seam ist der crate-eigene deterministische Fake — die Format-Regeln
-        // sind bei ihm (fake_money_seam.rs) getestet, hier zählt nur das Mapping.
-        let geld = crate::bridges::MoneyBridge {
-            seam: &crate::testapi::fakes::FakeMoneySeam,
-        };
+        // Der Geld-Seam ist ein lokaler dummer Stub — hier zählt nur das Feld-Mapping,
+        // nicht das Zahlenformat (das lebt in io hinter dem echten Seam).
+        let geld = crate::bridges::MoneyBridge { seam: &GeldSeam };
         let aggregat =
             LineAggregate::from_raw_line(gültiger_rohsatz().to_raw_line(), &kalender, &geld)
                 .expect("gültige Zeile");
@@ -169,9 +197,7 @@ mod tests {
         let kalender = crate::bridges::CalendarBridge {
             seam: &DeutscherKalenderSeam,
         };
-        let geld = crate::bridges::MoneyBridge {
-            seam: &crate::testapi::fakes::FakeMoneySeam,
-        };
+        let geld = crate::bridges::MoneyBridge { seam: &GeldSeam };
         let mut rohsatz = gültiger_rohsatz();
         rohsatz.counter_account = None;
         rohsatz.purpose = None;

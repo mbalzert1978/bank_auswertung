@@ -14,13 +14,11 @@ use std::fmt;
 /// benennt sie zusätzlich, **welches** betroffen ist (Buchungstag vs. Valuta).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LineError {
-    /// Der Betrag ist kein dekodierbarer Geldbetrag (der `Money`-Port konnte das Feld
-    /// nicht deuten).
+    /// Der Betrag ist kein dekodierbarer Geldbetrag: der `Money`-Port konnte das Feld
+    /// nicht deuten — inkl. eines fehlenden oder undeutbaren Vorzeichens.
     AmountInvalid,
     /// Der Betrag fehlt ganz (Pflichtfeld leer/nicht vorhanden).
     AmountMissing,
-    /// Das Betragsfeld trägt kein führendes Vorzeichen — die Richtung ist nicht deutbar.
-    SignMissing,
     /// Der Währungscode ist keiner, den die Domäne kennt.
     CurrencyUnknown,
     /// Die Währung fehlt ganz (Pflichtfeld leer/nicht vorhanden).
@@ -44,7 +42,6 @@ impl fmt::Display for LineError {
         match self {
             LineError::AmountInvalid => write!(f, "not a decodable money amount"),
             LineError::AmountMissing => write!(f, "amount missing"),
-            LineError::SignMissing => write!(f, "sign missing: direction cannot be inferred"),
             LineError::CurrencyUnknown => write!(f, "unknown currency"),
             LineError::CurrencyMissing => write!(f, "currency missing"),
             LineError::OrderingAccountMissing => write!(f, "ordering account missing"),
