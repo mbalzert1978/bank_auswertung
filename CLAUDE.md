@@ -64,16 +64,27 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   named for its responsibility (*read + validate + record*), **not** its format
   (CSV-CAMT-v8 is one input form behind the source seam; XML-camt/MT940 later =
   further io adapters, not new slices). `_domain` owns `LineAggregate` + its value
-  objects and **demands already-decoded, complete values** — it does not validate
-  format: the `Calendar`/`Money` domain ports (behind the adapter's
-  `CalendarSeam`/`MoneySeam`, `io`-fulfilled later) decode German date/number; a
-  missing/undecodable value returns `None`, which the aggregate maps to a terminal
-  `LineError`. `_adapter` exposes the `RawRecord` inbound DTO (**serializable** — raw
+  objects and **demands already-decoded, complete values** — presence lives in the
+  **type**: `RawLine`'s mandatory fields are non-`Option` (ADR-0005: illegal states
+  unconstructible, not "checked"). **Presence enforcement is the `_adapter` (ACL)**,
+  not the domain and not `io`: `RawRecord::to_raw_line` is fallible — a missing/empty
+  mandatory cell becomes a **redacted** `MissingMandatoryField` (static field name
+  only, never a raw value) and dead-letters the whole batch. The domain does not
+  validate format either: the `Calendar`/`Money` ports (behind the adapter's
+  `CalendarSeam`/`MoneySeam`, `io`-fulfilled later) decode German date/number, and an
+  *undecodable* present value returns `None`, which the aggregate maps to a terminal
+  `LineError` (now only `AmountInvalid`/`CurrencyUnknown`/`BookingDayInvalid`/
+  `ValueDateInvalid`; `CalendarDay::from_parts` is infallible — the seam owns calendar
+  validity). `recipient_name` is genuinely **optional** (a fee/charge row has no
+  counterparty). `_adapter` exposes the `RawRecord` inbound DTO (**serializable** — raw
   may ride the local `einlesen → obfuskieren` hop; see Privacy), the `Line` outbound
-  projection, the Consume-/Publisher-/Port-Bridges, and the Fluent `ReadTestApi`.
-  Consumes a `ReadTransactions` command (whole batch), fans out **one `Ingested`
-  message per valid line**; a terminal `LineError` bubbles to `OutboxError::Warning`
-  so `io` dead-letters.
+  projection, the Consume-/Publisher-/Port-Bridges, and the Fluent `ReadTestApi`. It
+  **deliberately re-declares** the domain sum types it projects (`Direction`/`Currency`/
+  `CalendarDay`/`Sign`) as adapter-owned DTO types instead of re-exporting them — no
+  domain internal crosses the boundary (re-evaluate the mapping concentration at the
+  `io` revision). Consumes a `ReadTransactions` command (whole batch), fans out **one
+  `Ingested` message per valid line**; a terminal error bubbles to
+  `OutboxError::Warning` so `io` dead-letters.
 - **`obfuskierung`** — `_domain` owns the First-Seen mapping aggregate
   (`KONTO_x`/`PERSON_x`, run-stable) + the `ZuordnungsSpeicher` port it requires;
   `_adapter` exposes `obfuskiere_konto/person/text`, the `Iban` inbound DTO (**no
@@ -212,26 +223,34 @@ unstable pseudonym breaks the fingerprint of person-to-person standing orders).
 Two rules govern *what* to test — the codebase's test culture:
 
 - **The domain does not validate — it demands.** It asks for already-valid,
-  already-decoded, complete values; **format and presence are `io`'s job**, behind the
-  ports/seams (`Money`/`Calendar` decode German number/date, required fields). So **do
-  not test invalid/missing input for rejection** (missing amount, sign-less amount,
-  unreadable date, broken payload) — that tests `io`/kernel, not the slice. *Exception:*
-  a genuine **domain invariant** that happens to use bad input as its trigger stays (e.g.
-  "the terminal dead-letter reason never mirrors a raw value" — redaction is domain
-  behaviour).
+  already-decoded, complete values. But *who* enforces what splits three ways: **format
+  decode is `io`'s job** (behind `Money`/`Calendar`: German number/date) — so **do not
+  test format-mechanics for rejection** (sign-less amount, unreadable date, broken
+  payload); that tests `io`/kernel, not the slice. **Presence enforcement is the
+  `_adapter` (ACL)** — the domain demands presence in the type (mandatory field
+  non-`Option`), the adapter's inbound mapping rejects a missing one and dead-letters the
+  batch. That is **observable slice behaviour, so specs *do* test it** (a missing
+  mandatory field → redacted, batch-atomic dead-letter). A **domain decode decision**
+  (`Currency::from_code`: is this a currency the domain knows?) is likewise slice
+  behaviour and testable. And a genuine **domain invariant** triggered by bad input stays
+  (e.g. "the terminal dead-letter reason never mirrors a raw value" — redaction). What
+  stays out of the specs is only pure `io`-crate mechanics (reading a file, real
+  decoding).
 - **Test behaviour, not implementation.** Behaviour runs **through the Fluent `*TestApi`**:
   arrange a DTO, run the real bridge chain against fakes, and the domain objects get built
   — "if something's wrong, it blows up", so the domain is covered transitively.
   Implementation churns, so **no** unit tests nailing constructor/algorithm internals
-  (`Currency::from_code`, `CalendarDay::from_parts` range checks, `Amount::with_direction`,
-  aggregate assembly) — remove them, don't move them into the spec. A test of a genuine
-  standalone rule (`NonEmptyString`: trim + reject-empty; IBAN mod-97 checksum) *may* stay
-  but is redundant (covered via TestApi).
+  (`Currency::from_code`, `Amount::with_direction`, aggregate assembly) — remove them,
+  don't move them into the spec. A test of a genuine standalone rule (`NonEmptyString`:
+  trim + reject-empty; IBAN mod-97 checksum) *may* stay but is redundant (covered via
+  TestApi).
 
 Concretely: **`*_specs` are pure black-box** over the slice's one public adapter surface
 (Fluent `*TestApi` + DTOs + the `shared_kernel` Outbox result shape), never internals, no
 DTO-constructor tests in the spec. They test real behaviour — happy path (line → command
-+ staged aggregate), fan-out, redaction — **not** rejection of invalid input. A wrapper VO
++ staged aggregate), fan-out, redaction, and the **rejections that are slice behaviour**
+(a missing mandatory field → batch-atomic dead-letter; an unknown currency) — but **not**
+rejection of pure `io` format-mechanics (unreadable date, sign-less amount). A wrapper VO
 with guaranteed-valid input (`From<NonEmptyString>` only) and a logicless port/fake get
 **no** test (pure noise).
 
