@@ -7,7 +7,10 @@ use crate::value_objects::non_empty_string::NonEmptyString;
 ///
 /// Bewusst **opak getragen**: dieser Slice **deutet** die Felder nicht (das ist Sache von
 /// `auswerten`), er reicht die bereits von `einlesen` dekodierten Werte durch — als geprüfte
-/// [`NonEmptyString`] statt roher `String` (parse, don't validate), der Betrag als Cent-`u64`.
+/// [`NonEmptyString`] statt roher `String` (parse, don't validate). Der Betrag steht als Cent-`u64`
+/// (nicht als `NonEmptyString`) bewusst uneinheitlich da: er ist bereits ein **dekodierter Zahlwert**
+/// (kein Textfeld, auf das „nicht-leer" zuträfe) und wird ebenso opak durchgereicht — `auswerten`
+/// deutet ihn, dieser Slice fasst ihn nicht an.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PassThrough {
     pub amount_cent: u64,

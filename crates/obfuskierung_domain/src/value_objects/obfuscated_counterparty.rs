@@ -30,7 +30,10 @@ impl ObfuscatedCounterparty {
         let ordering_account = token(&raw.ordering_account);
         let counter_account = raw.counter_account.map(|account| token(&account));
         let recipient = match (raw.recipient_name, raw.creditor_id) {
-            // Gläubiger-ID vorhanden → sichere Firma: Name bleibt Klartext, ID bleibt Anker.
+            // Gläubiger-ID vorhanden → sichere Firma. Der Name trägt zwar den Typ `ObfuscatedText`,
+            // wird hier aber **verbatim** (nur getrimmt) durchgereicht, **nicht obfuskiert** — ein
+            // bewusstes Kategorie-Signal (der Firmenname ist ein öffentlicher Analyse-Anker), die
+            // Gläubiger-ID bleibt als Anker Klartext.
             (name, Some(creditor_id)) => Recipient::Company {
                 name: name.map(ObfuscatedText::from),
                 creditor_id: creditor_id.into(),

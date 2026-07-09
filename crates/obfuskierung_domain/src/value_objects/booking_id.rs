@@ -8,7 +8,10 @@
 pub struct BookingId(String);
 
 impl BookingId {
-    /// Baut die ID aus ihrem Rohwert (der Adapter reicht die Envelope-ID herein).
+    /// Baut die ID aus ihrem Rohwert (der Adapter reicht die Envelope-ID herein). Bewusst **opak**
+    /// (kein `NonEmptyString`): die Nicht-Leere garantiert die Herkunft (io/Outbox-Envelope vergeben
+    /// die ID, nie leer) — ein eigener Validierungspfad hier wäre reibungsvolle Zeremonie ohne
+    /// Gewinn, denn der Slice deutet die ID nie, er reicht sie als Zeiger durch.
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
