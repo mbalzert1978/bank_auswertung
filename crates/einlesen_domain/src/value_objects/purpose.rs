@@ -5,15 +5,15 @@ use super::NonEmptyString;
 /// Das best-effort-Scrubben eingebetteter Identifikatoren ist Sache des
 /// `obfuskieren`-Slice, nicht dieser Stufe.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Verwendungszweck(NonEmptyString);
+pub struct Purpose(NonEmptyString);
 
-impl From<NonEmptyString> for Verwendungszweck {
+impl From<NonEmptyString> for Purpose {
     fn from(wert: NonEmptyString) -> Self {
         Self(wert)
     }
 }
 
-impl Verwendungszweck {
+impl Purpose {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }

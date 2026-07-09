@@ -1,5 +1,5 @@
 /// Ein getrimmter, garantiert nicht-leerer Text — der eine validierende Kern, aus dem
-/// die nicht-leeren Text-Wert-Typen des Slice (`GläubigerId`, `Empfängername`, …) gebaut
+/// die nicht-leeren Text-Wert-Typen des Slice (`CreditorId`, `RecipientName`, …) gebaut
 /// werden, **und** der Typ, den die Domäne an ihrer Grenze anfordert: der Adapter mappt
 /// jeden rohen (nicht-leeren) CSV-Wert auf einen `NonEmptyString`, die Domäne parst ihn
 /// dann weiter — so spricht die Domäne nie ein primitives `String`/`&str`. Getrimmt und
@@ -9,8 +9,8 @@ pub struct NonEmptyString(String);
 
 impl NonEmptyString {
     /// Baut den Kern: getrimmt; leer oder nur Whitespace → `None`.
-    pub fn new(roh: &str) -> Option<Self> {
-        let trimmed = roh.trim();
+    pub fn new(raw: &str) -> Option<Self> {
+        let trimmed = raw.trim();
         if trimmed.is_empty() {
             None
         } else {

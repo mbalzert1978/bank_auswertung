@@ -6,15 +6,15 @@ use super::NonEmptyString;
 /// Sache des `auswerten`-Slice, **nicht** dieser Stufe: `einlesen` klassifiziert
 /// nicht, es reicht den Code weiter. Im Aggregat optional.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Buchungstext(NonEmptyString);
+pub struct BookingText(NonEmptyString);
 
-impl From<NonEmptyString> for Buchungstext {
+impl From<NonEmptyString> for BookingText {
     fn from(wert: NonEmptyString) -> Self {
         Self(wert)
     }
 }
 
-impl Buchungstext {
+impl BookingText {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }

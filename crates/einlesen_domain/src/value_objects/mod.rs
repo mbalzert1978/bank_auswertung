@@ -2,20 +2,22 @@
 //! den die Domäne an ihrer Grenze anfordert (nie ein primitives `String`/`&str`). Die
 //! öffentlichen Typen werden von `lib.rs` auf Crate-Ebene gezogen.
 
-mod betrag;
-mod buchungstext;
-mod datum;
-mod empfaenger;
+mod amount;
+mod booking_text;
+mod date;
+mod decoded_amount;
+mod direction;
 mod iban;
 mod non_empty_string;
-mod richtung;
-mod verwendungszweck;
+mod purpose;
+mod recipient;
 
-pub use betrag::{Betrag, Währung};
-pub use buchungstext::Buchungstext;
-pub use datum::{Datum, Kalendertag};
-pub use empfaenger::{Empfänger, Empfängername, GläubigerId};
+pub use amount::{Amount, Currency};
+pub use booking_text::BookingText;
+pub use date::{CalendarDay, Date};
+pub use decoded_amount::DecodedAmount;
+pub use direction::{Direction, Sign};
 pub use iban::Iban;
 pub use non_empty_string::NonEmptyString;
-pub use richtung::Richtung;
-pub use verwendungszweck::Verwendungszweck;
+pub use purpose::Purpose;
+pub use recipient::{CreditorId, Recipient, RecipientName};

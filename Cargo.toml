@@ -10,6 +10,8 @@ members = [
     "crates/obfuskierung_adapter",
     "crates/obfuskierung_specs",
     "crates/einlesen_domain",
+    "crates/einlesen_adapter",
+    "crates/einlesen_specs",
     "architecture",
 ]
 
