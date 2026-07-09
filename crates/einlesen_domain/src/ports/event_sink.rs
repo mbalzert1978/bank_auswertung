@@ -10,5 +10,7 @@ use crate::LineAggregate;
 /// der C#-Referenz.
 pub trait EventSink {
     /// Reiht das Aggregat als „Eingelesen"-Ereignis in die offene Arbeitseinheit ein (Staging).
-    fn publish(&self, aggregate: LineAggregate);
+    /// Nimmt das Aggregat **per Referenz** (symmetrisch zu [`Store::store`](crate::Store)) —
+    /// der Handler behält den Besitz und übergibt dasselbe Aggregat an Speicher und Sink.
+    fn publish(&self, aggregate: &LineAggregate);
 }

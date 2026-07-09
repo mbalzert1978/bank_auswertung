@@ -41,13 +41,13 @@ impl<'a> ReadHandler<'a> {
     pub fn handle(&self, command: ReadTransactions) -> Result<(), LineError> {
         command
             .lines
-            .iter()
+            .into_iter()
             .map(|line| LineAggregate::from_raw_line(line, self.calendar))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .for_each(|aggregate| {
                 self.store.store(&aggregate);
-                self.event_sink.publish(aggregate);
+                self.event_sink.publish(&aggregate);
             });
         Ok(())
     }

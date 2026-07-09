@@ -16,12 +16,12 @@ impl Direction {
     /// `-` → `Outgoing`, `+` → `Incoming`, jeweils mit den Restziffern. Ohne führendes `+`/`-`
     /// ist die Richtung nicht deutbar (`None`) — kein stilles `Incoming`. Der einzige Ort
     /// der Vorzeichen-Grammatik.
-    pub fn from_sign(feld: &str) -> Option<(Self, &str)> {
-        match feld.strip_prefix(Self::NEGATIVE) {
-            Some(ziffern) => Some((Self::Outgoing, ziffern)),
-            None => feld
+    pub fn from_sign(field: &str) -> Option<(Self, &str)> {
+        match field.strip_prefix(Self::NEGATIVE) {
+            Some(digits) => Some((Self::Outgoing, digits)),
+            None => field
                 .strip_prefix(Self::POSITIVE)
-                .map(|ziffern| (Self::Incoming, ziffern)),
+                .map(|digits| (Self::Incoming, digits)),
         }
     }
 }

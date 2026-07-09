@@ -59,11 +59,11 @@ impl fmt::Display for TerminalError {
 impl std::error::Error for TerminalError {}
 
 impl From<TerminalError> for OutboxError {
-    fn from(fehler: TerminalError) -> Self {
+    fn from(error: TerminalError) -> Self {
         // Der Grund ist der **redigierte** LineError (kein Rohwert) — ein Spaltenverschub
         // leakt so keine IBAN in die persistierte Dead-Letter-Meldung.
         OutboxError::Warning {
-            reason: fehler.0.to_string(),
+            reason: error.0.to_string(),
         }
     }
 }

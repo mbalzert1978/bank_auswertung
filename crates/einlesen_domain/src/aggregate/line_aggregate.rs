@@ -28,7 +28,10 @@ impl LineAggregate {
     /// Pflichtwerte (Währung, Betrag/Richtung aus demselben Betragsfeld, Datum aus
     /// Buchungstag + Valuta über den Kalender, Auftragskonto, Empfänger), dann die
     /// optionalen (Gegenkonto, Verwendungszweck, Buchungstext). Jeder Fehler ist terminal.
-    pub fn from_raw_line(line: &RawLine, calendar: &dyn Calendar) -> Result<Self, LineError> {
+    pub fn from_raw_line(line: RawLine, calendar: &dyn Calendar) -> Result<Self, LineError> {
+        // Zuerst die per Referenz gelesenen Pflichtwerte deuten (Währung, Betrag/Richtung,
+        // Buchungstag, Valuta) — **bevor** die Move-Felder unten aus `line` bewegt werden,
+        // sonst kollidiert der Borrow mit dem Teil-Move.
         let currency =
             Currency::from_code(line.currency.as_ref().ok_or(LineError::CurrencyMissing)?)?;
         let raw_amount = line.amount.as_ref().ok_or(LineError::AmountMissing)?;
@@ -48,16 +51,15 @@ impl LineAggregate {
         let date = Date::from_days(booking_day, value_date);
         let ordering_account = line
             .ordering_account
-            .clone()
             .map(Iban::from)
             .ok_or(LineError::OrderingAccountMissing)?;
-        let counter_account = line.counter_account.clone().map(Iban::from);
+        let counter_account = line.counter_account.map(Iban::from);
         let recipient = Recipient::from_parts(
-            line.recipient_name.clone().map(RecipientName::from),
-            line.creditor_id.clone().map(CreditorId::from),
+            line.recipient_name.map(RecipientName::from),
+            line.creditor_id.map(CreditorId::from),
         )?;
-        let purpose = line.purpose.clone().map(Purpose::from);
-        let booking_text = line.booking_text.clone().map(BookingText::from);
+        let purpose = line.purpose.map(Purpose::from);
+        let booking_text = line.booking_text.map(BookingText::from);
         Ok(Self {
             ordering_account,
             counter_account,
@@ -162,13 +164,13 @@ mod tests {
         }
     }
 
-    fn deute(zeile: &RawLine) -> Result<LineAggregate, LineError> {
+    fn deute(zeile: RawLine) -> Result<LineAggregate, LineError> {
         LineAggregate::from_raw_line(zeile, &DeutscherKalender)
     }
 
     #[test]
     fn alle_felder_gesetzt_ergeben_ein_aggregat_mit_korrekten_gettern() {
-        let aggregat = deute(&gültige_rohzeile()).expect("gültige Zeile");
+        let aggregat = deute(gültige_rohzeile()).expect("gültige Zeile");
         assert_eq!(
             aggregat.ordering_account().as_str(),
             "DE89370400440532013000"
@@ -203,42 +205,42 @@ mod tests {
     fn fehlende_währung_wird_terminal_abgelehnt() {
         let mut zeile = gültige_rohzeile();
         zeile.currency = None;
-        assert_eq!(deute(&zeile), Err(LineError::CurrencyMissing));
+        assert_eq!(deute(zeile), Err(LineError::CurrencyMissing));
     }
 
     #[test]
     fn fehlender_betrag_wird_terminal_abgelehnt() {
         let mut zeile = gültige_rohzeile();
         zeile.amount = None;
-        assert_eq!(deute(&zeile), Err(LineError::AmountMissing));
+        assert_eq!(deute(zeile), Err(LineError::AmountMissing));
     }
 
     #[test]
     fn fehlendes_auftragskonto_wird_terminal_abgelehnt() {
         let mut zeile = gültige_rohzeile();
         zeile.ordering_account = None;
-        assert_eq!(deute(&zeile), Err(LineError::OrderingAccountMissing));
+        assert_eq!(deute(zeile), Err(LineError::OrderingAccountMissing));
     }
 
     #[test]
     fn fehlender_empfängername_wird_terminal_abgelehnt() {
         let mut zeile = gültige_rohzeile();
         zeile.recipient_name = None;
-        assert_eq!(deute(&zeile), Err(LineError::RecipientMissing));
+        assert_eq!(deute(zeile), Err(LineError::RecipientMissing));
     }
 
     #[test]
     fn fehlender_buchungstag_wird_terminal_abgelehnt() {
         let mut zeile = gültige_rohzeile();
         zeile.booking_day = None;
-        assert_eq!(deute(&zeile), Err(LineError::BookingDayMissing));
+        assert_eq!(deute(zeile), Err(LineError::BookingDayMissing));
     }
 
     #[test]
     fn fehlende_valuta_wird_terminal_abgelehnt() {
         let mut zeile = gültige_rohzeile();
         zeile.value_date = None;
-        assert_eq!(deute(&zeile), Err(LineError::ValueDateMissing));
+        assert_eq!(deute(zeile), Err(LineError::ValueDateMissing));
     }
 
     #[test]
@@ -247,7 +249,7 @@ mod tests {
         zeile.counter_account = None;
         zeile.purpose = None;
         zeile.booking_text = None;
-        let aggregat = deute(&zeile).expect("Pflichtfelder gesetzt");
+        let aggregat = deute(zeile).expect("Pflichtfelder gesetzt");
         assert!(aggregat.counter_account().is_none());
         assert!(aggregat.purpose().is_none());
         assert!(aggregat.booking_text().is_none());
@@ -259,7 +261,7 @@ mod tests {
         // nicht deutbar — die Zeile wird terminal verworfen (nicht als AmountInvalid).
         let mut zeile = gültige_rohzeile();
         zeile.amount = text("50,00");
-        assert_eq!(deute(&zeile), Err(LineError::SignMissing));
+        assert_eq!(deute(zeile), Err(LineError::SignMissing));
     }
 
     #[test]
@@ -270,7 +272,7 @@ mod tests {
         let leck = "DE89370400440532013000";
         let mut zeile = gültige_rohzeile();
         zeile.amount = text(&format!("-{leck}"));
-        let fehler = deute(&zeile).expect_err("ungültiger Betrag");
+        let fehler = deute(zeile).expect_err("ungültiger Betrag");
         assert!(
             !format!("{fehler}").contains(leck),
             "Display leakt den Rohwert: {fehler}"

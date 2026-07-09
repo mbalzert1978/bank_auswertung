@@ -18,10 +18,8 @@ pub(crate) struct IngestedPublisher<'a, O: OutboxPublisher> {
 }
 
 impl<O: OutboxPublisher> EventSink for IngestedPublisher<'_, O> {
-    fn publish(&self, aggregate: LineAggregate) {
+    fn publish(&self, aggregate: &LineAggregate) {
         self.outbox
-            .publish(IngestedMessage::from_line(&Line::from_aggregate(
-                &aggregate,
-            )));
+            .publish(IngestedMessage::from_line(&Line::from_aggregate(aggregate)));
     }
 }

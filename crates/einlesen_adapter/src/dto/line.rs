@@ -61,7 +61,9 @@ impl Line {
                 month: value_date.month(),
                 day: value_date.day(),
             },
-            purpose: aggregate.purpose().map(|zweck| zweck.as_str().to_string()),
+            purpose: aggregate
+                .purpose()
+                .map(|purpose| purpose.as_str().to_string()),
             booking_text: aggregate
                 .booking_text()
                 .map(|text| text.as_str().to_string()),
@@ -122,7 +124,7 @@ mod tests {
         let kalender = crate::bridges::CalendarBridge {
             seam: &DeutscherKalenderSeam,
         };
-        let aggregat = LineAggregate::from_raw_line(&gültiger_rohsatz().to_raw_line(), &kalender)
+        let aggregat = LineAggregate::from_raw_line(gültiger_rohsatz().to_raw_line(), &kalender)
             .expect("gültige Zeile");
 
         let zeile = Line::from_aggregate(&aggregat);
@@ -165,7 +167,7 @@ mod tests {
         rohsatz.counter_account = None;
         rohsatz.purpose = None;
         rohsatz.booking_text = None;
-        let aggregat = LineAggregate::from_raw_line(&rohsatz.to_raw_line(), &kalender)
+        let aggregat = LineAggregate::from_raw_line(rohsatz.to_raw_line(), &kalender)
             .expect("Pflichtfelder gesetzt");
 
         let zeile = Line::from_aggregate(&aggregat);
