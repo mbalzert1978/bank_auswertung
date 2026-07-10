@@ -81,9 +81,18 @@ impl ReadTestApi {
         self.outbox.message_types()
     }
 
-    /// Die Partition-Keys der veröffentlichten Outbox-Kommandos in Reihenfolge.
+    /// Die Partition-Keys der veröffentlichten Outbox-Kommandos in Reihenfolge — für die
+    /// „Eingelesen"-Nachricht ist das die **Aggregat-ID** (der Zeiger auf die abgelegte Roh-Zeile),
+    /// nicht mehr das Auftragskonto.
     pub fn published_partition_keys(&self) -> Vec<String> {
         self.outbox.partition_keys()
+    }
+
+    /// Die **IDs**, unter denen die Roh-Zeilen am Speicher-Seam abgelegt wurden, in Reihenfolge — so
+    /// prüft ein Spec, dass die publizierten Zeiger genau auf die abgelegten Zeilen zeigen (Tabelle =
+    /// Wahrheit, Message = Pointer).
+    pub fn stored_ids(&self) -> Vec<String> {
+        self.store_seam.stored_ids()
     }
 
     /// Die `ordering_account`-Werte der **gestageten** Aggregate am Speicher-Seam, in
