@@ -243,22 +243,22 @@ Port-Bridge an den öffentlichen Quell-Seam, hinter dem auch die Präsenz-Prüfu
 
 ## Abnahmekriterien (aus dem Issue)
 
-- [ ] Der `einlesen`-Command trägt keine Zeilen-Nutzlast mehr (Auslöser mit vorerst leerem
+- [x] Der `einlesen`-Command trägt keine Zeilen-Nutzlast mehr (Auslöser mit vorerst leerem
       Konfigurationsfeld); auch das Wire-DTO trägt keine Zeilen mehr (und kein
       `source`-Duplikat des Envelope-`partition_key` — die Payload ist feldlos). (T1/T2)
-- [ ] Der Handler bezieht die Rohzeilen über den neuen, von der Domäne verlangten
+- [x] Der Handler bezieht die Rohzeilen über den neuen, von der Domäne verlangten
       Datenquellen-Port (`RawLineSource`); die Verdrahtung an die Außenwelt besorgt die
       Adapter-Port-Bridge (`SourceBridge` → `SourceSeam`; Fake, später io). (T1/T2/T3)
-- [ ] Der Port ist fehlbar und gibt bei misslungener Beschaffung einen domänen-typisierten,
+- [x] Der Port ist fehlbar und gibt bei misslungener Beschaffung einen domänen-typisierten,
       redigierten Fehler zurück (`SourceError`); die Präsenz-Prüfung liegt hinter dem Seam
       und wird auf diesen Fehler abgebildet. (T1/T2)
-- [ ] Beschaffungs-/Präsenz- und Deutungs-Fehler bubblen terminal zu
+- [x] Beschaffungs-/Präsenz- und Deutungs-Fehler bubblen terminal zu
       `OutboxError::Warning` (Dead-Letter batch-atomar); keine separate Fehler-Nachricht;
       die Redaktion trägt bis in die Dead-Letter-Meldung. (T2/T4)
-- [ ] Fan-out (eine „Eingelesen"-Nachricht je gültiger Zeile) und Zeiger-Semantik bleiben
+- [x] Fan-out (eine „Eingelesen"-Nachricht je gültiger Zeile) und Zeiger-Semantik bleiben
       unverändert. (T1/T4 — Assertions der bestehenden Specs unverändert grün)
-- [ ] Die Slice-Specs bleiben Black-Box über die Fluent-TestApi; die Rohzeilen speisen den
+- [x] Die Slice-Specs bleiben Black-Box über die Fluent-TestApi; die Rohzeilen speisen den
       Fake hinter dem Port; die bestehenden Ablehnungs-Szenarien (fehlendes Pflichtfeld →
       batch-atomarer Dead-Letter; unbekannte Währung) bleiben grün. (T3/T4)
-- [ ] `cargo build` / `cargo test` / `cargo clippy --all-targets` / `cargo fmt --check`
+- [x] `cargo build` / `cargo test` / `cargo clippy --all-targets` / `cargo fmt --check`
       und `cargo test -p architecture` sind grün. (T5)

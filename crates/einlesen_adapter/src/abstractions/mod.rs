@@ -6,8 +6,10 @@
 
 mod calendar_seam;
 mod money_seam;
+mod source_seam;
 mod store_seam;
 
 pub use calendar_seam::{CalendarDay, CalendarSeam};
 pub use money_seam::{DecodedAmount, MoneySeam, Sign};
+pub use source_seam::{SourceSeam, SourceUnavailable};
 pub use store_seam::StoreSeam;

@@ -1,16 +1,18 @@
 //! Black-Box-Spezifikation des einlesen-Slice — nur über die **eine** öffentliche
 //! Adapter-Fläche (Fluent-`ReadTestApi`, das `RawRecord`-DTO und die aus `shared_kernel`
 //! referenzierte Outbox-Ergebnisform `OutboxError`), nie über Interna. `run` fährt die
-//! **echte** Bridge-Kette (Consume-Bridge → Kalender-/Geld-Bridge + `ReadHandler` →
-//! Publisher-Bridge) gegen öffentliche Fakes der Abstractions.
+//! **echte** Bridge-Kette (Consume-Bridge → Quell-Bridge → Kalender-/Geld-Bridge +
+//! `ReadHandler` → Publisher-Bridge) gegen öffentliche Fakes der Abstractions.
 //!
-//! **Der maßgebliche Ablauf (Transaktionsgrenze):** das Kommando trägt bereits den ganzen
-//! Batch (alle Rohzeilen); die Domäne deutet **pro Zeile** ein `LineAggregate` — scheitert
-//! eine Zeile am Aggregat, ist das **terminal**: der Handler steigt mit dem Fehler aus, der
-//! über die Consume-Bridge zu `OutboxError::Warning` bubblet, und die io-Outbox dead-lettert
-//! die Nachricht (der Slice dead-lettert nicht selbst). Die gültigen Aggregate werden erst
-//! **nach** vollständigem Durchlauf (`collect`) publiziert und atomar committet (der Commit
-//! gehört io).
+//! **Der maßgebliche Ablauf (Transaktionsgrenze):** das Kommando ist reiner **Auslöser**
+//! (Issue 0018); den Batch (alle Rohzeilen) **beschafft** der Handler über den
+//! Datenquellen-Port, hinter dem der Quell-Seam liegt — `with_line` arrangiert die Zeilen
+//! darum **in der Quelle**, nicht in der Nachricht. Die Domäne deutet **pro Zeile** ein
+//! `LineAggregate` — scheitert die Beschaffung oder eine Zeile am Aggregat, ist das
+//! **terminal**: der Handler steigt mit dem Fehler aus, der über die Consume-Bridge zu
+//! `OutboxError::Warning` bubblet, und die io-Outbox dead-lettert die Nachricht (der Slice
+//! dead-lettert nicht selbst). Die gültigen Aggregate werden erst **nach** vollständigem
+//! Durchlauf (`collect`) publiziert und atomar committet (der Commit gehört io).
 //!
 //! **Warum es KEIN gemischtes „einige verworfen, andere laufen durch"-Szenario gibt**
 //! (bewusst bestätigt, nicht getestet): Das ist kein konstruierbarer Zustand. Es ist
@@ -25,12 +27,15 @@
 //! (der `OutboxPublisher::publish`-Seam trägt bewusst keine `Serialize`-Schranke).
 //!
 //! **Was hier sehr wohl abgelehnt wird — und warum das Slice-Verhalten ist:** die *Präsenz*
-//! eines Pflichtfelds erzwingt der **Adapter** (ACL, „außen → innen": `RawRecord` → `RawLine`);
+//! eines Pflichtfelds erzwingt der **Adapter** (ACL, „außen → innen": `RawRecord` → `RawLine`)
+//! — seit Issue 0018 **hinter dem Quell-Seam in der Source-Bridge**, weiterhin batch-atomar:
 //! fehlt eins, dead-lettert der **ganze** Batch redigiert (nur Feldname, nie ein Rohwert). Das
-//! ist beobachtbares Slice-Verhalten, kein io-Detail — darum prüfen Specs es. Ebenso ist
-//! „unbekannte Währung" eine **Domänen**-Deutungsentscheidung (`Currency::from_code`), kein
-//! Format-/Präsenz-Check. Weiterhin **nicht** getestet wird reine io-Mechanik (Datei lesen,
-//! echtes Dekodieren von deutschem Datum/Zahlenformat) — die liegt hinter den Seams.
+//! ist beobachtbares Slice-Verhalten, kein io-Detail — darum prüfen Specs es. Ebenso sind die
+//! Abbildung „Quelle nicht beschaffbar → Dead-Letter mit durchgereichter io-Diagnose"
+//! (Bridge-Verhalten, kein io-Format-Detail) und „unbekannte Währung" (eine
+//! **Domänen**-Deutungsentscheidung, `Currency::from_code`) Slice-Verhalten. Weiterhin
+//! **nicht** getestet wird reine io-Mechanik (Datei lesen, echtes Dekodieren von deutschem
+//! Datum/Zahlenformat) — die liegt hinter den Seams.
 //!
 //! **`RawRecord` trägt keine Test-Ergonomie** (bewusst): die Fixture unten ist spec-lokal, nicht
 //! Teil der Adapter-API.
@@ -38,8 +43,9 @@
 use einlesen_adapter::{CalendarDay, Currency, Direction, Line, RawRecord, ReadTestApi};
 use shared_kernel::OutboxError;
 
-/// Die Quelle, aus der eine `ReadTransactions`-Nachricht ihren Batch bezieht (Aggregat-/
-/// Partition-Identität).
+/// Die Quelle eines Einlese-Laufs — seit Issue 0018 reiner Routing-Kontext: sie reist nur
+/// noch als `partition_key` des Envelopes (die Payload ist feldlos), der Batch kommt über
+/// den Quell-Seam.
 const QUELLE: &str = "auszug-juni";
 
 fn feld(wert: &str) -> Option<String> {
@@ -99,11 +105,10 @@ fn eine_gültige_zeile_wird_zu_einem_eingelesen_command() {
     let ergebnis = api.run(QUELLE);
 
     assert_eq!(ergebnis, Ok(()));
+    // Genau **ein** „Eingelesen"-Command, und sein Zeiger deckt sich mit dem Speicher-Schlüssel
+    // (Tabelle = Wahrheit, Message = Pointer): der Spec vergleicht die beiden Datenrückgaben der
+    // TestApi, ohne die intern vergebene Aggregat-ID als Literal zu benennen.
     assert_eq!(api.published_message_types(), vec!["Ingested"]);
-    // Genau **ein** Zeiger, und er deckt sich mit dem Speicher-Schlüssel (Tabelle = Wahrheit,
-    // Message = Pointer): die Nachricht trägt nur die vergebene Aggregat-ID, unter der die Roh-Zeile
-    // liegt. Ohne Kopplung an die interne Fake-Nummerierung.
-    assert_eq!(api.published_partition_keys().len(), 1);
     assert_eq!(api.stored_ids(), api.published_partition_keys());
 }
 
@@ -125,24 +130,15 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
 
     api.run(QUELLE).expect("gültige Zeilen");
 
+    // Drei „Eingelesen"-Commands (Fan-out), und jeder Zeiger zeigt auf genau die unter diesem
+    // Schlüssel abgelegte Roh-Zeile (Tabelle = Wahrheit, Message = Pointer). Weil die Speicher-
+    // Schlüssel je Zeile verschieden sind, belegt die Deckung zugleich, dass die drei Zeiger
+    // paarweise verschieden sind — ohne dass der Spec an die interne Fake-Nummerierung koppelt.
     assert_eq!(
         api.published_message_types(),
         vec!["Ingested", "Ingested", "Ingested"]
     );
-    // Genau **drei** Zeiger, und jeder mit einer **eigenen**, verschiedenen Aggregat-ID (kein
-    // geteilter Schlüssel mehr) — ohne Kopplung an die interne Fake-Nummerierung.
-    let zeiger = api.published_partition_keys();
-    assert_eq!(zeiger.len(), 3);
-    assert_eq!(
-        zeiger
-            .iter()
-            .collect::<std::collections::HashSet<_>>()
-            .len(),
-        3,
-        "die drei Zeiger müssen verschieden sein"
-    );
-    // … und jeder Zeiger zeigt auf die unter genau dieser ID abgelegte Roh-Zeile (Message = Pointer).
-    assert_eq!(api.stored_ids(), zeiger);
+    assert_eq!(api.stored_ids(), api.published_partition_keys());
     // Aggregat **und** Ereignis werden atomar gestaged (ADR-0008): je gültiger Zeile liegt ihr
     // Auftragskonto am Speicher-Seam — in Lesereihenfolge, nicht nur der Fan-out stromabwärts.
     assert_eq!(
@@ -218,8 +214,9 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
 }
 
 // --- Präsenz: ein fehlendes Pflichtfeld lettert den GANZEN Batch ins Dead-Letter ---------
-// Die Präsenz eines Pflichtfelds erzwingt der Adapter (ACL). Fehlt eins irgendwo, scheitert die
-// „außen → innen"-Abbildung des Batches, bevor der Handler eine Zeile deutet — batch-atomar:
+// Die Präsenz eines Pflichtfelds erzwingt der Adapter (ACL) — seit Issue 0018 in der
+// Source-Bridge hinter dem Quell-Seam. Fehlt eins irgendwo, scheitert die „außen → innen"-
+// Abbildung schon bei der Beschaffung, bevor der Handler eine Zeile deutet — batch-atomar:
 // nichts wird gestaged/veröffentlicht, auch nicht die gültige Zeile daneben. Der Grund ist
 // redigiert (nur der Feldname).
 
@@ -261,6 +258,29 @@ fn eine_gebührenzeile_ohne_empfänger_wird_ohne_namen_gestaged() {
         ..erwartete_zeile()
     };
     assert_eq!(api.stored_lines(), vec![erwartet]);
+}
+
+// --- Beschaffung: eine nicht beschaffbare Quelle lettert ins Dead-Letter -----------------
+// Ein Fehlschlag der Beschaffung ist **nie Abwesenheit**, sondern terminal (Issue 0018): die
+// Source-Bridge mappt den Seam-Fehler auf den domänen-typisierten `SourceError::Unavailable`,
+// der als `OutboxError::Warning` bubblet. Der Grund trägt die **durchgereichte io-Diagnose**
+// (Nachvollziehbarkeit ist beobachtbares Verhalten, kein Detail); die reale Lese-Mechanik
+// dahinter bleibt untestiert (io-Sache). Nichts wird gestaged, nichts publiziert.
+
+#[test]
+fn eine_nicht_beschaffbare_quelle_lettert_ins_dead_letter() {
+    let diagnose = "CSV-Datei nicht lesbar: auszug-juni.csv (permission denied)";
+    let api = ReadTestApi::new().with_unavailable_source(diagnose);
+
+    let ergebnis = api.run(QUELLE);
+
+    assert!(
+        matches!(&ergebnis, Err(OutboxError::Warning { reason }) if reason.contains(diagnose)),
+        "erwartet Dead-Letter mit durchgereichter io-Diagnose: {ergebnis:?}"
+    );
+    // Terminal und leer: nichts wird gestaged oder veröffentlicht.
+    assert!(api.stored_lines().is_empty());
+    assert!(api.published_message_types().is_empty());
 }
 
 // --- Deutung: eine unbekannte Währung lettert ins Dead-Letter ----------------------------

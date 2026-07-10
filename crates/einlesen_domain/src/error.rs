@@ -43,3 +43,62 @@ impl fmt::Display for LineError {
 }
 
 impl std::error::Error for LineError {}
+
+/// Warum die **Beschaffung** des Batches über den von der Domäne verlangten
+/// [`RawLineSource`](crate::RawLineSource)-Port scheitert. Beide Fälle sind **terminal** —
+/// ein Fehlschlag der Beschaffung ist nie Abwesenheit; der Adapter mappt sie auf ein
+/// Dead-Letter, nicht auf Retry.
+///
+/// Die Domäne ist dependency-frei: `Display`/`Error` von Hand, kein `thiserror`.
+/// **Datenschutz (Redaktion):** [`MissingMandatoryField`](SourceError::MissingMandatoryField)
+/// ist **per Konstruktion** redigiert — es trägt nur den statischen Feldnamen, nie den
+/// Rohwert; diese `Display` ist der **einzige Eigentümer** des Meldungssatzes (der Adapter
+/// spiegelt ihn nicht; Kontrakt der Specs ist allein „der Grund enthält den Feldnamen").
+/// [`Unavailable`](SourceError::Unavailable) trägt die vom Quell-Seam **durchgereichte
+/// io-Diagnose** (Pfad, OS-/Parse-Fehler — Beschaffungs-Mechanik, nie Satz-/Feldinhalt;
+/// diese Redaktions-Pflicht ist am Seam dokumentiert), damit der Dead-Letter-Grund benennt,
+/// was genau schieflief.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceError {
+    /// Die Beschaffung selbst ist misslungen (io) — trägt die durchgereichte io-Diagnose.
+    Unavailable { reason: String },
+    /// Eine beschaffte Zeile ist da, aber ein **Pflichtfeld fehlt/ist leer** — redigiert
+    /// per Konstruktion: nur der statische Feldname.
+    MissingMandatoryField { field: &'static str },
+}
+
+impl fmt::Display for SourceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SourceError::Unavailable { reason } => write!(f, "source unavailable: {reason}"),
+            SourceError::MissingMandatoryField { field } => {
+                write!(f, "mandatory field missing: {field}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SourceError {}
+
+/// Die **Fehlersumme** des [`ReadHandler`](crate::ReadHandler): entweder scheitert die
+/// **Beschaffung** des Batches ([`SourceError`], Port `RawLineSource`) oder das **Deuten**
+/// einer beschafften Zeile ([`LineError`]). Beide Äste sind terminal — der Adapter mappt
+/// die Summe redigiert auf ein Dead-Letter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadError {
+    /// Die Beschaffung des Batches scheiterte (Beschaffungs- oder Präsenz-Fehler).
+    Source(SourceError),
+    /// Ein vorhandener Wert einer beschafften Zeile war nicht deutbar.
+    Line(LineError),
+}
+
+impl fmt::Display for ReadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReadError::Source(error) => write!(f, "{error}"),
+            ReadError::Line(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for ReadError {}
