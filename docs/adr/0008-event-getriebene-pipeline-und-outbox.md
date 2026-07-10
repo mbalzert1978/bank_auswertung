@@ -58,6 +58,13 @@ adapterspezifisch und lebt in der Consume-Bridge, nicht im Kernel-Vertrag.
 Der **Command trägt, was der Handler braucht** — für den Ein-Rutsch-Betrieb den ganzen Batch
 (alle Zeilen), nicht zeilenweise.
 
+> **Verfeinert durch [Issue 0018](../issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md):**
+> der Command ist reiner **Auslöser** (vorerst leere `RunConfiguration`, feldlose Payload —
+> die Quelle lebt allein im Envelope-`partition_key`); den Batch **beschafft** der Handler
+> über den von der Domäne verlangten Datenquellen-Port (`RawLineSource`, fehlbar und
+> terminal), den die Adapter-Port-Bridge an den Quell-Seam bindet — die Präsenz-Prüfung
+> liegt seitdem hinter dem Seam, weiterhin batch-atomar.
+
 ## Der Adapter ist die Anpassung an die Außenwelt
 
 - **Consume-Bridge** (`OutboxHandlerBase`-Muster): implementiert den public

@@ -7,10 +7,10 @@ use crate::value_objects::NonEmptyString;
 /// **Präsenz lebt im Typ** (ADR-0005: illegale Zustände unkonstruierbar, nicht „geprüft"):
 /// ein Pflichtfeld ist **non-`Option`** — dass es da ist, garantiert die Adapter-Abbildung
 /// (fehlt es dort, dead-lettert der ganze Batch, bevor eine `RawLine` überhaupt entsteht).
-/// Ein genuin optionales Datenfeld bleibt `Option`. Das Kommando
-/// [`ReadTransactions`](crate::ReadTransactions) trägt einen Batch davon; das
-/// [`LineAggregate`](crate::LineAggregate) deutet eine `RawLine` weiter zu reichen
-/// Wert-Objekten — die Domäne spricht nie ein primitives `String`.
+/// Ein genuin optionales Datenfeld bleibt `Option`. Der Datenquellen-Port
+/// [`RawLineSource`](crate::RawLineSource) liefert einen Batch davon (das Kommando ist
+/// reiner Auslöser); das [`LineAggregate`](crate::LineAggregate) deutet eine `RawLine`
+/// weiter zu reichen Wert-Objekten — die Domäne spricht nie ein primitives `String`.
 #[derive(Debug, Clone)]
 pub struct RawLine {
     pub ordering_account: NonEmptyString,

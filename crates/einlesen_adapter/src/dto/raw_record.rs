@@ -1,17 +1,16 @@
-use std::fmt;
-
 use einlesen_domain::{NonEmptyString, RawLine};
-use serde::{Deserialize, Serialize};
 
 /// Der rohe Datensatz **einer** Zeile: die zehn verwerteten CSV-CAMT-v8-Felder als rohe Zellen
-/// (leer/fehlend = `None`). Reines **Wire-/Eingangs-DTO** (öffentliche Felder, serde) — die
-/// öffentliche Fläche, die die TestApi arrangiert und io in die Outbox schreibt. Die Abbildung
-/// **„außen → innen"** (Wire-DTO → Domänen-VO [`RawLine`]) lebt hier im Adapter (ACL):
+/// (leer/fehlend = `None`). Reines **Seam-/Eingangs-DTO** (öffentliche Felder, **kein serde** —
+/// seit [Issue 0018](../../../docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
+/// reist es nicht mehr über die Outbox, sondern in-process über den
+/// [`SourceSeam`](crate::abstractions::SourceSeam)) — die öffentliche Fläche, die die TestApi
+/// in der Quelle arrangiert und io beim Erfüllen des Seams liefert. Die Abbildung
+/// **„außen → innen"** (Seam-DTO → Domänen-VO [`RawLine`]) lebt hier im Adapter (ACL):
 /// [`to_raw_line`](RawRecord::to_raw_line) reicht jede Zelle als `NonEmptyString` an den
 /// Domänen-Rand — **wie** eine CSV-Spalte einem Feld zugeordnet wird, kapselt der Adapter, die
 /// Domäne bekommt nur geprüfte Werte. Test-Fixtures leben **in den Specs**, nicht hier.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default)]
 pub struct RawRecord {
     pub ordering_account: Option<String>,
     pub booking_day: Option<String>,
@@ -26,7 +25,7 @@ pub struct RawRecord {
 }
 
 impl RawRecord {
-    /// Bildet den Wire-DTO auf den Domänen-VO [`RawLine`] ab (ACL, „außen → innen"). **Hier
+    /// Bildet das Seam-DTO auf den Domänen-VO [`RawLine`] ab (ACL, „außen → innen"). **Hier
     /// erzwingt der Adapter die Präsenz** der Pflichtfelder: ein fehlendes/leeres Pflichtfeld
     /// wird zu `Err(MissingMandatoryField)` (die Domäne *fordert* Präsenz im Typ, prüft sie
     /// aber nicht — das ist ACL-Mechanik). Optionale Zellen werden zu `Option<NonEmptyString>`.
@@ -47,21 +46,24 @@ impl RawRecord {
 }
 
 /// Ein Pflichtfeld fehlt (leer/nicht vorhanden) in der Rohzeile — **terminaler**
-/// Adapter-Fehler der „außen → innen"-Abbildung; die Consume-Bridge mappt ihn auf ein
-/// Dead-Letter. **Datenschutz (Redaktions-Invariante):** trägt **nur** den statischen
-/// Feldnamen, nie den Rohwert — auch `Debug` spiegelt so keinen Identifikator.
+/// Adapter-Fehler der „außen → innen"-Abbildung; die
+/// [`SourceBridge`](crate::bridges::SourceBridge) mappt ihn auf den redigierten
+/// Domänen-Fehler `SourceError::MissingMandatoryField` (dessen Domänen-`Display` allein den
+/// Meldungssatz besitzt — hier bewusst **kein** `Display`-Duplikat). **Datenschutz
+/// (Redaktions-Invariante):** trägt **nur** den statischen Feldnamen, nie den Rohwert —
+/// auch `Debug` spiegelt so keinen Identifikator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MissingMandatoryField {
     field: &'static str,
 }
 
-impl fmt::Display for MissingMandatoryField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "mandatory field missing: {}", self.field)
+impl MissingMandatoryField {
+    /// Der (statische, unsensible) Name des fehlenden Pflichtfelds — für den redigierten
+    /// Domänen-Fehler.
+    pub(crate) fn field(&self) -> &'static str {
+        self.field
     }
 }
-
-impl std::error::Error for MissingMandatoryField {}
 
 /// Erzwingt ein Pflichtfeld: reicht die Zelle als `NonEmptyString` an die Domänengrenze,
 /// oder — fehlt/leer sie — den redigierten [`MissingMandatoryField`] mit nur dem Feldnamen.

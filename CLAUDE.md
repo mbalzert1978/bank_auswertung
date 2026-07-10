@@ -67,24 +67,32 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   objects and **demands already-decoded, complete values** — presence lives in the
   **type**: `RawLine`'s mandatory fields are non-`Option` (ADR-0005: illegal states
   unconstructible, not "checked"). **Presence enforcement is the `_adapter` (ACL)**,
-  not the domain and not `io`: `RawRecord::to_raw_line` is fallible — a missing/empty
-  mandatory cell becomes a **redacted** `MissingMandatoryField` (static field name
-  only, never a raw value) and dead-letters the whole batch. The domain does not
+  not the domain and not `io` — since [Issue 0018](docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
+  **behind the source seam in the `SourceBridge`**: `RawRecord::to_raw_line` is fallible;
+  a missing/empty mandatory cell maps to the **redacted** domain
+  `SourceError::MissingMandatoryField` (static field name only, never a raw value) and
+  dead-letters the whole batch, before the handler interprets a single line. The domain does not
   validate format either: the `Calendar`/`Money` ports (behind the adapter's
   `CalendarSeam`/`MoneySeam`, `io`-fulfilled later) decode German date/number, and an
   *undecodable* present value returns `None`, which the aggregate maps to a terminal
   `LineError` (now only `AmountInvalid`/`CurrencyUnknown`/`BookingDayInvalid`/
   `ValueDateInvalid`; `CalendarDay::from_parts` is infallible — the seam owns calendar
   validity). `recipient_name` is genuinely **optional** (a fee/charge row has no
-  counterparty). `_adapter` exposes the `RawRecord` inbound DTO (**serializable** — raw
-  may ride the local `einlesen → obfuskieren` hop; see Privacy), the `Line` outbound
-  projection, the Consume-/Publisher-/Port-Bridges, and the Fluent `ReadTestApi`. It
-  **deliberately re-declares** the domain sum types it projects (`Direction`/`Currency`/
-  `CalendarDay`/`Sign`) as adapter-owned DTO types instead of re-exporting them — no
-  domain internal crosses the boundary (re-evaluate the mapping concentration at the
-  `io` revision). Consumes a `ReadTransactions` command (whole batch), fans out **one
-  `Ingested` message per valid line**; a terminal error bubbles to
-  `OutboxError::Warning` so `io` dead-letters.
+  counterparty). `_adapter` exposes the `RawRecord` inbound DTO (**no longer `serde`**
+  since [0018](docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md):
+  it is the **source-seam DTO**, fetched in-process, not a wire payload), the `Line`
+  outbound projection, the Consume-/Publisher-/Source-/Port-Bridges, and the Fluent
+  `ReadTestApi`. It **deliberately re-declares** the domain sum types it projects
+  (`Direction`/`Currency`/`CalendarDay`/`Sign`) as adapter-owned DTO types instead of
+  re-exporting them — no domain internal crosses the boundary (re-evaluate the mapping
+  concentration at the `io` revision). Consumes a `ReadTransactions` command — since
+  [0018](docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
+  a **pure trigger** (empty `RunConfiguration`, field-less payload; the source lives in
+  the envelope `partition_key`): the handler **fetches** the batch through the
+  domain-required data-source port (`RawLineSource`, fallible + terminal), which the
+  `SourceBridge` binds to the `SourceSeam` (fake now, `io` later). Fans out **one
+  `Ingested` message per valid line**; a terminal error (fetch/presence/decode) bubbles
+  to `OutboxError::Warning` so `io` dead-letters.
 - **`obfuskierung`** — second pipeline step and the **privacy boundary**: a consumer that
   reads the raw aggregate **by ID** from the `einlesen` store (`RawBookingSource`) and
   obfuscates it **seed-based** — a deterministic `KONTO_x`/`PERSON_x` token from
@@ -179,10 +187,13 @@ The reason the project exists; do not weaken them.
   tokens flow. So the compiler-enforced `static_assertions` "no `Serialize`" guard
   belongs on the **egress DTOs** (categorizer request + report output — where data
   leaves): embedding a raw identifier in something that leaves is a compile error, not a
-  review miss. It is **not** on `einlesen`'s raw `Iban` (which *must* serialize for the
-  local hop); today it sits on `obfuskierung`'s egress `ObfuscatedBooking` (the
-  privacy-boundary output). `serde` is allowed — the guarantee rests on the missing
-  `Serialize` on egress types. `Bic` deferred until a format needs it.
+  review miss. It is **not** on `einlesen`'s raw `Iban` (raw never reaches an egress DTO;
+  since [0018](docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
+  it no longer rides an outbox message at all — the batch is fetched **in-process**
+  through the source seam and lives only in the local `einlesen` table); today the guard
+  sits on `obfuskierung`'s egress `ObfuscatedBooking` (the privacy-boundary output).
+  `serde` is allowed — the guarantee rests on the missing `Serialize` on egress types.
+  `Bic` deferred until a format needs it.
 - From `obfuskieren` on, the downstream domain (`auswerten`) receives **no** person-/
   account-relatable identifier — only obfuscated value objects. The **`Gläubiger-ID`**
   (public company key) is a deliberate exception, kept as an analysis anchor.
