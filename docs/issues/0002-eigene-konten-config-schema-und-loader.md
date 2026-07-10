@@ -8,6 +8,17 @@ status: blocked
 
 **Typ:** HITL — braucht Markus' echte eigene IBANs + Konto-Rollen.
 
+> **Umbau durch [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md).** Die
+> ursprünglich hierfür gebaute Slice-Triade `eigene_konten_{domain,adapter,specs}` wurde
+> **entfernt**: in der event-getriebenen Pipeline wird `Gegenkonto::Eigen|Fremd` **nicht**
+> mehr inline am Eingang aufgelöst, sondern im nachgelagerten **`auswerten`-Slice** — und
+> dort **auf Token** (Gegenkonto-`KONTO_x` gegen die mit demselben Seed tokenisierte Menge
+> der eigenen Konten; `auswerten` sieht keine rohe IBAN mehr). Der **Config-Artefakt** unten
+> (IBAN + Rolle je eigenem Konto, `eigene-konten.example.toml`) bleibt gültig und
+> **wird zum `auswerten`-Input**; die Nachschlage-/Loader-Logik wird bei Bau von `auswerten`
+> **token-orientiert neu** aufgesetzt (mod-97-Prüfung + `Rolle` als wiederverwendbarer Kern).
+> Der Textkörper unten ist die ursprüngliche Slice-Fassung und bleibt als Kontext stehen.
+
 ## Was zu bauen ist
 
 Die **Eigene-Konten-Config** (lokal, adapter-seitig): je eigenem Konto seine

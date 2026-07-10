@@ -74,6 +74,8 @@ wird in diesem Zuge abgebaut (`shared_kernel` bleibt).
 
 - Blockiert durch [0014](0014-shared-kernel-outbox-vertraege.md) (Outbox-Verträge im
   `shared_kernel`).
-- Baut auf dem erledigten [0003](0003-csv-camt-v8-adapter-zu-buchung.md) und
-  [0002](0002-eigene-konten-config-schema-und-loader.md) auf (Eigen/Fremd-Auflösung
-  über die public API des `eigene_konten`-Slice).
+- Baut auf dem erledigten [0003](0003-csv-camt-v8-adapter-zu-buchung.md) auf. **Kein**
+  Eigen/Fremd im `einlesen`-Slice: die Domäne trägt die rohe Gegen-IBAN nur unverändert
+  mit, die `Gegenkonto::Eigen|Fremd`-Auflösung ist Sache des nachgelagerten `auswerten`
+  (token-basiert; [Issue 0002](0002-eigene-konten-config-schema-und-loader.md) liefert nur
+  noch das Config-Artefakt, der frühere `eigene_konten`-Slice ist entfernt).
