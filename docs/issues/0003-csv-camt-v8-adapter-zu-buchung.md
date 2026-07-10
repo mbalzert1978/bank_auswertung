@@ -12,7 +12,13 @@ status: done
 > eigenen `obfuskierung`-Slice (per Bridge konsumiert), die Eigen/Fremd-Auflösung
 > läuft über die public API des `eigene_konten`-Slice. Fachlicher Inhalt (Mapping,
 > einheitliche Währung, Fail-safe-Empfänger, Datenschutz) bleibt; nur der Schnitt
-> und die Testführung (Fluent-TestApi, Black-Box) ändern sich.
+> und die Testführung (Fluent-TestApi, Black-Box) ändern sich. **Nachtrag:** die unten
+> genannte First-Seen-Pseudonymvergabe ist durch
+> [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md) abgelöst (Token heute
+> **seed-basiert**, keine Mapping-Tabelle); und die „Eigen/Fremd-Auflösung über die public
+> API des `eigene_konten`-Slice" gilt nicht mehr — der `eigene_konten`-Slice ist entfernt,
+> Eigen/Fremd ist token-basiert Sache des `auswerten`-Slice ([ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md)).
+> Alles historischer Stand.
 
 **Prämisse:** Dieser Slice ist **nicht** auf eine echte CSV-Beispieldatei
 blockiert. Es gibt vorerst keine Realdaten — die liefert Markus erst, wenn das

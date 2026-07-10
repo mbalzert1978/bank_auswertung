@@ -1,35 +1,46 @@
-//! Obfuskierungs-Slice — **Adapter**: umschließt die Domäne
-//! ([`obfuskierung_domain`]) mit einem Interface und ist die einzige öffentliche
-//! Fläche des Slice ([ADR-0007](../../../docs/adr/0007-modularer-monolith-feature-slices.md)).
+//! Obfuskierungs-Slice — **Adapter**: umschließt die blinde Domäne ([`obfuskierung_domain`]) und ist
+//! die **einzige** öffentliche Fläche des Slice ([ADR-0007](../../../docs/adr/0007-modularer-monolith-feature-slices.md),
+//! [ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)). Er ist der zweite
+//! Schritt der Pipeline und die **Datenschutz-Grenze**: konsumiert einen `Ingested`-**Zeiger** (nur
+//! die ID in der Outbox-Hülle), **liest** das rohe Aggregat per ID aus dem einlesen-Speicher,
+//! obfuskiert seed-basiert, **legt die ganze obfuskierte Buchung in der `obfuskiert`-Tabelle ab** und
+//! **publiziert nur die ID** als Zeiger (Tabelle = Wahrheit, Message = Pointer) — Ablage und Publish
+//! in **einer** `UnitOfWork`.
 //!
-//! Public API [`Obfuskierer`]: rohe Eingänge (Eingangs-DTO [`Iban`], Namen,
-//! Freitext) rein, obfuskierte DTOs ([`KontoId`], [`Pseudonym`],
-//! [`ObfuskierterText`]) raus — nie ein Domänentyp. Andere Slices konsumieren
-//! diese API über eine Bridge, **bevor** ihre Domäne rohe Identifikatoren sieht.
-//! Der von der Domäne verlangte [`ZuordnungsSpeicher`]-Port ist re-exportiert
-//! (echtes IO erfüllt ihn später); die [`ObfuskierungTestApi`] fährt den Slice als
-//! Black-Box.
+//! **Schichtung:** ein interner [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler) hängt
+//! **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
+//! `BookingPublisher`); die Port-Bridges (Modul [`bridges`]) mappen die öffentlichen, mechanischen
+//! Abstractions ([`IngestedSourceSeam`]/[`ObfuscatorSeam`]/[`ObfuscatedStoreSeam`], die io erfüllt)
+//! bzw. den `OutboxPublisher` darauf. Betrag/Datum &c. reist als Pass-Through verbatim mit.
 //!
-//! Datenschutz: [`Iban`] ist ein struktureller Identifikator und leitet **kein**
-//! `Serialize`/`Deserialize` ab (compilergeprüft unten).
+//! **Genau ein öffentlicher Zugang:** die [`ObfuscationTestApi`], die rohe Speicher-Zeile
+//! [`IngestedRow`] (die der Lese-Seam liefert) und die obfuskierten Ausgangs-DTOs
+//! ([`ObfuscatedBooking`] + [`AccountId`]/[`Pseudonym`]/[`ObfuscatedText`]/[`Recipient`]) sowie die
+//! öffentlichen Abstractions. Alles andere ist crate-privat. Die eingehende Nachricht trägt **nur die
+//! ID** — kein Wire-DTO, **kein serde** im Slice.
+//!
+//! **Datenschutz-Guard:** ab hier fließen nur Token — der `assert_not_impl_any!`-„kein
+//! Serialize"-Guard liegt auf dem obfuskierten Egress-DTO [`ObfuscatedBooking`] (nicht mehr auf einer
+//! rohen `Iban`): eine rohe Kennung in etwas, das die Datenschutz-Grenze verlässt, wäre ein
+//! **Compile-Fehler**.
 
-mod iban;
-mod obfuskierer;
+mod abstractions;
+mod bridges;
+mod commands;
+mod dto;
 mod testapi;
-mod token;
 
-pub use iban::Iban;
-pub use obfuskierer::Obfuskierer;
-pub use obfuskierung_domain::{SpeicherError, ZuordnungsSpeicher, Zuordnungsbestand};
-pub use testapi::ObfuskierungTestApi;
-pub use token::{KontoId, ObfuskierterText, Pseudonym};
+pub use abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam};
+pub use dto::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, Pseudonym, Recipient};
+pub use testapi::ObfuscationTestApi;
 
 #[cfg(test)]
 mod datenschutz {
-    use super::Iban;
+    use super::ObfuscatedBooking;
     use serde::{Deserialize, Serialize};
     use static_assertions::assert_not_impl_any;
 
-    // Das IBAN-Eingangs-DTO darf die Maschine nicht verlassen.
-    assert_not_impl_any!(Iban: Serialize, Deserialize<'static>);
+    // Die obfuskierte Buchung überquert die Datenschutz-Grenze — sie darf **nie** serialisieren
+    // (kein roher Identifikator kann so die Maschine verlassen).
+    assert_not_impl_any!(ObfuscatedBooking: Serialize, Deserialize<'static>);
 }

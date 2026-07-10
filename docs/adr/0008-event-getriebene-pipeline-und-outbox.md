@@ -25,9 +25,9 @@ synchron; die Kopplung ist allein die Message.
   **nicht** nach dem Format: **CSV-CAMT-v8 ist nur eine Eingabeform** hinter dem Quell-Seam
   (XML-camt/MT940 später = weiterer IO-Adapter, kein neuer Slice). Schreibt Roh-Tabelle +
   Message `Eingelesen`.
-- **obfuskieren** — konsumiert `Eingelesen`, vergibt `KONTO_x`/`PERSON_x`, scrubt Freitext
-  ([ADR-0006](0006-pseudonym-stabilitaet.md)). **Datenschutz-Grenze** (s. u.). Schreibt
-  Token-Tabelle + Message `Obfuskiert`.
+- **obfuskieren** — konsumiert `Eingelesen`, vergibt `KONTO_x`/`PERSON_x` **seed-basiert**
+  ([ADR-0010](0010-seed-basierte-pseudonym-stabilitaet.md)), scrubt Freitext.
+  **Datenschutz-Grenze** (s. u.). Schreibt `obfuskiert`-Tabelle + Message `Obfuskiert`.
 - **auswerten** — konsumiert `Obfuskiert`, macht die Analyse (Recurrence, Gebühren,
   Cashflow, Pareto) + Kategorie-Register ([ADR-0004](0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md)).
   **Kategorisieren ist kein eigener Schritt:** hält die Domäne einen Fingerabdruck für

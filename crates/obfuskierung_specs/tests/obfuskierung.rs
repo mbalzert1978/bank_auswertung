@@ -1,194 +1,217 @@
-//! Black-Box-Spezifikation des Obfuskierungs-Slice — nur über die public API des
-//! Adapters (Fluent-`ObfuskierungTestApi` + DTOs), nie über Interna.
+//! Black-Box-Spezifikation des Obfuskierungs-Slice — ausschließlich über die public API des
+//! Adapters (Fluent-`ObfuscationTestApi` + DTOs + die `shared_kernel`-Outbox-Ergebnisform), nie
+//! über Interna. Der Slice konsumiert einen `Ingested`-**Zeiger** (nur die ID), **liest** das rohe
+//! Aggregat per ID aus dem einlesen-Speicher, obfuskiert seed-basiert, legt die **ganze** obfuskierte
+//! Buchung in der `obfuskiert`-Tabelle ab und publiziert **nur** die ID als Zeiger.
+//!
+//! Erwartete Ergebnisse formuliert die Spec als **DTO** (Token-Felder über die `expected_*`-Helfer
+//! der TestApi) und lässt sie die **TestApi validieren** (`assert_stored`/`assert_published`).
 
-use obfuskierung_adapter::{Iban, ObfuskierungTestApi};
+use obfuskierung_adapter::{IngestedRow, ObfuscatedBooking, ObfuscationTestApi, Recipient};
+use shared_kernel::OutboxError;
 
-const EIGENE_GIRO: &str = "DE20 1234 5678 0000 0011 11";
-const EIGENE_HAUSHALT: &str = "DE93 1234 5678 0000 0022 22";
-const EIGENE_SPAR: &str = "DE69 1234 5678 0000 0033 33";
+const SEED: u64 = 42;
+const EIGENE_IBAN: &str = "DE20123456780000001111";
+const GEGEN_IBAN: &str = "DE93123456780000002222";
 
-/// Baut das IBAN-Eingangs-DTO — normalisiert nur (keine Validierung mehr, siehe
-/// `iban.rs`); eine leere Eingabe ergäbe `None`.
-fn iban(text: &str) -> Iban {
-    Iban::new(text).expect("nicht-leere Fixture-IBAN")
+/// Eine vollständige, gültige einlesen-Zeile (Ausgabe an einen Privatpersonen-Empfänger ohne
+/// Gläubiger-ID), wie sie im einlesen-Speicher liegt — die Fixtures leben in der Spec.
+fn gültige_zeile() -> IngestedRow {
+    IngestedRow {
+        ordering_account: EIGENE_IBAN.to_string(),
+        counter_account: Some(GEGEN_IBAN.to_string()),
+        amount_cent: 1299,
+        currency: "EUR".to_string(),
+        direction: "Outgoing".to_string(),
+        recipient_name: Some("Erika Mustermann".to_string()),
+        creditor_id: None,
+        booking_day: "2026-07-01".to_string(),
+        value_date: "2026-07-02".to_string(),
+        purpose: Some("Miete Juli".to_string()),
+        booking_text: Some("DAUERAUFTRAG".to_string()),
+    }
 }
 
-// --- Konto-Token: First-Seen & Laufstabilität ------------------------------
-
-#[test]
-fn dieselbe_iban_erhält_im_lauf_dasselbe_konto_token() {
-    let mut obfuskierer = ObfuskierungTestApi::new().obfuskierer();
-
-    let erst = obfuskierer.obfuskiere_konto(&iban(EIGENE_GIRO));
-    let nochmal = obfuskierer.obfuskiere_konto(&iban(EIGENE_GIRO));
-
-    assert_eq!(erst, nochmal);
-    assert_eq!(erst.as_str(), "KONTO_1");
+/// Die erwartete obfuskierte Buchung zur [`gültige_zeile`] — die Token-Felder über die
+/// deterministischen `expected_*`-Helfer der TestApi, alles andere Pass-Through/ID/Seed.
+fn erwartete_buchung(api: &ObfuscationTestApi, id: &str) -> ObfuscatedBooking {
+    ObfuscatedBooking {
+        id: id.to_string(),
+        ordering_account: api.expected_account(EIGENE_IBAN),
+        counter_account: Some(api.expected_account(GEGEN_IBAN)),
+        amount_cent: 1299,
+        currency: "EUR".to_string(),
+        direction: "Outgoing".to_string(),
+        recipient: Recipient::Person {
+            pseudonym: api.expected_pseudonym("Erika Mustermann"),
+        },
+        booking_day: "2026-07-01".to_string(),
+        value_date: "2026-07-02".to_string(),
+        purpose: Some(api.expected_text("Miete Juli")),
+        booking_text: Some(api.expected_text("DAUERAUFTRAG")),
+        seed: SEED,
+    }
 }
 
-#[test]
-fn verschiedene_ibans_erhalten_aufsteigende_konto_token() {
-    let mut obfuskierer = ObfuskierungTestApi::new().obfuskierer();
-
-    assert_eq!(
-        obfuskierer.obfuskiere_konto(&iban(EIGENE_GIRO)).as_str(),
-        "KONTO_1"
-    );
-    assert_eq!(
-        obfuskierer
-            .obfuskiere_konto(&iban(EIGENE_HAUSHALT))
-            .as_str(),
-        "KONTO_2"
-    );
-    assert_eq!(
-        obfuskierer.obfuskiere_konto(&iban(EIGENE_SPAR)).as_str(),
-        "KONTO_3"
-    );
+/// Die **eine** obfuskierte Buchung eines Laufs — indexfreier Zugriff für Eigenschafts-Prüfungen.
+fn einzige_buchung(api: &ObfuscationTestApi) -> ObfuscatedBooking {
+    let mut bookings = api.stored_bookings().into_iter();
+    let buchung = bookings.next().expect("genau eine abgelegte Buchung");
+    assert!(bookings.next().is_none(), "es darf nur eine Buchung geben");
+    buchung
 }
 
+// --- Happy Path: per ID lesen → obfuskiert ablegen → ID als Zeiger publizieren --
+
 #[test]
-fn schreibweise_und_leerzeichen_ändern_das_konto_token_nicht() {
-    let mut obfuskierer = ObfuskierungTestApi::new().obfuskierer();
+fn zeile_wird_per_id_gelesen_obfuskiert_abgelegt_und_die_id_als_zeiger_publiziert() {
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", gültige_zeile());
 
-    let mit_leerzeichen = obfuskierer.obfuskiere_konto(&iban(EIGENE_GIRO));
-    let andere_schreibweise = obfuskierer.obfuskiere_konto(&iban("de2012345678000000 1111"));
+    let ergebnis = api.run("buchung-1");
 
-    assert_eq!(mit_leerzeichen, andere_schreibweise);
+    assert_eq!(ergebnis, Ok(()));
+    // Die ganze obfuskierte Buchung (Token + Pass-Through + Seed) liegt in der `obfuskiert`-Tabelle …
+    api.assert_stored(erwartete_buchung(&api, "buchung-1"));
+    // … und nur die ID reist als Zeiger durch die Outbox (Tabelle = Wahrheit, Message = Pointer).
+    api.assert_published(&["buchung-1"]);
 }
 
-// --- Personen-Token: First-Seen & leerer Name ------------------------------
+// --- Seed-basierte Obfuskierung: deterministisch & unterscheidend --------------
 
 #[test]
-fn derselbe_name_erhält_im_lauf_dasselbe_personen_token() {
-    let mut obfuskierer = ObfuskierungTestApi::new().obfuskierer();
+fn gleicher_klartext_und_seed_ergibt_dasselbe_konto_token() {
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("b1", gültige_zeile())
+        .with_ingested("b2", gültige_zeile());
+    api.run("b1").expect("gültige Zeile");
+    api.run("b2").expect("gültige Zeile");
 
-    let erst = obfuskierer
-        .obfuskiere_person("Erika Mustermann")
-        .expect("nicht-leerer Name ergibt ein Pseudonym");
-    let nochmal = obfuskierer
-        .obfuskiere_person("Erika Mustermann")
-        .expect("nicht-leerer Name ergibt ein Pseudonym");
-
-    assert_eq!(erst, nochmal);
-    assert_eq!(erst.as_str(), "PERSON_1");
-}
-
-#[test]
-fn verschiedene_namen_erhalten_aufsteigende_personen_token() {
-    let mut obfuskierer = ObfuskierungTestApi::new().obfuskierer();
-
+    let mut bookings = api.stored_bookings().into_iter();
+    let erste = bookings.next().expect("erste Buchung");
+    let zweite = bookings.next().expect("zweite Buchung");
+    // Dieselbe IBAN + derselbe Seed → dasselbe Konto-Token (laufstabil, zustandslos).
     assert_eq!(
-        obfuskierer
-            .obfuskiere_person("Erika Mustermann")
-            .expect("Name ergibt Pseudonym")
-            .as_str(),
-        "PERSON_1"
-    );
-    assert_eq!(
-        obfuskierer
-            .obfuskiere_person("Max Beispiel")
-            .expect("Name ergibt Pseudonym")
-            .as_str(),
-        "PERSON_2"
-    );
-}
-
-#[test]
-fn leerer_name_ergibt_kein_pseudonym() {
-    let mut obfuskierer = ObfuskierungTestApi::new().obfuskierer();
-
-    assert_eq!(obfuskierer.obfuskiere_person("   "), None);
-}
-
-#[test]
-fn konto_und_personen_token_zählen_unabhängig() {
-    let mut obfuskierer = ObfuskierungTestApi::new().obfuskierer();
-
-    assert_eq!(
-        obfuskierer.obfuskiere_konto(&iban(EIGENE_GIRO)).as_str(),
-        "KONTO_1"
-    );
-    assert_eq!(
-        obfuskierer
-            .obfuskiere_person("Erika Mustermann")
-            .expect("Name ergibt Pseudonym")
-            .as_str(),
-        "PERSON_1"
+        erste.ordering_account.as_str(),
+        zweite.ordering_account.as_str()
     );
 }
 
-// --- Freitext-Engpass ------------------------------------------------------
+// --- Fail-safe Firma vs. Privatperson (CONTEXT.md 113–116) ---------------------
 
 #[test]
-fn freitext_wird_getrimmt_und_bleibt_inhaltlich_erhalten() {
-    let obfuskierer = ObfuskierungTestApi::new().obfuskierer();
+fn ohne_gläubiger_id_wird_der_empfänger_zur_pseudonymisierten_person() {
+    // Die Person-Variante mit ihrem Pseudonym prüft `assert_stored` (Happy Path) bereits. Hier
+    // zusätzlich die Redaktions-Invariante: der Klarname taucht im Token **nicht** auf.
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", gültige_zeile()); // creditor_id: None
+    api.run("buchung-1").expect("gültige Zeile");
 
-    let text = obfuskierer
-        .obfuskiere_text("  Miete Juli  ")
-        .expect("nicht-leerer Freitext bleibt erhalten");
-
-    assert_eq!(text.as_str(), "Miete Juli");
-}
-
-#[test]
-fn leerer_freitext_ergibt_keinen_text() {
-    let obfuskierer = ObfuskierungTestApi::new().obfuskierer();
-
-    assert_eq!(obfuskierer.obfuskiere_text("   "), None);
-}
-
-// --- Laufübergreifende Stabilität (persistiert über den Store) -------------
-
-#[test]
-fn konto_token_bleibt_über_den_lauf_hinaus_stabil() {
-    let mut api = ObfuskierungTestApi::new();
-
-    let mut erster_lauf = api.obfuskierer();
-    let vorher = erster_lauf.obfuskiere_konto(&iban(EIGENE_GIRO));
-    api.sichern(&erster_lauf);
-
-    let mut zweiter_lauf = api.obfuskierer();
-    let nachher = zweiter_lauf.obfuskiere_konto(&iban(EIGENE_GIRO));
-
-    assert_eq!(vorher, nachher);
-}
-
-#[test]
-fn personen_token_bleibt_über_den_lauf_hinaus_stabil() {
-    let mut api = ObfuskierungTestApi::new();
-
-    let mut erster_lauf = api.obfuskierer();
-    let vorher = erster_lauf
-        .obfuskiere_person("Erika Mustermann")
-        .expect("Name ergibt Pseudonym");
-    api.sichern(&erster_lauf);
-
-    let mut zweiter_lauf = api.obfuskierer();
-    let nachher = zweiter_lauf
-        .obfuskiere_person("Erika Mustermann")
-        .expect("Name ergibt Pseudonym");
-
-    assert_eq!(vorher, nachher);
-}
-
-#[test]
-fn neue_iban_nach_persistenz_zählt_die_nummerierung_weiter() {
-    let mut api = ObfuskierungTestApi::new();
-
-    let mut erster_lauf = api.obfuskierer();
-    erster_lauf.obfuskiere_konto(&iban(EIGENE_GIRO)); // KONTO_1
-    api.sichern(&erster_lauf);
-
-    let mut zweiter_lauf = api.obfuskierer();
-    // bekannte IBAN bleibt KONTO_1, eine neue zählt weiter statt zurückzuspringen
-    assert_eq!(
-        zweiter_lauf.obfuskiere_konto(&iban(EIGENE_GIRO)).as_str(),
-        "KONTO_1"
+    let buchung = einzige_buchung(&api);
+    assert!(
+        matches!(&buchung.recipient, Recipient::Person { .. }),
+        "erwartete eine pseudonymisierte Person, war {:?}",
+        buchung.recipient
     );
+    if let Recipient::Person { pseudonym } = &buchung.recipient {
+        assert!(!pseudonym.as_str().contains("Erika"));
+        assert!(!pseudonym.as_str().contains("Mustermann"));
+    }
+}
+
+#[test]
+fn mit_gläubiger_id_bleibt_der_firmenname_klartext_und_die_id_anker() {
+    let mut zeile = gültige_zeile();
+    zeile.recipient_name = Some("Stromanbieter AG".to_string());
+    zeile.creditor_id = Some("DE00ZZZ00000000123".to_string());
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", zeile);
+    api.run("buchung-1").expect("gültige Zeile");
+
+    // Firma → Name bleibt Klartext (Kategorie-Signal), Gläubiger-ID bleibt Anker.
+    let mut erwartet = erwartete_buchung(&api, "buchung-1");
+    erwartet.recipient = Recipient::Company {
+        name: Some(api.expected_text("Stromanbieter AG")),
+        creditor_id: "DE00ZZZ00000000123".to_string(),
+    };
+    api.assert_stored(erwartet);
+}
+
+#[test]
+fn ohne_empfänger_und_ohne_gläubiger_id_gibt_es_keine_gegenpartei() {
+    let mut zeile = gültige_zeile();
+    zeile.recipient_name = None;
+    zeile.creditor_id = None;
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", zeile);
+    api.run("buchung-1").expect("gültige Zeile");
+
+    let mut erwartet = erwartete_buchung(&api, "buchung-1");
+    erwartet.recipient = Recipient::Absent;
+    api.assert_stored(erwartet);
+}
+
+// --- Freitext-Engpass ----------------------------------------------------------
+
+#[test]
+fn freitext_wird_getrimmt_durch_den_obfuskierten_text_engpass() {
+    let mut zeile = gültige_zeile();
+    zeile.purpose = Some("  Miete Juli  ".to_string());
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", zeile);
+    api.run("buchung-1").expect("gültige Zeile");
+
+    // Getrimmt, inhaltlich erhalten (Scrubbing vertagt) — `expected_text` trimmt gleichermaßen.
+    api.assert_stored(erwartete_buchung(&api, "buchung-1"));
+}
+
+// --- Unbekannte ID: transient, nichts emittiert --------------------------------
+
+#[test]
+fn unbekannte_id_wird_transient_zurückgestellt_ohne_etwas_zu_emittieren() {
+    let api = ObfuscationTestApi::new().with_seed(SEED); // kein Aggregat arrangiert
+
+    let ergebnis = api.run("fehlt-noch");
+
+    // Zur ID liegt (noch) kein Aggregat vor → erneute Zustellung (die einlesen-Schreibung kann
+    // nachhängen); der Grund trägt die opake ID (kein Rohwert).
     assert_eq!(
-        zweiter_lauf
-            .obfuskiere_konto(&iban(EIGENE_HAUSHALT))
-            .as_str(),
-        "KONTO_2"
+        ergebnis,
+        Err(OutboxError::Retry {
+            reason: "referenced booking not found in source: fehlt-noch".to_string(),
+        })
     );
+    api.assert_nothing_emitted();
+}
+
+// --- Vorhanden, aber Pflichtfeld leer: terminaler Dead-Letter (kein Poison-Retry) ---
+
+#[test]
+fn vorhandene_zeile_mit_leerem_pflichtfeld_wird_terminal_dead_lettert() {
+    // Die Zeile liegt im Speicher (also **nicht** „abwesend"), aber ein Pflichtfeld (Währung) ist
+    // leer — das kann kein erneutes Zustellen heilen. Muss terminal dead-lettern (`Warning`), nicht
+    // endlos zurückgestellt werden (Poison-Message).
+    let mut zeile = gültige_zeile();
+    zeile.currency = String::new();
+    let api = ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", zeile);
+
+    let ergebnis = api.run("buchung-1");
+
+    // Redigiert: der Grund trägt nur den statischen Feldnamen, nie einen Rohwert (keine IBAN, kein
+    // Name); nichts wird abgelegt oder publiziert.
+    assert_eq!(
+        ergebnis,
+        Err(OutboxError::Warning {
+            reason: "mandatory field missing in source booking: currency".to_string(),
+        })
+    );
+    api.assert_nothing_emitted();
 }

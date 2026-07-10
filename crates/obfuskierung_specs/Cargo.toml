@@ -9,3 +9,4 @@ workspace = true
 
 [dependencies]
 obfuskierung_adapter = { path = "../obfuskierung_adapter" }
+shared_kernel = { path = "../shared_kernel" }

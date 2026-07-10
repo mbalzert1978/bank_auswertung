@@ -8,6 +8,13 @@ status: blocked
 
 **Typ:** AFK
 
+> **Weitgehend hinfällig durch [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md).**
+> Die Pseudonym-Stabilität ruht heute auf einem **config-injizierten Seed** (deterministische
+> Token, mitpersistiert), **nicht** auf dem hier beschriebenen persistenten
+> Klartext↔Pseudonym-Mapping mit First-Seen-Vergabe. Der Restbedarf ist nur noch die
+> **Seed-Verwaltung in der Config** — kein eigener Mapping-Speicher-Slice. Der Textkörper
+> unten bleibt als Entscheidungskontext stehen.
+
 ## Was zu bauen ist
 
 Der **Zuordnungs-Speicher** (lokal, persistent, verlässt den Rechner nie):

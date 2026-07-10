@@ -1,12 +1,22 @@
 ---
 id: "0016"
 title: "obfuskieren-Slice als Pipeline-Consumer"
-status: blocked
+status: done
 ---
 
 # obfuskieren-Slice als Pipeline-Consumer
 
 **Typ:** AFK
+
+> **As-built — die Umsetzung weicht bewusst vom Wortlaut unten ab** (Nutzer-Entscheidungen
+> in der Planungssitzung; maßgeblich sind **Code** + [Plan 0016-1](../plans/0016-1-obfuskieren-slice-pipeline-consumer.md)
+> + [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md)). Insbesondere:
+> **seed-basiert statt First-Seen** (deterministisches Token aus `(Seed, Klartext)` via
+> `Obfuscator`-Port, **kein** `ZuordnungsSpeicher`, **keine** Mapping-Tabelle); der Handler
+> **liest das rohe Aggregat per ID** aus dem `einlesen`-Speicher (`RawBookingSource`,
+> Message = Zeiger); der Guard (`assert_not_impl_any!`, kein `Serialize`) sitzt auf dem
+> Egress-DTO `ObfuscatedBooking`; der Slice bindet **kein** `serde`. Der Textkörper unten
+> ist die **ursprüngliche Issue-Fassung** (Vor-Bau-Stand) und bleibt als Kontext stehen.
 
 > Neu aus [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md). Der
 > `obfuskierung`-Slice (First-Seen-Aggregat `KONTO_x`/`PERSON_x`, laufstabil) wird zum

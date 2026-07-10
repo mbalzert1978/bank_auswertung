@@ -23,14 +23,15 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 
 - [README.md](README.md) — source of truth for scope and architecture.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — nine ADRs (0008/0009 governing; 0001–0007 each carry a
-  superseded banner pointing at the canonical successor).
+- [docs/adr/](docs/adr/) — ten ADRs (0008/0009 governing the pipeline/kernel, 0010
+  governing seed-based pseudonym stability; 0001–0007 each carry a superseded banner
+  pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
 
 **Cargo workspace** (edition 2024; every member inherits the strict
 `[workspace.lints.clippy]` "Don't Panic" set via `[lints] workspace = true`) —
-**eleven crates under `crates/`** plus the top-level validator crate
+**eight crates under `crates/`** plus the top-level validator crate
 [`architecture`](architecture):
 
 - **two thin, interface-only kernel crates** ([ADR-0009](docs/adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md)):
@@ -39,9 +40,8 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   `UnitOfWork`), dependency-free; and [`application_kernel`](crates/application_kernel)
   — the **slice-internal** handler-build conventions
   (`Command`/`Handler`/`Publisher`/`TypedOutboxHandler`), bindable only by slice adapters;
-- three **feature-slice triads** `<slice>_domain`/`_adapter`/`_specs`:
-  [`einlesen`](crates/einlesen_adapter), [`obfuskierung`](crates/obfuskierung_adapter),
-  [`eigene_konten`](crates/eigene_konten_adapter);
+- two **feature-slice triads** `<slice>_domain`/`_adapter`/`_specs`:
+  [`einlesen`](crates/einlesen_adapter), [`obfuskierung`](crates/obfuskierung_adapter);
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
   (outside `crates/`) asserting dependency direction over `cargo_metadata`.
 
@@ -85,25 +85,35 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   `io` revision). Consumes a `ReadTransactions` command (whole batch), fans out **one
   `Ingested` message per valid line**; a terminal error bubbles to
   `OutboxError::Warning` so `io` dead-letters.
-- **`obfuskierung`** — `_domain` owns the First-Seen mapping aggregate
-  (`KONTO_x`/`PERSON_x`, run-stable) + the `ZuordnungsSpeicher` port it requires;
-  `_adapter` exposes `obfuskiere_konto/person/text`, the `Iban` inbound DTO (**no
-  `Serialize`**), the `KontoId`/`Pseudonym`/`ObfuskierterText` outbound DTOs, and a
-  Fluent TestApi with an in-memory fake store. Persistence deferred
-  ([ADR-0006](docs/adr/0006-pseudonym-stabilitaet.md)).
-- **`eigene_konten`** — `_domain` owns `IbanEntity` (checksum-validated, mod-97) +
-  `RolleEntity`; `_adapter` exposes the `Konfigquelle` seam, the DTOs `Iban` (inbound,
-  **no `Serialize`**), `Rolle`, `Zuordnung`, the `Kontenregister`, and the Fluent
-  `KontenTestApi`. Single source for `Gegenkonto::Eigen|Fremd`.
+- **`obfuskierung`** — second pipeline step and the **privacy boundary**: a consumer that
+  reads the raw aggregate **by ID** from the `einlesen` store (`RawBookingSource`) and
+  obfuscates it **seed-based** — a deterministic `KONTO_x`/`PERSON_x` token from
+  `(seed, plaintext)` via the `Obfuscator` port it requires, **no** First-Seen counter and
+  **no** plaintext↔token mapping store
+  ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). The slice binds **no
+  `serde`**; `_adapter` exposes the `IngestedRow` inbound DTO and the `ObfuscatedBooking`
+  egress projection carrying the `assert_not_impl_any!` no-`Serialize` guard, plus a Fluent
+  TestApi with in-memory fakes. Consumes `Ingested` (envelope = ID pointer), writes the
+  `obfuskiert` table + one `Obfuskiert` message; a present row with a missing mandatory
+  field terminal-dead-letters (redacted field name), an absent row retries. Persistent seed
+  management deferred.
+
+(An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
+`Gegenkonto::Eigen|Fremd` resolution into the future **`auswerten`** slice, done **on
+tokens** — the counter-account `KONTO_x` against the seed-tokenised set of own accounts —
+so a raw-IBAN register consumed at ingest no longer fits. The own-accounts config
+(IBAN + role Giro/Haushalt/Spar/Vorlauf) resurfaces as an `auswerten` input when that slice
+is built.)
 
 **Status.** Green: `cargo build`/`test`/`clippy --all-targets`/`fmt --check` +
-`cargo test -p architecture`. Built: the two kernel crates + Outbox contracts, and
-`einlesen` end-to-end against fakes. Deferred: the `io` crate (`csv`/`toml`/`fs`/`sqlx`
-+ real SQLite Outbox broker/stores + `Speicher`), the `report` presenter, the
-`auswerten` analysis/categorizer slice (incl. `Fingerabdruck`, `KategorieAnfrage`), the
-egress-DTO `Serialize` guards, `ObfuskierterText` scrubbing (only trims/rejects-empty
-today), and the persistent pseudonym mapping. Next: wire **`obfuskieren`** as the next
-consumer, then the **`auswerten` analysis core**. No binary yet.
+`cargo test -p architecture`. Built: the two kernel crates + Outbox contracts, `einlesen`
+end-to-end against fakes, and the `obfuskieren` slice (seed-based, against fakes). Deferred:
+the `io` crate (`csv`/`toml`/`fs`/`sqlx` + real SQLite Outbox broker/stores + `Speicher`),
+the `report` presenter, the `auswerten` analysis/categorizer slice (incl. `Fingerabdruck`,
+`KategorieAnfrage`), the remaining egress-DTO `Serialize` guards, `ObfuskierterText`
+scrubbing (only trims/rejects-empty today), and persistent seed management
+([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). Next: the **`auswerten`
+analysis core**. No binary yet.
 
 ## Language convention
 
@@ -170,8 +180,8 @@ The reason the project exists; do not weaken them.
   belongs on the **egress DTOs** (categorizer request + report output — where data
   leaves): embedding a raw identifier in something that leaves is a compile error, not a
   review miss. It is **not** on `einlesen`'s raw `Iban` (which *must* serialize for the
-  local hop); today it sits on the raw `Iban` DTOs of `eigene_konten`/`obfuskierung`
-  (pure boundary types). `serde` is allowed — the guarantee rests on the missing
+  local hop); today it sits on `obfuskierung`'s egress `ObfuscatedBooking` (the
+  privacy-boundary output). `serde` is allowed — the guarantee rests on the missing
   `Serialize` on egress types. `Bic` deferred until a format needs it.
 - From `obfuskieren` on, the downstream domain (`auswerten`) receives **no** person-/
   account-relatable identifier — only obfuscated value objects. The **`Gläubiger-ID`**
@@ -195,11 +205,14 @@ outbound, `KategorieAntwort` (fingerprint → category) inbound — the answer k
 domain function (incl. payment-intermediary detection + merchant token), **not** an
 adapter concern. The LLM is asked only about fingerprints the domain does not yet know.
 
-**Two separate local stores** (never mix — mixing is a leak path)
-([ADR-0006](docs/adr/0006-pseudonym-stabilitaet.md)): the `Speicher` port holds only
-obfuscated DTOs; a separate **plaintext↔pseudonym mapping store** never leaves the
-machine and is **persistent** so `PERSON_x` tokens stay stable across imports (an
-unstable pseudonym breaks the fingerprint of person-to-person standing orders).
+**The local secret stays local** (never let it reach an egress DTO — that is a leak path)
+([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md), supersedes ADR-0006's
+"two separate stores"): pseudonym stability rests on a config-injected **seed**, not a
+persistent plaintext↔pseudonym mapping store. The seed (persisted with each obfuscated
+aggregate for rehydration) and the raw `einlesen` table may live locally; the obfuscated
+`Speicher` and every egress DTO carry **neither the seed nor a raw identifier**. Same seed
+→ same `PERSON_x` across imports, so the fingerprint of person-to-person standing orders
+stays stable; an unstable seed re-tokenises everything.
 
 ## Domain model conventions ([ADR-0005](docs/adr/0005-domaenenmodell-value-objects-und-summentypen.md))
 
@@ -262,17 +275,22 @@ each step runnable/valuable against fakes, real `io` last:
 1. **Kernel + Outbox contracts** (`shared_kernel` + `application_kernel`) — **done**.
 2. **`einlesen` slice** — `RawRecord → LineAggregate → Ingested`, batch in / one message
    per valid line, German date/number behind the `Calendar`/`Money` seams. **done** (fakes).
-3. **`obfuskieren` slice** — consume `Ingested`, assign `KONTO_x`/`PERSON_x`, scrub free
-   text; the privacy boundary. Needs the `ObfuskierterText` scrubbing rules + persistent
-   pseudonym mapping.
+3. **`obfuskieren` slice** — consume `Ingested`, assign seed-based `KONTO_x`/`PERSON_x`, scrub
+   free text; the privacy boundary. **done** (fakes); still needs the `ObfuskierterText`
+   scrubbing rules + persistent seed management
+   ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)).
 4. **`auswerten` slice** — recurrence + fees + cashflow + Pareto (valuable without the LLM)
-   + the category register; calls `Kategorisierer` only for unknown fingerprints.
+   + the category register; calls `Kategorisierer` only for unknown fingerprints. Owns
+   `Gegenkonto::Eigen|Fremd` resolution, token-based (counter `KONTO_x` vs. the
+   seed-tokenised own-accounts set) — needs the own-accounts config (IBAN + role).
 5. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** crate
    (SQLite Outbox broker/stores, file/CSV parse) fulfilling the seams.
 6. **`report`** HTML output.
 7. **Iteration** — review together, learn corrections, name savings.
 
 Prerequisites before their step (see README "Offen" / PRD): a real CSV-CAMT-v8 sample file
-+ the **Eigene-Konten-Config** (per own account: IBAN + role Giro/Haushalt/Spar/Vorlauf —
-single source for `Gegenkonto::Eigen|Fremd`) for a real `einlesen` run; the **persistent
-pseudonym mapping** + **scrubbing rules** for `ObfuskierterText` before `obfuskieren`.
+for a real `einlesen` run; a **stable config seed** + **scrubbing rules** for
+`ObfuskierterText` before a real `obfuskieren` run
+([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)); the **Eigene-Konten-Config**
+(per own account: IBAN + role Giro/Haushalt/Spar/Vorlauf — single source for
+`Gegenkonto::Eigen|Fremd`) before the `auswerten` run.
