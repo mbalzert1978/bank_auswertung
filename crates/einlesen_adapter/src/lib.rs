@@ -26,8 +26,13 @@
 //!
 //! **Datenschutz (ADR-0008-Reframe):** `einlesen` trägt rohe Werte (IBANs, Klarname) weiter —
 //! das Obfuskieren ist der nachgelagerte Slice. Es gibt hier bewusst **keinen**
-//! `Serialize`-Guard: rohe Werte dürfen im serialisierbaren Wire-DTO durch die **lokale**
-//! Outbox reisen (kein Egress); der Guard wandert auf die Egress-DTOs (auswerten/report).
+//! `Serialize`-Guard: rohe Werte dürfen **lokal** existieren — im eingehenden `ReadTransactions`-
+//! Batch (`RawRecord`, serde) und in der unter der Aggregat-ID persistierten Roh-Erfassung (`Line`)
+//! —, das ist kein Egress. Die ausgehende „Eingelesen"-Nachricht trägt dagegen **nur die ID** als
+//! Zeiger (kein Rohwert, kein serde,
+//! [0017](../../../docs/issues/0017-einlesen-publiziert-nur-die-aggregat-id-statt-des-kompletten-aggregats.md)):
+//! der `obfuskieren`-Consumer liest die Nutzlast per ID aus dem einlesen-Speicher. Der
+//! `Serialize`-Guard wandert auf die Egress-DTOs (auswerten/report).
 
 mod abstractions;
 mod bridges;

@@ -100,10 +100,11 @@ fn eine_gültige_zeile_wird_zu_einem_eingelesen_command() {
 
     assert_eq!(ergebnis, Ok(()));
     assert_eq!(api.published_message_types(), vec!["Ingested"]);
-    assert_eq!(
-        api.published_partition_keys(),
-        vec!["DE89370400440532013000"]
-    );
+    // Die Nachricht trägt **nur** die vergebene Aggregat-ID (keine abgeflachten Rohfelder mehr) …
+    assert_eq!(api.published_partition_keys(), vec!["ingested-1"]);
+    // … und genau unter dieser ID liegt die Roh-Zeile im Speicher (Tabelle = Wahrheit, Message =
+    // Pointer): der publizierte Zeiger deckt sich mit dem Speicher-Schlüssel.
+    assert_eq!(api.stored_ids(), api.published_partition_keys());
 }
 
 // --- Fan-out: pro Zeile genau ein Command (kein Batch stromabwärts) --------------
@@ -128,14 +129,13 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
         api.published_message_types(),
         vec!["Ingested", "Ingested", "Ingested"]
     );
+    // Je Zeile ein eigener Zeiger mit einer **eigenen** Aggregat-ID (kein geteilter Schlüssel mehr) …
     assert_eq!(
         api.published_partition_keys(),
-        vec![
-            "DE89370400440532013000",
-            "DE89370400440532013000",
-            "DE89370400440532013000"
-        ]
+        vec!["ingested-1", "ingested-2", "ingested-3"]
     );
+    // … und jeder Zeiger zeigt auf die unter genau dieser ID abgelegte Roh-Zeile (Message = Pointer).
+    assert_eq!(api.stored_ids(), api.published_partition_keys());
     // Aggregat **und** Ereignis werden atomar gestaged (ADR-0008): je gültiger Zeile liegt ihr
     // Auftragskonto am Speicher-Seam — in Lesereihenfolge, nicht nur der Fan-out stromabwärts.
     assert_eq!(

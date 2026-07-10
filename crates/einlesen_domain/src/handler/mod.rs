@@ -8,9 +8,10 @@ use crate::{LineAggregate, LineError, ReadTransactions};
 /// Adapter hält den **konkreten** Handler und ruft `handle` direkt.
 ///
 /// **Ablauf je Kommando:** erst **alle** Zeilen zu Aggregaten deuten
-/// (`collect::<Result<Vec<_>,_>>()?`), dann je Aggregat **staged** speichern und das
-/// „Eingelesen"-Ereignis veröffentlichen. Weil erst gebaut und dann gestaged wird,
-/// hinterlässt ein Fehler nichts Halbes.
+/// (`collect::<Result<Vec<_>,_>>()?`), dann je Aggregat **staged** speichern — der
+/// [`Store`](crate::Store) vergibt dabei die [`IngestionId`](crate::IngestionId) — und **genau
+/// diese ID** als „Eingelesen"-Zeiger veröffentlichen (Tabelle = Wahrheit, Message = Pointer).
+/// Weil erst gebaut und dann gestaged wird, hinterlässt ein Fehler nichts Halbes.
 ///
 /// **Fehler bubblen auf, transaktions-blind:** scheitert eine — von io bereits gelesene,
 /// strukturell valide — Zeile am Aggregat, ist das **terminal**; der Handler steigt mit dem
@@ -49,8 +50,9 @@ impl<'a> ReadHandler<'a> {
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .for_each(|aggregate| {
-                self.store.store(&aggregate);
-                self.event_sink.publish(&aggregate);
+                // Der Speicher vergibt die ID beim Ablegen; genau sie reist als Zeiger weiter.
+                let id = self.store.store(&aggregate);
+                self.event_sink.publish(&id);
             });
         Ok(())
     }

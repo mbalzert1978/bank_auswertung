@@ -35,4 +35,6 @@ pub use commands::{RawLine, ReadTransactions};
 pub use error::LineError;
 pub use handler::ReadHandler;
 pub use ports::{Calendar, EventSink, Money, Store};
-pub use value_objects::{CalendarDay, Currency, DecodedAmount, Direction, NonEmptyString, Sign};
+pub use value_objects::{
+    CalendarDay, Currency, DecodedAmount, Direction, IngestionId, NonEmptyString, Sign,
+};

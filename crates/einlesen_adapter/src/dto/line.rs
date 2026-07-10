@@ -22,12 +22,16 @@ pub enum Currency {
     Euro,
 }
 
-/// Das ausgehende DTO des Slice — die **eine** Datensicht, die `einlesen` nach außen gibt (als
-/// Nutzlast des „Eingelesen"-Commands). Es spiegelt das `LineAggregate` der Domäne, ohne einen
-/// Domänentyp über die Adapter-Grenze zu lassen: die rohen Identifikatoren (IBANs, Klarname)
-/// reisen hier **roh** — das Obfuskieren ist der nachgelagerte `obfuskieren`-Slice
+/// Das ausgehende DTO des Slice — die **eine** Datensicht, die `einlesen` nach außen gibt: die
+/// abgeflachte **Roh-Erfassung**, die der [`StoreSeam`](crate::StoreSeam) unter der vergebenen
+/// Aggregat-ID persistiert (Tabelle = Wahrheit,
+/// [0017](../../../docs/issues/0017-einlesen-publiziert-nur-die-aggregat-id-statt-des-kompletten-aggregats.md)).
+/// Die „Eingelesen"-Nachricht trägt daraus **nur die ID** als Zeiger; die vollen Felder reisen nicht
+/// mehr über die Message. Es spiegelt das `LineAggregate` der Domäne, ohne einen Domänentyp über die
+/// Adapter-Grenze zu lassen: die rohen Identifikatoren (IBANs, Klarname) reisen hier **roh** — das
+/// Obfuskieren ist der nachgelagerte `obfuskieren`-Slice
 /// ([ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)-Reframe: rohe
-/// Werte dürfen lokal durch die Outbox, kein Egress; darum bewusst **kein** `Serialize`-Guard).
+/// Werte dürfen lokal persistieren, kein Egress; darum bewusst **kein** `Serialize`-Guard).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
     pub ordering_account: String,

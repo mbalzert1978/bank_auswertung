@@ -1,72 +1,34 @@
-use serde::Serialize;
 use shared_kernel::OutboxCommand;
 
-use crate::abstractions::CalendarDay;
-use crate::dto::{Currency, Direction, Line};
-
 /// Der Dispatch-Key des ausgehenden Commands — die **eine** Quelle, auf die der Outbox-Prozessor
-/// des nachgelagerten Slice seine Consume-Bridge auflöst. Das Domänen-Aggregat `LineAggregate`
-/// (in `einlesen_domain`) trägt keinen Dispatch-Key; er lebt hier auf dem Wire-DTO.
+/// des nachgelagerten `obfuskieren`-Slice seine Consume-Bridge auflöst. Das Domänen-Aggregat
+/// `LineAggregate` (in `einlesen_domain`) trägt keinen Dispatch-Key; er lebt hier auf dem Wire-DTO.
 pub(crate) const MESSAGE_TYPE: &str = "Ingested";
 
-/// Das serialisierbare **Wire-DTO** des „Eingelesen"-Commands: die flache, serde-fähige
-/// Form, die io in die Outbox schreibt und der nächste Slice mit derselben Konvention wieder
-/// liest ([`outbox_payload`](shared_kernel::outbox_payload): camelCase). Die Domänen-Wert-Typen
-/// der [`Line`] werden dabei auf Primitive abgeflacht (die Domäne bleibt serde-frei); rohe
-/// Werte dürfen hier serialisieren (ADR-0008-Reframe: lokaler Outbox-Hop, kein Egress).
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// Das ausgehende **Wire-Command** der „Eingelesen"-Nachricht: ein reiner **Zeiger** auf die unter
+/// dieser `id` abgelegte Roh-Erfassung — nur die ID, als `partition_key` der Nachricht (Tabelle =
+/// Wahrheit, Message = Pointer,
+/// [0017](../../../docs/issues/0017-einlesen-publiziert-nur-die-aggregat-id-statt-des-kompletten-aggregats.md)).
+/// Der nachgelagerte `obfuskieren`-Consumer liest die Nutzlast **per ID** aus dem einlesen-Speicher,
+/// nicht aus der Nachricht. **Kein `Serialize`**: `OutboxCommand` verlangt keins, und die ID reist in
+/// der Outbox-Hülle; die abgeflachten Rohfelder werden nicht mehr über die Message dupliziert. Vorbild:
+/// `ObfuscatedMessage` des Obfuskierungs-Slice.
+#[derive(Debug)]
 pub(crate) struct IngestedMessage {
-    ordering_account: String,
-    counter_account: Option<String>,
-    amount_cent: u64,
-    /// Die Währung als ISO-Code (`EUR`) — reist **neben** dem Cent-Betrag mit, damit der
-    /// Betrag stromabwärts deutbar bleibt (round-trippt mit `Currency::from_code`).
-    currency: &'static str,
-    direction: &'static str,
-    /// **Optional** — eine Gebührenzeile bucht ohne Empfänger (siehe [`Line`]); fehlt er,
-    /// serialisiert das Feld als `null`.
-    recipient_name: Option<String>,
-    creditor_id: Option<String>,
-    booking_day: String,
-    value_date: String,
-    purpose: Option<String>,
-    booking_text: Option<String>,
+    id: String,
 }
 
 impl IngestedMessage {
-    /// Flacht die [`Line`] auf die serialisierbare Wire-Form ab (Publisher-Bridge).
-    pub(crate) fn from_line(line: &Line) -> Self {
-        Self {
-            ordering_account: line.ordering_account.clone(),
-            counter_account: line.counter_account.clone(),
-            amount_cent: line.amount_cent,
-            currency: match line.currency {
-                Currency::Euro => "EUR",
-            },
-            direction: match line.direction {
-                Direction::Incoming => "Incoming",
-                Direction::Outgoing => "Outgoing",
-            },
-            recipient_name: line.recipient_name.clone(),
-            creditor_id: line.creditor_id.clone(),
-            booking_day: as_iso(line.booking_day),
-            value_date: as_iso(line.value_date),
-            purpose: line.purpose.clone(),
-            booking_text: line.booking_text.clone(),
-        }
+    /// Zeigt auf die abgelegte Roh-Erfassung (übernimmt nur ihre ID).
+    pub(crate) fn from_id(id: &str) -> Self {
+        Self { id: id.to_string() }
     }
-}
-
-/// Flacht einen Kalendertag auf die ISO-Textform `JJJJ-MM-TT` ab.
-fn as_iso(day: CalendarDay) -> String {
-    format!("{:04}-{:02}-{:02}", day.year, day.month, day.day)
 }
 
 impl OutboxCommand for IngestedMessage {
     const MESSAGE_TYPE: &'static str = MESSAGE_TYPE;
 
     fn partition_key(&self) -> &str {
-        &self.ordering_account
+        &self.id
     }
 }
