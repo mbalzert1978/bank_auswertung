@@ -53,7 +53,7 @@ impl FakeStoreSeam {
 impl StoreSeam for FakeStoreSeam {
     fn store(&self, line: &Line) -> String {
         let mut rows = self.rows.borrow_mut();
-        // Deterministische, laufübergreifend eindeutige ID (der Fake spielt `INSERT … RETURNING id`).
+        // Deterministische, je abgelegter Zeile eindeutige ID (der Fake spielt `INSERT … RETURNING id`).
         let id = format!("ingested-{}", rows.len() + 1);
         rows.push((id.clone(), line.clone()));
         id
