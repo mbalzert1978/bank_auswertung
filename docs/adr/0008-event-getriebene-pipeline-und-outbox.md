@@ -102,6 +102,16 @@ einlesen-Speicher auflöst — liest deshalb den `partition_key`, **nie** die `i
 Nachricht eindeutig ist und den Lookup verfehlte). Produzenten verlassen sich spiegelbildlich
 nur auf den `partition_key`, nie darauf, dass die io-`id` einen fachlichen Wert trägt.
 
+Ein solcher ID-Zeiger-Consumer bekommt per Konstruktion einen **pro Nachricht eindeutigen**
+`partition_key` (jede Zeile trägt ihre eigene `IngestionId`) und gibt damit die
+Serialisierungssemantik des `partition_key` („gleiche Keys der Reihe nach") für **diesen Hop**
+bewusst auf — alle Zeilen laufen **nebenläufig**. Für `einlesen → obfuskieren` ist das
+unkritisch: `obfuskieren` obfuskiert **seed-basiert und pro Zeile unabhängig** (kein
+zeilenübergreifender Zustand, kein First-Seen-Zähler,
+[ADR-0010](0010-seed-basierte-pseudonym-stabilitaet.md)), sodass die Reihenfolge der Zeilen
+das Ergebnis nicht berührt. Wo eine Pro-Quelle-Ordnung nötig würde, trägt ein anderer Schritt
+seine Aggregat-Identität in den `partition_key`, nicht den Zeilen-Zeiger.
+
 Diese Verträge sind **Adapter-Niveau** — die blinde Domäne nutzt sie nie (ADR-0007).
 
 ## Datenschutz-Grenze an `obfuskieren` (nicht am Eingang)

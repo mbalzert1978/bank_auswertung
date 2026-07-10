@@ -5,10 +5,13 @@ Branch: `feat/0017-einlesen-publiziert-nur-aggregat-id`.
 
 ## Ausgangslage (verifiziert im Code)
 
-- Der **obfuskieren**-Slice konsumiert bereits einen **ID-Zeiger** (`message.id`), liest das rohe
-  Aggregat **per ID** aus dem einlesen-Speicher (`IngestedSourceSeam`/`RawBookingSource`) und
+- Der **obfuskieren**-Slice konsumiert bereits einen **ID-Zeiger** aus der Outbox-Hülle, liest das
+  rohe Aggregat **per ID** aus dem einlesen-Speicher (`IngestedSourceSeam`/`RawBookingSource`) und
   publiziert nur die ID (`ObfuscatedMessage` = id, kein serde). Die Ziel-Seite ist also **fertig**;
   `BookingId` verweist in seiner Doku explizit auf 0017.
+  > **As-built (0017-Review):** Der Zeiger reist im **`partition_key`**, nicht in `message.id` —
+  > diese Ausgangslage-Notiz nannte ursprünglich `message.id`; im Zuge von 0017 wurde auf
+  > `partition_key` umgestellt (`id` = io-Message-UUID, siehe ADR-0008 „Envelope-Konvention").
 - Der **einlesen**-Slice publiziert heute pro Zeile das **komplette abgeflachte Aggregat**:
   `IngestedMessage` trägt alle Felder (serde), `EventSink::publish(&LineAggregate)` reicht das
   Aggregat, `Store::store(&LineAggregate)` staged ohne ID.
