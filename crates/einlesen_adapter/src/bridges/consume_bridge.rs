@@ -1,61 +1,33 @@
-use application_kernel::TypedOutboxHandler;
-use einlesen_domain::{ReadError, ReadHandler, ReadTransactions, RunConfiguration};
+use einlesen_domain::{ReadHandler, ReadTransactions, RunConfiguration};
 use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 
-use crate::commands::ReadTransactionsMessage;
-
-/// Die **Consume-Bridge**: der öffentliche Outbox-Seam für `ReadTransactions`-Nachrichten.
-/// Deserialisiert den Envelope-Inhalt (JSON, [`outbox_payload`](shared_kernel::outbox_payload)-
-/// Konvention) zum **feldlosen Wire-DTO** [`ReadTransactionsMessage`] und baut daraus nur noch
-/// den **Auslöser** `ReadTransactions` (leere `RunConfiguration`) — den Batch beschafft der
-/// Handler selbst über den Datenquellen-Port
+/// Die **Consume-Bridge**: der öffentliche Outbox-Seam für `ReadTransactions`-Nachrichten. Die
+/// Nachricht ist ein reiner **Auslöser** — sie trägt **keinen** JSON-Inhalt (darum bindet der
+/// Slice kein serde); die Quelle lebt allein im [`partition_key`](OutboxMessage::partition_key)
+/// der [`OutboxMessage`]-Hülle (ADR-0008-Envelope-Konvention). Die Bridge baut daraus unmittelbar
+/// das Domänen-Kommando [`ReadTransactions`] (leere [`RunConfiguration`]) und dispatcht an den
+/// domänen-internen [`ReadHandler`] — der **beschafft** den Batch über den Datenquellen-Port
 /// ([Issue 0018](../../../docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md);
-/// die Präsenz-Prüfung liegt seitdem in der [`SourceBridge`](crate::bridges::SourceBridge)
-/// hinter dem Quell-Seam, nicht mehr hier). Den terminalen [`ReadError`] des Handlers mappt
-/// sie über [`TerminalError`] auf `OutboxError::Warning` (Dead-Letter). Die JSON-Kenntnis lebt
-/// bewusst **hier** (Adapter-Bridge), nicht im Handler — der bleibt rein domänen-typisiert. Die
-/// eigentliche Verdrahtung (Envelope → Request → `Result`, Leer-Policy) erbt sie als Default aus
-/// [`TypedOutboxHandler`]; das `impl OutboxHandler` ist der Dreizeiler, den der Prozessor per
-/// `message_type` auflöst — kein Commit, den besorgt io.
+/// die Präsenz-Prüfung liegt in der [`SourceBridge`](crate::bridges::SourceBridge) hinter dem
+/// Quell-Seam, nicht hier). Den terminalen [`ReadError`](einlesen_domain::ReadError) des Handlers
+/// mappt sie **inline** auf `OutboxError::Warning` (Vorbild `obfuskieren`s `HandleError`-Mapping):
+/// jeder Fehler — Beschaffung/Präsenz/Deutung — ist terminal, das Dead-Letter ist batch-atomar.
+/// Der Grund ist stets die **redigierte** Domänen-Meldung (Feldname, Fehlerart bzw. io-Diagnose,
+/// nie ein Rohwert) — ein Spaltenverschub leakt so keine IBAN in die Dead-Letter-Meldung. Kein
+/// Commit, den besorgt io.
 pub(crate) struct ConsumeBridge<'a> {
     pub(crate) handler: ReadHandler<'a>,
 }
 
-impl TypedOutboxHandler for ConsumeBridge<'_> {
-    type Request = ReadTransactionsMessage;
-    type Error = TerminalError;
-
-    fn deserialize(&self, content: &str) -> Option<Self::Request> {
-        serde_json::from_str(content).ok()
-    }
-
-    fn dispatch(&self, _request: Self::Request) -> Result<(), Self::Error> {
+impl OutboxHandler for ConsumeBridge<'_> {
+    fn handle(&self, _message: OutboxMessage) -> Result<(), OutboxError> {
         self.handler
             .handle(ReadTransactions::new(RunConfiguration))
-            .map_err(TerminalError)
+            .map_err(|error| OutboxError::Warning {
+                reason: error.to_string(),
+            })
     }
 }
 
-impl OutboxHandler for ConsumeBridge<'_> {
-    fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
-        self.handle_outbox(message)
-    }
-}
-
-/// Lokaler Newtype über die **Fehlersumme des Handlers** ([`ReadError`]: Beschaffung/Präsenz
-/// oder Deutung — alles terminal → Dead-Letter). Er existiert nur noch für die Orphan-Regel:
-/// weder Domänen- noch Kernel-Fehler sind lokal, dieser Newtype ist es und macht das
-/// `impl From<TerminalError> for OutboxError` zulässig.
-#[derive(Debug)]
-pub(crate) struct TerminalError(ReadError);
-
-impl From<TerminalError> for OutboxError {
-    fn from(TerminalError(error): TerminalError) -> Self {
-        // Der Grund ist die **redigierte** Domänen-Meldung (Feldname, Fehlerart bzw.
-        // io-Diagnose der Beschaffung, nie ein Rohwert) — ein Spaltenverschub leakt so keine
-        // IBAN in die persistierte Dead-Letter-Meldung.
-        OutboxError::Warning {
-            reason: error.to_string(),
-        }
-    }
-}
+/// Der Dispatch-Key, unter dem der Prozessor diese Bridge auflöst (die konsumierte Nachricht).
+pub(crate) const CONSUMED_MESSAGE_TYPE: &str = "ReadTransactions";
