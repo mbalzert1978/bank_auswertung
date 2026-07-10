@@ -11,14 +11,20 @@
 /// und die Consume-Bridge (Deserialisierung) mit derselben Konvention.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboxMessage {
-    /// Eindeutige Identität der Nachricht (UUID-Textform; die Erzeugung liegt in `io`).
+    /// Eindeutige Identität **der Nachricht** (UUID-Textform; die Erzeugung liegt in `io`).
+    /// **Konvention:** dies ist die Message-UUID, **nicht** der Aggregat-Zeiger — wer auf ein
+    /// Aggregat zeigt (z. B. der `Ingested`-ID-Zeiger der 0017-Pipeline), liest den
+    /// [`partition_key`](OutboxMessage::partition_key), nie dieses Feld.
     pub id: String,
     /// Dispatch-Key, auf den der Prozessor den passenden
     /// [`OutboxHandler`](crate::OutboxHandler) auflöst — dieselbe Quelle wie
     /// [`OutboxCommand::MESSAGE_TYPE`](crate::OutboxCommand::MESSAGE_TYPE).
     pub message_type: String,
     /// Aggregat-Identität, auf der der Zyklus serialisiert (gleiche Keys der Reihe
-    /// nach, verschiedene Keys nebenläufig).
+    /// nach, verschiedene Keys nebenläufig). **Konvention:** dies ist zugleich der
+    /// **Aggregat-Zeiger** — ein ID-Zeiger auf ein Aggregat (etwa der `Ingested`-Zeiger,
+    /// den `obfuskieren` im einlesen-Speicher auflöst) reist **hier**, nicht in
+    /// [`id`](OutboxMessage::id) (das die Message-UUID trägt).
     pub partition_key: String,
     /// Serialisierte Nutzlast (JSON-Text nach [`outbox_payload`]-Konvention).
     pub content: String,

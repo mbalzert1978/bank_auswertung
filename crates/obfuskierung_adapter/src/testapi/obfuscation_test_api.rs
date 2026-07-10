@@ -75,7 +75,11 @@ impl ObfuscationTestApi {
         );
         let bridge = ConsumeBridge { handler };
         let message = OutboxMessage {
-            id: id.to_string(),
+            // Die Envelope-`id` ist eine io-vergebene Message-UUID — bewusst **verschieden** vom
+            // Aggregat-Zeiger, damit der Test den Handshake über `partition_key` erzwingt: griffe
+            // die Bridge auf `message.id`, schlüge der Lookup fehl (die Roh-Zeile liegt unter dem
+            // Zeiger, nicht unter der Message-UUID).
+            id: format!("msg-uuid-{id}"),
             message_type: CONSUMED_MESSAGE_TYPE.to_string(),
             partition_key: id.to_string(),
             content: String::new(),

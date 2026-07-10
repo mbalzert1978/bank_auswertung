@@ -10,7 +10,7 @@ use crate::{IngestionId, LineAggregate};
 /// (io) schon.
 ///
 /// **Der Speicher vergibt die Identität:** er gibt die beim Ablegen zugeteilte
-/// [`IngestionId`] zurück — die stabile, laufübergreifend eindeutige ID, unter der die
+/// [`IngestionId`] zurück — die je abgelegter Roh-Zeile eindeutige ID, unter der die
 /// Roh-Erfassung liegt (io: `INSERT … RETURNING id`,
 /// [0017](../../../docs/issues/0017-einlesen-publiziert-nur-die-aggregat-id-statt-des-kompletten-aggregats.md)).
 /// Der Handler reicht genau diese ID an den [`EventSink`](crate::EventSink) weiter, sodass die

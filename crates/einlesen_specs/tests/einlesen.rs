@@ -100,10 +100,10 @@ fn eine_gültige_zeile_wird_zu_einem_eingelesen_command() {
 
     assert_eq!(ergebnis, Ok(()));
     assert_eq!(api.published_message_types(), vec!["Ingested"]);
-    // Die Nachricht trägt **nur** die vergebene Aggregat-ID (keine abgeflachten Rohfelder mehr) …
-    assert_eq!(api.published_partition_keys(), vec!["ingested-1"]);
-    // … und genau unter dieser ID liegt die Roh-Zeile im Speicher (Tabelle = Wahrheit, Message =
-    // Pointer): der publizierte Zeiger deckt sich mit dem Speicher-Schlüssel.
+    // Genau **ein** Zeiger, und er deckt sich mit dem Speicher-Schlüssel (Tabelle = Wahrheit,
+    // Message = Pointer): die Nachricht trägt nur die vergebene Aggregat-ID, unter der die Roh-Zeile
+    // liegt. Ohne Kopplung an die interne Fake-Nummerierung.
+    assert_eq!(api.published_partition_keys().len(), 1);
     assert_eq!(api.stored_ids(), api.published_partition_keys());
 }
 
@@ -129,13 +129,20 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
         api.published_message_types(),
         vec!["Ingested", "Ingested", "Ingested"]
     );
-    // Je Zeile ein eigener Zeiger mit einer **eigenen** Aggregat-ID (kein geteilter Schlüssel mehr) …
+    // Genau **drei** Zeiger, und jeder mit einer **eigenen**, verschiedenen Aggregat-ID (kein
+    // geteilter Schlüssel mehr) — ohne Kopplung an die interne Fake-Nummerierung.
+    let zeiger = api.published_partition_keys();
+    assert_eq!(zeiger.len(), 3);
     assert_eq!(
-        api.published_partition_keys(),
-        vec!["ingested-1", "ingested-2", "ingested-3"]
+        zeiger
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        3,
+        "die drei Zeiger müssen verschieden sein"
     );
     // … und jeder Zeiger zeigt auf die unter genau dieser ID abgelegte Roh-Zeile (Message = Pointer).
-    assert_eq!(api.stored_ids(), api.published_partition_keys());
+    assert_eq!(api.stored_ids(), zeiger);
     // Aggregat **und** Ereignis werden atomar gestaged (ADR-0008): je gültiger Zeile liegt ihr
     // Auftragskonto am Speicher-Seam — in Lesereihenfolge, nicht nur der Fan-out stromabwärts.
     assert_eq!(

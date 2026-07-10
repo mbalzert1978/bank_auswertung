@@ -1,5 +1,6 @@
-/// Die **Identität**, die der Slice einem eingelesenen Aggregat vergibt — der Schlüssel, unter dem
-/// die Roh-Erfassung persistiert und den der Slice als **Zeiger** publiziert (Tabelle = Wahrheit,
+/// Die **Identität**, die der Slice einem eingelesenen Aggregat vergibt — der je abgelegter
+/// Roh-Zeile eindeutige Schlüssel, unter dem die Roh-Erfassung persistiert und den der Slice als
+/// **Zeiger** publiziert (Tabelle = Wahrheit,
 /// Message = Pointer,
 /// [0017](../../../docs/issues/0017-einlesen-publiziert-nur-die-aggregat-id-statt-des-kompletten-aggregats.md)).
 /// Der nachgelagerte `obfuskieren`-Slice lädt das Aggregat später **per dieser ID** aus dem

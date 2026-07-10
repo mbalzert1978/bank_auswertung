@@ -2,8 +2,10 @@ use obfuskierung_domain::{BookingId, HandleError, ObfuscateBooking, ObfuscationH
 use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 
 /// Die **Consume-Bridge**: der öffentliche Outbox-Seam für `Ingested`-Nachrichten. Die Nachricht ist
-/// ein reiner **Zeiger** — ihre Aggregat-ID liegt in der [`OutboxMessage`]-Hülle
-/// ([`id`](OutboxMessage::id)), **kein** JSON-Inhalt (darum bindet der Slice kein serde). Die Bridge
+/// ein reiner **Zeiger** — der Aggregat-Zeiger liegt im [`partition_key`](OutboxMessage::partition_key)
+/// der [`OutboxMessage`]-Hülle (Konvention: Aggregat-Identität = `partition_key`; die
+/// [`id`](OutboxMessage::id) ist die io-vergebene **Message-UUID**, nicht der Zeiger), **kein** JSON-
+/// Inhalt (darum bindet der Slice kein serde). Die Bridge
 /// baut daraus das Domänen-Kommando [`ObfuscateBooking`] und dispatcht an den domänen-internen
 /// [`ObfuscationHandler`] — der **liest** das Aggregat per ID aus dem einlesen-Speicher, obfuskiert,
 /// legt ab und publiziert die ID. Sie **trennt die beiden Fehlerklassen**: (noch) **abwesend** →
@@ -17,7 +19,7 @@ pub(crate) struct ConsumeBridge<'a> {
 
 impl OutboxHandler for ConsumeBridge<'_> {
     fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
-        let command = ObfuscateBooking::new(BookingId::new(message.id));
+        let command = ObfuscateBooking::new(BookingId::new(message.partition_key));
         self.handler.handle(command).map_err(|error| {
             let reason = error.to_string();
             match error {

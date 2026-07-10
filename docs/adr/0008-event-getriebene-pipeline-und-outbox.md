@@ -95,6 +95,13 @@ erweitert (Vorbild `examples/Common/Abstractions` + `examples/Outbox/Adapter`):
   `HandleOutcome` (`Handled`/`Retry`/`Faulted`), `Severity`, `UnitOfWork` (atomarer Commit),
   `OutboxHandlerBase`-Äquivalent, eine JSON-Konvention.
 
+**Envelope-Konvention (Zeiger vs. Message-Identität):** der **Aggregat-Zeiger** reist im
+`partition_key` (= Aggregat-Identität), die `id` ist die io-vergebene **Message-UUID**.
+Ein ID-Zeiger-Consumer — etwa `obfuskieren`, der die `Ingested`-Nachricht per Aggregat-ID im
+einlesen-Speicher auflöst — liest deshalb den `partition_key`, **nie** die `id` (die pro
+Nachricht eindeutig ist und den Lookup verfehlte). Produzenten verlassen sich spiegelbildlich
+nur auf den `partition_key`, nie darauf, dass die io-`id` einen fachlichen Wert trägt.
+
 Diese Verträge sind **Adapter-Niveau** — die blinde Domäne nutzt sie nie (ADR-0007).
 
 ## Datenschutz-Grenze an `obfuskieren` (nicht am Eingang)
