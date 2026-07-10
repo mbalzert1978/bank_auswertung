@@ -100,17 +100,24 @@ impl ReadTestApi {
         self.outbox.message_types()
     }
 
-    /// Belegt die **Zeiger-Semantik** (Tabelle = Wahrheit, Message = Pointer), **ohne** dass ein
-    /// Spec die intern vom Speicher-Fake vergebenen IDs zu Gesicht bekommt (keine Kopplung an die
-    /// Fake-Nummerierung): `true`, wenn die veröffentlichten „Eingelesen"-Zeiger **paarweise
-    /// verschieden** sind und **genau** (in Lesereihenfolge) den Schlüsseln entsprechen, unter
-    /// denen die Roh-Zeilen am Speicher-Seam abgelegt wurden. So prüft ein Spec das Verhalten
-    /// — jeder Zeiger deckt genau eine abgelegte Zeile —, nicht die konkreten IDs. Die Fan-out-
-    /// **Zahl** liest der Spec weiterhin an [`published_message_types`](Self::published_message_types).
-    pub fn published_pointers_match_distinct_stored_rows(&self) -> bool {
-        let zeiger = self.outbox.partition_keys();
-        let verschieden: std::collections::HashSet<_> = zeiger.iter().collect();
-        verschieden.len() == zeiger.len() && self.store_seam.stored_ids() == zeiger
+    /// Die Partition-Keys der veröffentlichten „Eingelesen"-Kommandos in Lesereihenfolge — je
+    /// Nachricht die **Aggregat-ID** (der Zeiger auf die abgelegte Roh-Zeile). Reiner
+    /// Datenrückgeber: der Spec vergleicht sie per `assert_eq!` mit
+    /// [`stored_ids`](Self::stored_ids) (Tabelle = Wahrheit, Message = Pointer) — die TestApi
+    /// assertiert nicht.
+    pub fn published_partition_keys(&self) -> Vec<String> {
+        self.outbox.partition_keys()
+    }
+
+    /// Die Schlüssel, unter denen die Roh-Zeilen am Speicher-Seam abgelegt wurden, in
+    /// Lesereihenfolge — je Zeile ein **eigener**, verschiedener Schlüssel. Der Spec vergleicht
+    /// sie per `assert_eq!` mit [`published_partition_keys`](Self::published_partition_keys):
+    /// Gleichheit belegt, dass jeder Zeiger genau eine abgelegte Zeile deckt (und, weil die
+    /// Schlüssel je Zeile verschieden sind, zugleich die paarweise Verschiedenheit der Zeiger).
+    /// Der Spec sieht so nur die Deckung zweier Datenrückgaben, nie einen konkreten ID-Wert als
+    /// Literal.
+    pub fn stored_ids(&self) -> Vec<String> {
+        self.store_seam.stored_ids()
     }
 
     /// Die `ordering_account`-Werte der **gestageten** Aggregate am Speicher-Seam, in

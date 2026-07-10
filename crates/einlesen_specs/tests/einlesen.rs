@@ -106,10 +106,10 @@ fn eine_gültige_zeile_wird_zu_einem_eingelesen_command() {
 
     assert_eq!(ergebnis, Ok(()));
     // Genau **ein** „Eingelesen"-Command, und sein Zeiger deckt sich mit dem Speicher-Schlüssel
-    // (Tabelle = Wahrheit, Message = Pointer): die Zeiger-Semantik prüft die TestApi, ohne die
-    // intern vergebene Aggregat-ID offenzulegen (keine Kopplung an die Fake-Nummerierung).
+    // (Tabelle = Wahrheit, Message = Pointer): der Spec vergleicht die beiden Datenrückgaben der
+    // TestApi, ohne die intern vergebene Aggregat-ID als Literal zu benennen.
     assert_eq!(api.published_message_types(), vec!["Ingested"]);
-    assert!(api.published_pointers_match_distinct_stored_rows());
+    assert_eq!(api.stored_ids(), api.published_partition_keys());
 }
 
 // --- Fan-out: pro Zeile genau ein Command (kein Batch stromabwärts) --------------
@@ -130,15 +130,15 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
 
     api.run(QUELLE).expect("gültige Zeilen");
 
-    // Drei „Eingelesen"-Commands (Fan-out), und jeder Zeiger ist paarweise verschieden und zeigt
-    // auf genau die unter dieser ID abgelegte Roh-Zeile (Tabelle = Wahrheit, Message = Pointer) —
-    // die Zeiger-Semantik prüft die TestApi, ohne dass der Spec an die interne Fake-Nummerierung
-    // koppelt.
+    // Drei „Eingelesen"-Commands (Fan-out), und jeder Zeiger zeigt auf genau die unter diesem
+    // Schlüssel abgelegte Roh-Zeile (Tabelle = Wahrheit, Message = Pointer). Weil die Speicher-
+    // Schlüssel je Zeile verschieden sind, belegt die Deckung zugleich, dass die drei Zeiger
+    // paarweise verschieden sind — ohne dass der Spec an die interne Fake-Nummerierung koppelt.
     assert_eq!(
         api.published_message_types(),
         vec!["Ingested", "Ingested", "Ingested"]
     );
-    assert!(api.published_pointers_match_distinct_stored_rows());
+    assert_eq!(api.stored_ids(), api.published_partition_keys());
     // Aggregat **und** Ereignis werden atomar gestaged (ADR-0008): je gültiger Zeile liegt ihr
     // Auftragskonto am Speicher-Seam — in Lesereihenfolge, nicht nur der Fan-out stromabwärts.
     assert_eq!(
