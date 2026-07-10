@@ -5,9 +5,9 @@ use super::fakes::{
     FakeCalendarSeam, FakeMoneySeam, FakeOutboxPublisher, FakeSourceSeam, FakeStoreSeam,
 };
 use crate::bridges::{
-    CalendarBridge, ConsumeBridge, IngestedPublisher, MoneyBridge, SourceBridge, StoreBridge,
+    CONSUMED_MESSAGE_TYPE, CalendarBridge, ConsumeBridge, IngestedPublisher, MoneyBridge,
+    SourceBridge, StoreBridge,
 };
-use crate::commands::read_transactions_message::{self, ReadTransactionsMessage};
 use crate::dto::{Line, RawRecord};
 
 /// Fluent-TestApi des einlesen-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md)):
@@ -58,15 +58,9 @@ impl ReadTestApi {
 
     /// Fährt die echte Bridge-Kette für eine `ReadTransactions`-Nachricht der gegebenen Quelle
     /// und gibt das Outbox-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` = Dead-Letter).
-    /// Die Payload ist **feldlos** (`{}`) — die Quelle reist nur als `partition_key` des
+    /// Die Nachricht ist **inhaltslos** — die Quelle reist nur als `partition_key` des
     /// Envelopes (ADR-0008-Envelope-Konvention).
     pub fn run(&self, source: &str) -> Result<(), OutboxError> {
-        let content = serde_json::to_string(&ReadTransactionsMessage {}).map_err(|error| {
-            OutboxError::Critical {
-                message: format!("ReadTransactions not serializable: {error}"),
-                source: read_transactions_message::MESSAGE_TYPE.to_string(),
-            }
-        })?;
         let line_source = SourceBridge {
             seam: &self.source_seam,
         };
@@ -86,9 +80,9 @@ impl ReadTestApi {
         let bridge = ConsumeBridge { handler };
         let message = OutboxMessage {
             id: "test-message".to_string(),
-            message_type: read_transactions_message::MESSAGE_TYPE.to_string(),
+            message_type: CONSUMED_MESSAGE_TYPE.to_string(),
             partition_key: source.to_string(),
-            content,
+            content: String::new(),
             occurred_on_utc: 0,
             attempt: 0,
         };

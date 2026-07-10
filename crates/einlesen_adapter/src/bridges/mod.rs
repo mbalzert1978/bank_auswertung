@@ -12,7 +12,7 @@ mod source_bridge;
 mod store_bridge;
 
 pub(crate) use calendar_bridge::CalendarBridge;
-pub(crate) use consume_bridge::ConsumeBridge;
+pub(crate) use consume_bridge::{CONSUMED_MESSAGE_TYPE, ConsumeBridge};
 pub(crate) use ingested_publisher::IngestedPublisher;
 pub(crate) use money_bridge::MoneyBridge;
 pub(crate) use source_bridge::SourceBridge;

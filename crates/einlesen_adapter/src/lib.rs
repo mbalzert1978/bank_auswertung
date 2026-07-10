@@ -24,9 +24,10 @@
 //! die DTOs ([`Line`], [`RawRecord`]) und die öffentlichen Abstractions
 //! ([`CalendarSeam`] + sein Rückgabetyp [`CalendarDay`], [`MoneySeam`] + seine Rückgabetypen
 //! [`DecodedAmount`]/[`Sign`]) — dazu die adapter-eigenen [`Direction`]/[`Currency`].
-//! **Alles andere ist crate-privat**: der Handler, alle Bridges, die adapter-lokalen Wire-DTOs
-//! (`ReadTransactionsMessage`/`IngestedMessage`) und die Fakes — keiner dieser Typen ist von
-//! außen erreichbar. Weder `Direction` noch `CalendarDay` der Domäne werden re-exportiert —
+//! **Alles andere ist crate-privat**: der Handler, alle Bridges, das adapter-lokale Wire-DTO
+//! (`IngestedMessage`; eingehend gibt es keins — die `ReadTransactions`-Nachricht ist inhaltsloser
+//! Auslöser, die Consume-Bridge baut das Kommando direkt aus dem Envelope) und die Fakes — keiner
+//! dieser Typen ist von außen erreichbar. Weder `Direction` noch `CalendarDay` der Domäne werden re-exportiert —
 //! `Line` trägt ausschließlich adapter-eigene Typen.
 //!
 //! **Datenschutz (ADR-0008-Reframe):** `einlesen` trägt rohe Werte (IBANs, Klarname) weiter —
