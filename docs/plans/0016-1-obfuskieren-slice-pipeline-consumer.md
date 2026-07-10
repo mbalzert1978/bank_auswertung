@@ -77,7 +77,8 @@ stabil); publizierte ID; Redaktion (Dead-Letter-Grund nie roh).
 
 1. **Seeded-Obfuskierung statt First-Seen** `KONTO_x`/`PERSON_x` (Issue-AK 1) — Token via
    `Obfuskator`-Port + persistierter Seed; **keine** Klartext↔Token-Mapping-Tabelle.
-   → berührt **ADR-0006** (Stabilität ruht auf Seed, nicht auf persistenter Mapping-Tabelle).
+   → kanonisch in **[ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md)**
+   (Stabilität ruht auf Seed, nicht auf persistenter Mapping-Tabelle; supersedet ADR-0006-Kern).
 2. **„Token-Tabelle" → `obfuskiert`-Tabelle** des ganzen obfuskierten Aggregats; Message
    trägt nur die **ID** (nicht die Nutzlast).
 3. Guard auf **Output-Token-DTO** (`ObfuskierteBuchung`), nicht auf `Iban` (Nutzer-Entscheid).
@@ -92,7 +93,10 @@ stabil); publizierte ID; Redaktion (Dead-Letter-Grund nie roh).
 5. Domäne + Adapter compiler-driven bauen, bis Specs grün.
 6. Cargo.tomls (adapter: shared_kernel/application_kernel/serde/serde_json).
 7. `cargo build`/`test`/`clippy --all-targets`/`fmt --check` + `cargo test -p architecture` grün.
-8. Issue 0016 + ADR-0006 an die Abweichungen anpassen; Abnahme abhaken.
+8. Issue 0016 + ADR-0006 an die Abweichungen anpassen; Abnahme abhaken — **erledigt**:
+   [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md) neu (seed-basiert,
+   supersedet ADR-0006-Kern), ADR-0006-Banner + ADR-README + ADR-0008-Verweis, Issue 0016
+   as-built-Banner (Status `done`), Konsistenz-Sweep (Issues 0008/0009/0003, PRD, CLAUDE.md).
 
 ## Verifikation
 

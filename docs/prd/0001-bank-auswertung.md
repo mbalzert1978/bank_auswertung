@@ -322,6 +322,12 @@ verschoben (s. dort den Supersession-Hinweis).
   Vergabe, einmal vergeben bleibt fest → laufstabile `PERSON_x`
   ([ADR-0006](../adr/0006-pseudonym-stabilitaet.md)). Verbindlich vor Schritt 4.
   Eigene Konten (`KONTO_x`) sind ohnehin stabil (aus der Eigene-Konten-Config).
+  > **Superseded durch [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md):**
+  > **kein** persistenter Zuordnungs-Speicher und **keine** First-Seen-Vergabe mehr. Die
+  > Pseudonym-Stabilität ruht auf einem **config-injizierten Seed** (deterministische Token
+  > aus `(Seed, Klartext)`, mitpersistiert). Das lokal zu haltende Geheimnis ist der
+  > **Seed**; laufstabile `PERSON_x`, solange die Config denselben Seed liefert. `KONTO_x`
+  > bleibt aus der Eigene-Konten-Config stabil.
 
 ### Datenschutz-Invarianten (zentral)
 
@@ -442,8 +448,10 @@ Config und Zuordnungs-Speicher oben unter „Lokale Konfiguration & Speicher"):
 - Echte **CSV-CAMT-v8-Beispieldatei** (ein Monat reicht) für Schritt 2 — Blocker
   für den Adapter.
 - **Eigene-Konten-Config** (IBAN + Konto-Rolle) — verbindlich vor Schritt 2.
-- **Persistente Pseudonym-Zuordnung** (laufstabile `PERSON_x`,
-  [ADR-0006](../adr/0006-pseudonym-stabilitaet.md)) — verbindlich vor Schritt 4.
+- **Stabiler Config-Seed** (laufstabile `PERSON_x` seed-basiert,
+  [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md); ersetzt die frühere
+  persistente Pseudonym-Zuordnung aus ADR-0006) — verbindlich vor einem echten
+  `obfuskieren`-Lauf.
 - **Scrubbing-Regeln** für `ObfuskierterText` (IBAN/BIC-Muster, bekannte
   Personen-Token), fail-safe — verbindlich vor Schritt 5.
 

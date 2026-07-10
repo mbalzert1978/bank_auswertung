@@ -1,9 +1,13 @@
 # Pseudonym-Stabilität: die Klartext-Zuordnung ist lokal **und persistent**
 
-> **Status: in Teilen superseded — durch [ADR-0007](0007-modularer-monolith-feature-slices.md).**
-> Der Textkörper unten ist **Historie** (Entscheidungsstand zum ADR-Zeitpunkt) und
-> bleibt unverändert. Was heute gilt und was nicht mehr, steht **kanonisch** in
-> [ADR-0007](0007-modularer-monolith-feature-slices.md).
+> **Status: superseded — durch [ADR-0010](0010-seed-basierte-pseudonym-stabilitaet.md)**
+> (Stabilitäts-**Mechanismus**) und [ADR-0007](0007-modularer-monolith-feature-slices.md)
+> (Slice-Verortung). Der Textkörper unten ist **Historie** (Entscheidungsstand zum
+> ADR-Zeitpunkt) und bleibt unverändert — insbesondere die hier tragende **persistente
+> Klartext↔Pseudonym-Zuordnung** (First-Seen-Vergabe, eigener Zuordnungs-Speicher) gilt
+> **nicht mehr**: die Pseudonym-Stabilität ruht heute auf einem **Seed**, nicht auf einer
+> Zuordnungstabelle. Was heute gilt, steht **kanonisch** in
+> [ADR-0010](0010-seed-basierte-pseudonym-stabilitaet.md).
 
 Der Fingerabdruck ist eine reine Funktion über dem Empfänger
 ([ADR-0004](0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md)). Für eine

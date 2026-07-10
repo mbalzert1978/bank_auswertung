@@ -8,6 +8,14 @@ status: blocked
 
 **Typ:** AFK
 
+> **Hinweis zum Zuordnungs-Speicher:** Seit
+> [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md) gibt es **keinen**
+> persistenten Klartext↔Pseudonym-Speicher mehr (Slice 0008 hinfällig). Das lokal zu
+> haltende Geheimnis ist der **config-injizierte Seed**. Die Kern-Invariante unten bleibt:
+> der `Speicher`-Port hält **ausschließlich obfuskierte DTOs** und **nie** den Seed/Rohwert;
+> die AK-Punkte zur „Trennung vom Zuordnungs-Speicher (Slice 0008)" lesen sich heute als
+> „der `Speicher` trägt den Seed nicht". Die Vorbedingung „setzt Slice 0008 voraus" entfällt.
+
 ## Was zu bauen ist
 
 Der `Speicher`-Port (outbound), SQLite-Adapter (Baureihenfolge-Schritt 4):
