@@ -49,6 +49,16 @@ Umsetzung (Issue 0014) traten zwei Punkte hervor:
 
 ## Entscheidung B — Zwei Kernel-Crates
 
+> **Teilweise supersedet/geflippt durch [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md):**
+> Der **Zwei-Crate-Schnitt bleibt**, aber die **Zielgruppen kehren sich um**. Weil die generische
+> `OutboxConsumer<H: Handler>` in `io` lebt, **muss `io` `application_kernel` sehen**. Danach ist
+> `application_kernel` der **`io`-sichtbare Slice↔`io`-Vertrag** (`Command`/`Handler`/`Response`/
+> `Publisher`/`PublishCommand` + neu `CommandDecoder`; bindet `_adapter` **und** `io`), und
+> `shared_kernel` ist **komplett `io`-privat** (alle Outbox-Seams + `UnitOfWork`; bindet nur `io`);
+> der `<slice>_adapter` bindet **nur** `application_kernel`. `TypedOutboxHandler` zieht nach `io` /
+> löst sich auf, wodurch `application_kernel` **dependency-frei** wird. Neuer Graph:
+> `io → application_kernel`, `io → shared_kernel`, `<slice>_adapter → application_kernel`.
+
 Kapselung über Crate-Grenzen wird in Rust durch den **Crate-Schnitt** ausgedrückt, nicht durch
 Modifikatoren (Interface Segregation + Package-Cohesion). Der eine Kernel zerfällt entlang der
 **Zielgruppe**:
@@ -77,6 +87,12 @@ Ersatz: `TypedOutboxHandler::handle_outbox` als **Default-Methode** — die Verd
 frühere „entweder/oder"-Einschränkung des Blanket-Impls entfällt.
 
 ## Enforcement
+
+> **Geflippt durch [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md):**
+> Die Regel „nur `_adapter` bindet `application_kernel`" wird **„`_adapter` **und** `io`
+> binden `application_kernel`"**, und es kommt **„ein `<slice>_adapter` bindet **kein**
+> `shared_kernel`"** (`adapter_bindet_kein_shared_kernel`) hinzu. Der PreToolUse-Hook bleibt
+> weiter unverändert.
 
 Der `architecture`-Test bekommt die Regel **„nur `_adapter` bindet `application_kernel`"**
 (`io`/`_domain`/`_specs` würden rot); `shared_kernel` bleibt dependency-frei (bestehender

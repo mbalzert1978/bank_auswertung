@@ -64,8 +64,22 @@ Der **Command trägt, was der Handler braucht** — für den Ein-Rutsch-Betrieb 
 > über den von der Domäne verlangten Datenquellen-Port (`RawLineSource`, fehlbar und
 > terminal), den die Adapter-Port-Bridge an den Quell-Seam bindet — die Präsenz-Prüfung
 > liegt seitdem hinter dem Seam, weiterhin batch-atomar.
+>
+> **Verfeinert durch [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md):**
+> der Command ist ein **selbst-ständiger, getypter Daten-Transporter** — er **darf** leer sein
+> (`einlesen`), muss es aber nicht mehr **wegen** der Envelope. Die Envelope ist reiner
+> Transport; ein slice-gelieferter `CommandDecoder` mappt sie über **extrahierte Strings**
+> (`partition_key`/`content`) auf den Command, sodass der Slice-Adapter am Eingang **keinen**
+> Outbox-Typ nennt.
 
 ## Der Adapter ist die Anpassung an die Außenwelt
+
+> **Verfeinert durch [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md):**
+> die **Consume-Bridge wandert aus dem Slice** in eine generische `OutboxConsumer<H: Handler>`
+> in `io` (kein `impl OutboxHandler` mehr im Slice-Adapter, kein `OutboxError`-Mapping); der
+> Slice gibt seinen **nackten Domänen-Fehler** zurück (alles terminal, Retry `io`-intern). Die
+> **Publisher-Bridge** bleibt im Adapter, zielt aber auf `application_kernel::Publisher` — `io`
+> macht den Outbox-Hop. Der `<slice>_adapter` bindet danach **kein** `shared_kernel` mehr.
 
 - **Consume-Bridge** (`OutboxHandlerBase`-Muster): implementiert den public
   `OutboxHandler`-Seam — deserialisiert `OutboxMessage.content` → Domänen-`Command`,

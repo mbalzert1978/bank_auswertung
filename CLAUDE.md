@@ -12,6 +12,15 @@ Guidance for Claude Code (claude.ai/code) working in this repo.
 > supersedieren [ADR-0001](docs/adr/0001-hexagonale-architektur.md)–[0007](docs/adr/0007-modularer-monolith-feature-slices.md)
 > (jedes Alt-ADR trägt oben einen Superseded-Banner mit kanonischem Verweis). Der
 > **Einlese-Slice** ist als erster nach diesem Muster gebaut.
+>
+> **[ADR-0011](docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)** verfeinert
+> 0008/0009 als **entschiedener Plan (noch nicht gebaut):** der Slice wird eine reine
+> `Command → Domäne → Response`-Pipeline; Consumer-Rolle, Retry/Dead-Letter-Taktik,
+> `UnitOfWork` und Envelope-Kenntnis wandern vollständig nach `io` (generische
+> `OutboxConsumer<H: Handler>`). Der Kernel-Schnitt aus 0009 **flippt**: `application_kernel`
+> wird der `io`-sichtbare Slice↔`io`-Vertrag, `shared_kernel` komplett `io`-privat, der
+> `<slice>_adapter` bindet nur noch `application_kernel`. Der Code unten beschreibt den
+> **gebauten** Stand **vor** diesem Umbau.
 
 ## What this is
 
@@ -23,9 +32,10 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 
 - [README.md](README.md) — source of truth for scope and architecture.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — ten ADRs (0008/0009 governing the pipeline/kernel, 0010
-  governing seed-based pseudonym stability; 0001–0007 each carry a superseded banner
-  pointing at the canonical successor).
+- [docs/adr/](docs/adr/) — eleven ADRs (0008/0009 governing the pipeline/kernel — refined
+  by **0011**, the decided-but-not-yet-built plan to decouple each slice from the Outbox
+  mechanics and flip the kernel cut; 0010 governing seed-based pseudonym stability; 0001–0007
+  each carry a superseded banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
 
