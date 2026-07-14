@@ -9,13 +9,15 @@ use obfuskierung_domain::{
 pub struct AccountId(String);
 
 impl AccountId {
-    /// Projiziert das Domänen-Token auf das DTO — crate-intern (Bridge/TestApi).
-    pub(crate) fn from_token(token: &AccountToken) -> Self {
-        Self(token.as_str().to_string())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Projiziert das Domänen-Token auf das DTO — crate-intern (Bridge/TestApi).
+impl From<&AccountToken> for AccountId {
+    fn from(token: &AccountToken) -> Self {
+        Self(token.as_str().to_string())
     }
 }
 
@@ -24,13 +26,15 @@ impl AccountId {
 pub struct Pseudonym(String);
 
 impl Pseudonym {
-    /// Projiziert das Domänen-Pseudonym auf das DTO — crate-intern (Bridge/TestApi).
-    pub(crate) fn from_domain(pseudonym: &DomainPseudonym) -> Self {
-        Self(pseudonym.as_str().to_string())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Projiziert das Domänen-Pseudonym auf das DTO — crate-intern (Bridge/TestApi).
+impl From<&DomainPseudonym> for Pseudonym {
+    fn from(pseudonym: &DomainPseudonym) -> Self {
+        Self(pseudonym.as_str().to_string())
     }
 }
 
@@ -39,13 +43,15 @@ impl Pseudonym {
 pub struct ObfuscatedText(String);
 
 impl ObfuscatedText {
-    /// Projiziert den obfuskierten Domänen-Text auf das DTO — crate-intern (Bridge/TestApi).
-    pub(crate) fn from_domain(text: &DomainText) -> Self {
-        Self(text.as_str().to_string())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// Projiziert den obfuskierten Domänen-Text auf das DTO — crate-intern (Bridge/TestApi).
+impl From<&DomainText> for ObfuscatedText {
+    fn from(text: &DomainText) -> Self {
+        Self(text.as_str().to_string())
     }
 }
 
@@ -64,16 +70,16 @@ pub enum Recipient {
     Absent,
 }
 
-impl Recipient {
-    /// Projiziert den Domänen-`Recipient` auf das adapter-eigene DTO.
-    pub(crate) fn from_domain(recipient: &DomainRecipient) -> Self {
+/// Projiziert den Domänen-`Recipient` auf das adapter-eigene DTO.
+impl From<&DomainRecipient> for Recipient {
+    fn from(recipient: &DomainRecipient) -> Self {
         match recipient {
             DomainRecipient::Company { name, creditor_id } => Recipient::Company {
-                name: name.as_ref().map(ObfuscatedText::from_domain),
+                name: name.as_ref().map(ObfuscatedText::from),
                 creditor_id: creditor_id.as_str().to_string(),
             },
             DomainRecipient::Person { pseudonym } => Recipient::Person {
-                pseudonym: Pseudonym::from_domain(pseudonym),
+                pseudonym: pseudonym.into(),
             },
             DomainRecipient::Absent => Recipient::Absent,
         }
@@ -106,25 +112,25 @@ pub struct ObfuscatedBooking {
     pub seed: u64,
 }
 
-impl ObfuscatedBooking {
-    /// Projiziert das obfuskierte **Domänen-Aggregat** auf das DTO — die einzige Stelle, an der es
-    /// die Adapter-Grenze überquert (die Repository-Bridge ruft sie vor dem Ablegen). Token,
-    /// Empfänger, durchgereichte Felder, Seed und ID in einem Zug.
-    pub(crate) fn from_domain(booking: &DomainBooking) -> Self {
+/// Projiziert das obfuskierte **Domänen-Aggregat** auf das DTO — die einzige Stelle, an der es
+/// die Adapter-Grenze überquert (die Repository-Bridge ruft sie vor dem Ablegen). Token,
+/// Empfänger, durchgereichte Felder, Seed und ID in einem Zug.
+impl From<&DomainBooking> for ObfuscatedBooking {
+    fn from(booking: &DomainBooking) -> Self {
         let counterparty = booking.counterparty();
         let pass_through = booking.pass_through();
         Self {
             id: booking.id().as_str().to_string(),
-            ordering_account: AccountId::from_token(counterparty.ordering_account()),
-            counter_account: counterparty.counter_account().map(AccountId::from_token),
+            ordering_account: AccountId::from(counterparty.ordering_account()),
+            counter_account: counterparty.counter_account().map(AccountId::from),
             amount_cent: pass_through.amount_cent,
             currency: pass_through.currency.as_str().to_string(),
             direction: pass_through.direction.as_str().to_string(),
-            recipient: Recipient::from_domain(counterparty.recipient()),
+            recipient: Recipient::from(counterparty.recipient()),
             booking_day: pass_through.booking_day.as_str().to_string(),
             value_date: pass_through.value_date.as_str().to_string(),
-            purpose: counterparty.purpose().map(ObfuscatedText::from_domain),
-            booking_text: counterparty.booking_text().map(ObfuscatedText::from_domain),
+            purpose: counterparty.purpose().map(ObfuscatedText::from),
+            booking_text: counterparty.booking_text().map(ObfuscatedText::from),
             seed: booking.seed().value(),
         }
     }

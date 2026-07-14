@@ -53,12 +53,10 @@ impl<'a> ReadHandler<'a> {
     /// zur Outbox).
     pub fn handle(&self, command: ReadTransactions) -> Result<(), ReadError> {
         self.source
-            .fetch(&command.configuration)
-            .map_err(ReadError::Source)?
+            .fetch(&command.configuration)?
             .into_iter()
             .map(|line| LineAggregate::from_raw_line(line, self.calendar, self.money))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(ReadError::Line)?
+            .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .for_each(|aggregate| {
                 // Der Speicher vergibt die ID beim Ablegen; genau sie reist als Zeiger weiter.

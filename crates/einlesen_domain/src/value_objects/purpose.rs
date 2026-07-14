@@ -8,12 +8,13 @@ use super::NonEmptyString;
 pub struct Purpose(NonEmptyString);
 
 impl From<NonEmptyString> for Purpose {
-    fn from(wert: NonEmptyString) -> Self {
-        Self(wert)
+    fn from(value: NonEmptyString) -> Self {
+        Self(value)
     }
 }
 
 impl Purpose {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }

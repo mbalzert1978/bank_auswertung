@@ -30,6 +30,7 @@ pub struct ReadTestApi {
 
 impl ReadTestApi {
     /// Neue, leere TestApi.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             source_seam: FakeSourceSeam::default(),
@@ -42,6 +43,7 @@ impl ReadTestApi {
 
     /// Arrangiert eine Rohzeile (DTO) in der Quelle hinter dem Datenquellen-Port
     /// (in Lesereihenfolge) — nicht in der Nachricht; die trägt keinen Batch mehr.
+    #[must_use]
     pub fn with_line(mut self, record: RawRecord) -> Self {
         self.source_seam.add_record(record);
         self
@@ -50,6 +52,7 @@ impl ReadTestApi {
     /// Arrangiert den **Fehlschlag der Beschaffung**: der Quell-Seam scheitert terminal mit der
     /// gegebenen io-Diagnose (statt Zeilen zu liefern) — `run` endet im terminalen Fehler, dessen
     /// Grund die Diagnose trägt.
+    #[must_use]
     pub fn with_unavailable_source(mut self, message: &str) -> Self {
         self.source_seam.fail_with(message);
         self

@@ -17,6 +17,7 @@ pub trait RawBookingSource {
 /// einem überladenen `Option::None`, damit die Quelle „abwesend" von „ungültig" unterscheiden kann.
 /// Beide Fehler-Ausgänge sind **terminal**; die Trennung bleibt im Typ, damit `io` je einen eigenen
 /// redigierten Grund spiegelt (opake ID vs. statischer Feldname).
+#[derive(Debug)]
 pub enum BookingLookup {
     /// Zur ID liegt ein deutbares rohes Aggregat vor. **Geboxt**, weil das Aggregat weit größer ist
     /// als die schlanken Fehler-Varianten (`clippy::large_enum_variant`).

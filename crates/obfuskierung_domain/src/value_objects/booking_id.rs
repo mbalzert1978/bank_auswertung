@@ -12,10 +12,12 @@ impl BookingId {
     /// (kein `NonEmptyString`): die Nicht-Leere garantiert die Herkunft (io/Outbox-Envelope vergeben
     /// die ID, nie leer) — ein eigener Validierungspfad hier wäre reibungsvolle Zeremonie ohne
     /// Gewinn, denn der Slice deutet die ID nie, er reicht sie als Zeiger durch.
+    #[must_use]
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

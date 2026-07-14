@@ -31,7 +31,7 @@ impl IngestedRow {
     /// Grund (opake ID vs. statischer Feldname).
     pub(crate) fn to_booking(
         &self,
-        id: BookingId,
+        id: &BookingId,
     ) -> Result<IngestedBooking, MissingMandatoryField> {
         let counterparty = RawCounterparty {
             ordering_account: mandatory(&self.ordering_account, "ordering_account")?,
@@ -48,7 +48,7 @@ impl IngestedRow {
             booking_day: mandatory(&self.booking_day, "booking_day")?,
             value_date: mandatory(&self.value_date, "value_date")?,
         };
-        Ok(IngestedBooking::new(id, counterparty, pass_through))
+        Ok(IngestedBooking::new(id.clone(), counterparty, pass_through))
     }
 }
 

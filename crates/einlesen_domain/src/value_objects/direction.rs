@@ -24,6 +24,7 @@ impl Direction {
     /// Deutet das Vorzeichen **total**: `Negative` → `Outgoing`, `Positive` → `Incoming`.
     /// Beide Fälle sind deutbar — ein fehlendes Vorzeichen gibt es hier nicht mehr (der
     /// `Money`-Port hätte ein solches Feld schon als `None` abgewiesen).
+    #[must_use]
     pub fn from_sign(sign: Sign) -> Self {
         match sign {
             Sign::Negative => Self::Outgoing,

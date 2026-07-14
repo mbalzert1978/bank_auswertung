@@ -14,6 +14,7 @@ impl From<String> for Replacement {
 }
 
 impl Replacement {
+    #[must_use]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -27,10 +28,12 @@ pub struct AccountToken(String);
 
 impl AccountToken {
     /// Formt das Konto-Token aus dem seed-abgeleiteten Ersatzwert (Präfix `KONTO_`).
+    #[must_use]
     pub fn from_replacement(replacement: Replacement) -> Self {
         Self(format!("KONTO_{}", replacement.as_str()))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -44,10 +47,12 @@ pub struct Pseudonym(String);
 
 impl Pseudonym {
     /// Formt das Personen-Token aus dem seed-abgeleiteten Ersatzwert (Präfix `PERSON_`).
+    #[must_use]
     pub fn from_replacement(replacement: Replacement) -> Self {
         Self(format!("PERSON_{}", replacement.as_str()))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -68,6 +73,7 @@ impl From<NonEmptyString> for ObfuscatedText {
 }
 
 impl ObfuscatedText {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
@@ -87,6 +93,7 @@ impl From<NonEmptyString> for CreditorId {
 }
 
 impl CreditorId {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }

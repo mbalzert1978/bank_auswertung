@@ -40,6 +40,7 @@ impl Amount {
     /// Bedeutung). **Unfehlbar** — ein nicht dekodierbares Feld hat den Port schon als
     /// `None` verlassen (im Aggregat `AmountInvalid`); hier gibt es nichts mehr
     /// abzuweisen. So lebt das Vorzeichen allein in der Richtung (ADR-0005).
+    #[must_use]
     pub fn with_direction(decoded: DecodedAmount, currency: Currency) -> (Self, Direction) {
         let direction = Direction::from_sign(decoded.sign());
         (
@@ -51,10 +52,12 @@ impl Amount {
         )
     }
 
+    #[must_use]
     pub fn cent(&self) -> u64 {
         self.cent
     }
 
+    #[must_use]
     pub fn currency(&self) -> Currency {
         self.currency
     }

@@ -8,12 +8,13 @@ use super::NonEmptyString;
 pub struct CreditorId(NonEmptyString);
 
 impl From<NonEmptyString> for CreditorId {
-    fn from(wert: NonEmptyString) -> Self {
-        Self(wert)
+    fn from(value: NonEmptyString) -> Self {
+        Self(value)
     }
 }
 
 impl CreditorId {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
@@ -26,12 +27,13 @@ impl CreditorId {
 pub struct RecipientName(NonEmptyString);
 
 impl From<NonEmptyString> for RecipientName {
-    fn from(wert: NonEmptyString) -> Self {
-        Self(wert)
+    fn from(value: NonEmptyString) -> Self {
+        Self(value)
     }
 }
 
 impl RecipientName {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
@@ -65,14 +67,17 @@ impl Recipient {
     /// Baut die Gegenpartei aus ihren — bereits nicht-leeren — Teilen. Beide sind genuin
     /// optional: ein fehlender Name (`None`) heißt eine Buchung ohne Gegenpartei (Gebühr),
     /// kein Fehler; eine fehlende Gläubiger-ID ebenso wenig.
+    #[must_use]
     pub fn from_parts(name: Option<RecipientName>, creditor_id: Option<CreditorId>) -> Self {
         Self { name, creditor_id }
     }
 
+    #[must_use]
     pub fn name(&self) -> Option<&RecipientName> {
         self.name.as_ref()
     }
 
+    #[must_use]
     pub fn creditor_id(&self) -> Option<&CreditorId> {
         self.creditor_id.as_ref()
     }

@@ -38,6 +38,7 @@ pub struct ObfuscationTestApi {
 
 impl ObfuscationTestApi {
     /// Neue TestApi mit Seed `0` — reale Specs setzen ihn über [`with_seed`](Self::with_seed).
+    #[must_use]
     pub fn new() -> Self {
         Self {
             seed: 0,
@@ -50,6 +51,7 @@ impl ObfuscationTestApi {
 
     /// Injiziert den Seed (den io später aus der Config liest) — er keyt die deterministische Vergabe
     /// und wird in jede abgelegte Buchung mitpersistiert.
+    #[must_use]
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
@@ -57,6 +59,7 @@ impl ObfuscationTestApi {
 
     /// Arrangiert eine rohe einlesen-Zeile im (Fake-)einlesen-Speicher unter ihrer ID — die der
     /// Handler beim Lauf per ID liest.
+    #[must_use]
     pub fn with_ingested(mut self, id: &str, row: IngestedRow) -> Self {
         self.source.insert(id, row);
         self
@@ -86,18 +89,18 @@ impl ObfuscationTestApi {
     /// Das erwartete Konto-Token für eine IBAN unter dem gesetzten Seed — so formuliert eine Spec die
     /// Token-Felder ihres erwarteten DTOs, ohne den Fake-Hash zu kennen.
     pub fn expected_account(&self, iban: &str) -> AccountId {
-        AccountId::from_token(&AccountToken::from_replacement(self.replacement(iban)))
+        AccountId::from(&AccountToken::from_replacement(self.replacement(iban)))
     }
 
     /// Das erwartete Personen-Pseudonym für einen Namen unter dem gesetzten Seed.
     pub fn expected_pseudonym(&self, name: &str) -> Pseudonym {
-        Pseudonym::from_domain(&DomainPseudonym::from_replacement(self.replacement(name)))
+        Pseudonym::from(&DomainPseudonym::from_replacement(self.replacement(name)))
     }
 
     /// Der erwartete obfuskierte Freitext (getrimmt; Scrubbing vertagt) — nicht seed-abhängig.
     pub fn expected_text(&self, text: &str) -> ObfuscatedText {
         let value = NonEmptyString::new(text).expect("nicht-leerer Freitext");
-        ObfuscatedText::from_domain(&DomainText::from(value))
+        ObfuscatedText::from(&DomainText::from(value))
     }
 
     fn replacement(&self, plaintext: &str) -> Replacement {
@@ -120,7 +123,7 @@ impl ObfuscationTestApi {
     /// wurden (Reihenfolge signifikant).
     pub fn assert_published(&self, ids: &[&str]) {
         let expected_types = vec!["Obfuscated".to_string(); ids.len()];
-        let expected_ids: Vec<String> = ids.iter().map(|id| (*id).to_string()).collect();
+        let expected_ids: Vec<String> = ids.iter().map(ToString::to_string).collect();
         assert_eq!(self.publisher.message_types(), expected_types);
         assert_eq!(self.publisher.partition_keys(), expected_ids);
     }

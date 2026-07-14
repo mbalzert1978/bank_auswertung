@@ -54,7 +54,7 @@ impl<'a> ObfuscationHandler<'a> {
         let aggregate = match self.source.read(command.id()) {
             BookingLookup::Found(aggregate) => *aggregate,
             BookingLookup::Absent => {
-                return Err(HandleError::SourceMissing(command.id().clone()));
+                return Err(HandleError::SourceMissing(command.into_id()));
             }
             BookingLookup::Malformed { field } => {
                 return Err(HandleError::MalformedSource { field });

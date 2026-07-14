@@ -24,11 +24,9 @@ impl RawLineSource for SourceBridge<'_> {
             .map_err(|SourceUnavailable { message }| SourceError::Unavailable { reason: message })?
             .iter()
             .map(|record| {
-                record
-                    .to_raw_line()
-                    .map_err(|missing| SourceError::MissingMandatoryField {
-                        field: missing.field(),
-                    })
+                RawLine::try_from(record).map_err(|missing| SourceError::MissingMandatoryField {
+                    field: missing.field(),
+                })
             })
             .collect()
     }

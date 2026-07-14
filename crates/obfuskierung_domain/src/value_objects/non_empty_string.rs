@@ -9,11 +9,13 @@ pub struct NonEmptyString(String);
 
 impl NonEmptyString {
     /// Liefert `None`, wenn der Wert nach dem Trimmen leer ist.
+    #[must_use]
     pub fn new(value: impl AsRef<str>) -> Option<Self> {
         let trimmed = value.as_ref().trim();
         (!trimmed.is_empty()).then(|| Self(trimmed.to_string()))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

@@ -17,18 +17,22 @@ impl CalendarDay {
     /// den der `Calendar`-Port (in `io`, mit `chrono`) nach dem erfolgreichen Deuten aufruft.
     /// **Unfehlbar:** die Gültigkeit (inkl. Bereich) prüft der Port, ein ungültiges Datum ist
     /// dort schon `None` geworden; hier gibt es nichts mehr abzuweisen.
+    #[must_use]
     pub fn from_parts(year: u16, month: u8, day: u8) -> Self {
         Self { year, month, day }
     }
 
+    #[must_use]
     pub fn year(&self) -> u16 {
         self.year
     }
 
+    #[must_use]
     pub fn month(&self) -> u8 {
         self.month
     }
 
+    #[must_use]
     pub fn day(&self) -> u8 {
         self.day
     }
@@ -47,6 +51,7 @@ pub struct Date {
 impl Date {
     /// Bündelt Buchungstag und Valuta zum Datum der Buchung. Beide sind bereits gültige
     /// Kalendertage — hier gibt es nichts mehr abzuweisen.
+    #[must_use]
     pub fn from_days(booking_day: CalendarDay, value_date: CalendarDay) -> Self {
         Self {
             booking_day,
@@ -54,10 +59,12 @@ impl Date {
         }
     }
 
+    #[must_use]
     pub fn booking_day(&self) -> CalendarDay {
         self.booking_day
     }
 
+    #[must_use]
     pub fn value_date(&self) -> CalendarDay {
         self.value_date
     }

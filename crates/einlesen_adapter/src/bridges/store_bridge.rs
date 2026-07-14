@@ -16,6 +16,6 @@ pub(crate) struct StoreBridge<'a> {
 
 impl Store for StoreBridge<'_> {
     fn store(&self, aggregate: &LineAggregate) -> IngestionId {
-        IngestionId::new(self.seam.store(&Line::from_aggregate(aggregate)))
+        IngestionId::new(self.seam.store(&Line::from(aggregate)))
     }
 }
