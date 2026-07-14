@@ -8,11 +8,13 @@
 //! **Die generische Consumer-Maschinerie ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):**
 //!
 //! - [`OutboxConsumer`] ist der **eine** `shared_kernel::OutboxHandler` über **jeden**
-//!   `application_kernel::Handler`: er extrahiert die Envelope, ruft den slice-gelieferten
-//!   `CommandDecoder` (Shape Y — nur nackte Strings), dispatcht an den Handler und committet die
-//!   **eine** [`UnitOfWork`](shared_kernel::UnitOfWork). Jeder Handler-Fehler ist **terminal** →
-//!   Dead-Letter über das **`Display`** des Fehlers (nie `Debug`); `OutboxError` wird nur hier
-//!   gebaut, Retry entsteht ausschließlich io-intern.
+//!   [`TransactionalHandler`]: er extrahiert die Envelope, ruft den slice-gelieferten
+//!   `CommandDecoder` (Shape Y — nur nackte Strings) und dispatcht das Kommando an den
+//!   `TransactionalHandler`, der **eine** [`UnitOfWork`](shared_kernel::UnitOfWork) öffnet, den
+//!   Slice-Handler **aus ihr** baut (Store/Publish = die Unit, die committet — Atomarität
+//!   typ-erzwungen) und committet. Jeder Handler-Fehler ist **terminal** → Dead-Letter über das
+//!   **`Display`** des Fehlers (nie `Debug`); `OutboxError` wird nur hier gebaut, Retry entsteht
+//!   ausschließlich io-intern.
 //! - [`PublishingPort`] macht den **letzten Outbox-Hop**: es bindet
 //!   `application_kernel::Publisher` an `shared_kernel::OutboxPublisher`
 //!   (`PublishCommand → OutboxCommand`).
@@ -30,6 +32,6 @@ mod publishing;
 
 pub mod einlesen;
 
-pub use consumer::{OutboxConsumer, UnitOfWorkFactory};
+pub use consumer::{OutboxConsumer, TransactionError, TransactionalHandler};
 pub use dispatcher::Dispatcher;
 pub use publishing::PublishingPort;

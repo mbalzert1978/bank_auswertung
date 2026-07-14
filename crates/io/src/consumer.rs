@@ -1,32 +1,48 @@
 use std::marker::PhantomData;
 
-use application_kernel::{CommandDecoder, Handler};
-use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage, UnitOfWork};
+use application_kernel::CommandDecoder;
+use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 
-/// Öffnet **eine frische [`UnitOfWork`] pro Nachricht** — die Transaktion, in der die
-/// [`OutboxConsumer`] Consume-Ack, gestagete Stores und gestagete Publishes **atomar** committet.
-/// Heute erfüllt sie der Integrationstest mit einem Fake; die echte io-Anbindung backt sie später
-/// mit einer `sqlx`-Transaktion (Build-Order Schritt 5), ohne dass die Consumer-Maschinerie sich
-/// ändert.
-pub trait UnitOfWorkFactory {
-    /// Die Arbeitseinheit, die [`begin`](UnitOfWorkFactory::begin) öffnet.
-    type Unit: UnitOfWork;
+/// Was **eine Nachricht** in **einer** Arbeitseinheit tut: eine
+/// [`TransactionalHandler`]-Implementierung öffnet die Unit-of-Work, baut den Slice-Handler
+/// **aus ihr** (sodass eine gestagete Store-/Publish-Schreibung nur in genau die Unit landen
+/// kann, die committet), dispatcht das Kommando und committet **atomar**, wenn der Handler
+/// gelingt. Weil Handler und Unit **zusammen je Aufruf** entstehen und den Aufruf nie verlassen,
+/// ist der Zustand „gestaged außerhalb der committeten Transaktion" **unkonstruierbar** — genau
+/// die Härtung, die das Outbox-Pattern braucht (ADR-0011, Entscheidung A; die Verortung der
+/// Unit-of-Work in `io` bleibt, nur die Bindung an die Ports wird typ-erzwungen). Der echte
+/// `sqlx`-`io` backt sie mit **einer** `sqlx`-Transaktion, der Test mit einer In-Memory-Unit.
+pub trait TransactionalHandler {
+    /// Das interne Kommando, das dieser Handler verarbeitet.
+    type Command;
+    /// Der **nackte Domänen-Fehler** des Slice (redigierte `Display`, die `io` als Dead-Letter-
+    /// Grund spiegelt).
+    type Error: std::error::Error;
 
-    /// Öffnet die Arbeitseinheit für die anstehende Nachricht.
-    fn begin(&self) -> Self::Unit;
+    /// Verarbeitet das Kommando in einer atomaren Arbeitseinheit.
+    fn handle(&self, command: Self::Command) -> Result<(), TransactionError<Self::Error>>;
+}
+
+/// Die Disposition **eines** transaktionalen Versuchs — von `io` erzeugt, nie von einem Slice.
+pub enum TransactionError<E> {
+    /// Der Handler ist **terminal** gescheitert (kaputte Daten / gebrochenes Invariant) →
+    /// Dead-Letter. Trägt den nackten Domänen-Fehler; `io` spiegelt dessen `Display`.
+    Handler(E),
+    /// Der **Commit** ist gescheitert → io-interner Retry (nie aus einem Handler-Fehler). Trägt
+    /// den bereits stringifizierten Grund (der Commit-Fehlertyp lebt nicht über diese Grenze).
+    Commit(String),
 }
 
 /// Der **eine** generische Outbox-Consumer ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
 /// Entscheidung A/B): er implementiert `shared_kernel::OutboxHandler` über **jeden**
-/// `application_kernel::Handler` `H` und dessen slice-gelieferten [`CommandDecoder`] `D`. Statt
-/// je Slice eine Consume-Bridge lebt die Verdrahtung Envelope → Kommando → `Result` **einmal**
+/// [`TransactionalHandler`] `T` und dessen slice-gelieferten [`CommandDecoder`] `D`. Statt je
+/// Slice eine Consume-Bridge lebt die Verdrahtung Envelope → Kommando → Disposition **einmal**
 /// hier.
 ///
 /// **Ablauf je Nachricht:** die Envelope extrahieren und dem [`CommandDecoder`] nur die nackten
-/// Strings `partition_key`/`content` reichen (Shape Y — der Slice nennt keinen Outbox-Typ) → eine
-/// frische [`UnitOfWork`] öffnen → den Handler (staged) dispatchen → **einmal** committen. So
-/// fallen aus dem Pattern at-least-once + wiederaufsetzbar; scheitert der Handler, wird **nicht**
-/// committet — die Arbeitseinheit fällt zurück.
+/// Strings `partition_key`/`content` reichen (Shape Y — der Slice nennt keinen Outbox-Typ) → das
+/// Kommando an den [`TransactionalHandler`] geben, der die Arbeitseinheit öffnet, den Handler aus
+/// ihr baut, dispatcht und **einmal** committet.
 ///
 /// **Fehler-Taktik (io-intern, ADR-0011 Entscheidung B):** `OutboxError` wird **nur** hier
 /// gebaut. Leerer/ungültiger Inhalt (Decoder `None`) → `Critical` (Envelope-/Dispatch-Ebene). Ein
@@ -34,34 +50,30 @@ pub trait UnitOfWorkFactory {
 /// den redigierten Meldungssatz besitzt allein der Slice-Fehler, `io` spiegelt ihn. Ein Commit-
 /// Fehler → `Retry` (io-interner Broker-/Commit-Retry) — der **einzige** Retry-Ursprung, nie ein
 /// Handler-Fehler.
-pub struct OutboxConsumer<H, U, D> {
-    handler: H,
-    unit_of_work: U,
+pub struct OutboxConsumer<T, D> {
+    transaction: T,
     decoder: PhantomData<fn() -> D>,
 }
 
-impl<H, U, D> OutboxConsumer<H, U, D>
+impl<T, D> OutboxConsumer<T, D>
 where
-    H: Handler,
-    U: UnitOfWorkFactory,
-    D: CommandDecoder<Command = H::Command>,
+    T: TransactionalHandler,
+    D: CommandDecoder<Command = T::Command>,
 {
-    /// Verdrahtet den Consumer über einem konkreten Handler und der Unit-of-Work-Quelle. Der
-    /// Decoder `D` ist zustandslos (assoziierte Funktion, Shape Y) und lebt nur im Typ.
-    pub fn new(handler: H, unit_of_work: U) -> Self {
+    /// Verdrahtet den Consumer über einem konkreten [`TransactionalHandler`]. Der Decoder `D` ist
+    /// zustandslos (assoziierte Funktion, Shape Y) und lebt nur im Typ.
+    pub fn new(transaction: T) -> Self {
         Self {
-            handler,
-            unit_of_work,
+            transaction,
             decoder: PhantomData,
         }
     }
 }
 
-impl<H, U, D> OutboxHandler for OutboxConsumer<H, U, D>
+impl<T, D> OutboxHandler for OutboxConsumer<T, D>
 where
-    H: Handler,
-    U: UnitOfWorkFactory,
-    D: CommandDecoder<Command = H::Command>,
+    T: TransactionalHandler,
+    D: CommandDecoder<Command = T::Command>,
 {
     fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
         let command = D::decode(&message.partition_key, &message.content).ok_or_else(|| {
@@ -74,30 +86,29 @@ where
             }
         })?;
 
-        let unit = self.unit_of_work.begin();
-        self.handler
+        // Terminal → Warning (Display, redigiert); Commit-Fehler → Retry (einziger io-interner
+        // Retry-Ursprung). Die attempt-basierte Eskalation Retry → Dead-Letter nach erschöpften
+        // Versuchen gehört dem Broker (`OutboxMessage::attempt`, Build-Order Schritt 5), nicht dem
+        // Consumer.
+        self.transaction
             .handle(command)
-            .map_err(|error| OutboxError::Warning {
-                reason: error.to_string(),
-            })?;
-        unit.commit().map_err(|error| OutboxError::Retry {
-            reason: error.to_string(),
-        })
+            .map_err(|error| match error {
+                TransactionError::Handler(error) => OutboxError::Warning {
+                    reason: error.to_string(),
+                },
+                TransactionError::Commit(reason) => OutboxError::Retry { reason },
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::convert::Infallible;
     use std::fmt;
-
-    use application_kernel::Command;
 
     use super::*;
 
     /// Feldloses Test-Kommando (der Decoder baut es bzw. verwirft es).
     struct Cmd;
-    impl Command for Cmd {}
 
     /// Ein redigierter Fake-Domänen-Fehler: seine `Display` ist der einzige Meldungssatz, den
     /// die `OutboxConsumer` als Dead-Letter-Grund spiegelt (nie `Debug`).
@@ -110,23 +121,15 @@ mod tests {
     }
     impl std::error::Error for DomainError {}
 
-    struct OkHandler;
-    impl Handler for OkHandler {
-        type Command = Cmd;
-        type Response = ();
-        type Error = DomainError;
-        fn handle(&self, _command: Cmd) -> Result<(), DomainError> {
-            Ok(())
-        }
+    /// Ein [`TransactionalHandler`], dessen Disposition der Test vorgibt.
+    struct FakeTransaction {
+        outcome: fn() -> Result<(), TransactionError<DomainError>>,
     }
-
-    struct FailHandler;
-    impl Handler for FailHandler {
+    impl TransactionalHandler for FakeTransaction {
         type Command = Cmd;
-        type Response = ();
         type Error = DomainError;
-        fn handle(&self, _command: Cmd) -> Result<(), DomainError> {
-            Err(DomainError)
+        fn handle(&self, _command: Cmd) -> Result<(), TransactionError<DomainError>> {
+            (self.outcome)()
         }
     }
 
@@ -148,43 +151,11 @@ mod tests {
         }
     }
 
-    struct OkUnitFactory;
-    impl UnitOfWorkFactory for OkUnitFactory {
-        type Unit = OkUnit;
-        fn begin(&self) -> OkUnit {
-            OkUnit
-        }
+    fn consumer<D: CommandDecoder<Command = Cmd>>(
+        outcome: fn() -> Result<(), TransactionError<DomainError>>,
+    ) -> OutboxConsumer<FakeTransaction, D> {
+        OutboxConsumer::new(FakeTransaction { outcome })
     }
-    struct OkUnit;
-    impl UnitOfWork for OkUnit {
-        type Error = Infallible;
-        fn commit(self) -> Result<(), Infallible> {
-            Ok(())
-        }
-    }
-
-    struct FailUnitFactory;
-    impl UnitOfWorkFactory for FailUnitFactory {
-        type Unit = FailUnit;
-        fn begin(&self) -> FailUnit {
-            FailUnit
-        }
-    }
-    struct FailUnit;
-    impl UnitOfWork for FailUnit {
-        type Error = CommitError;
-        fn commit(self) -> Result<(), CommitError> {
-            Err(CommitError)
-        }
-    }
-    #[derive(Debug)]
-    struct CommitError;
-    impl fmt::Display for CommitError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "commit gescheitert")
-        }
-    }
-    impl std::error::Error for CommitError {}
 
     fn nachricht(message_type: &str) -> OutboxMessage {
         OutboxMessage {
@@ -199,7 +170,7 @@ mod tests {
 
     #[test]
     fn leerer_oder_ungueltiger_inhalt_wird_zu_critical_mit_der_quelle() {
-        let consumer = OutboxConsumer::<_, _, NoneDecoder>::new(OkHandler, OkUnitFactory);
+        let consumer = consumer::<NoneDecoder>(|| Ok(()));
         assert!(
             matches!(
                 consumer.handle(nachricht("Eingelesen")),
@@ -211,7 +182,7 @@ mod tests {
 
     #[test]
     fn ein_handler_fehler_wird_terminal_zu_warning_ueber_display() {
-        let consumer = OutboxConsumer::<_, _, SomeDecoder>::new(FailHandler, OkUnitFactory);
+        let consumer = consumer::<SomeDecoder>(|| Err(TransactionError::Handler(DomainError)));
         assert_eq!(
             consumer.handle(nachricht("Eingelesen")),
             Err(OutboxError::Warning {
@@ -223,19 +194,20 @@ mod tests {
 
     #[test]
     fn ein_commit_fehler_wird_io_intern_zu_retry() {
-        let consumer = OutboxConsumer::<_, _, SomeDecoder>::new(OkHandler, FailUnitFactory);
-        assert!(
-            matches!(
-                consumer.handle(nachricht("Eingelesen")),
-                Err(OutboxError::Retry { .. })
-            ),
+        let consumer =
+            consumer::<SomeDecoder>(|| Err(TransactionError::Commit("commit weg".to_string())));
+        assert_eq!(
+            consumer.handle(nachricht("Eingelesen")),
+            Err(OutboxError::Retry {
+                reason: "commit weg".to_string()
+            }),
             "ein Commit-Fehler ist der einzige io-interne Retry-Ursprung"
         );
     }
 
     #[test]
     fn erfolg_dekodiert_dispatcht_und_committet() {
-        let consumer = OutboxConsumer::<_, _, SomeDecoder>::new(OkHandler, OkUnitFactory);
+        let consumer = consumer::<SomeDecoder>(|| Ok(()));
         assert_eq!(consumer.handle(nachricht("Eingelesen")), Ok(()));
     }
 }

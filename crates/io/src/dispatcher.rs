@@ -19,9 +19,7 @@ pub struct Dispatcher<'a> {
 impl<'a> Dispatcher<'a> {
     /// Ein leerer Dispatcher.
     pub fn new() -> Self {
-        Self {
-            consumers: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Registriert den Consumer für einen `message_type`. Ein bereits registrierter Eintrag wird

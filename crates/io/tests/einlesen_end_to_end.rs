@@ -1,17 +1,23 @@
 //! io-Integrationstest ([Issue 0020](../../../docs/issues/0020-einlesen-end-to-end-ber-die-generische-outboxconsumer-in-io-kernel-flip.md)):
 //! ein `ReadTransactions`-Envelope läuft **end-to-end** durch die generische Consumer-Maschinerie
 //! in `io` → den echten `einlesen`-Slice → bis zur publizierten „Ingested"-Nachricht. Getestet
-//! wird die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, `UnitOfWork`-Commit,
-//! message_type-Auflösung, Dead-Letter-Taktik), nicht das Slice-Verhalten (das prüft der
-//! `einlesen`-Spec). Alle Seams sind Fakes; der echte SQLite-/`sqlx`-Teil bleibt draußen
-//! (Build-Order Schritt 5).
+//! wird die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
+//! `UnitOfWork`-Commit, message_type-Auflösung, Dead-Letter-Taktik), nicht das Slice-Verhalten
+//! (das prüft der `einlesen`-Spec). Alle Seams sind Fakes; der echte SQLite-/`sqlx`-Teil bleibt
+//! draußen (Build-Order Schritt 5).
 //!
-//! **Atomarität als Fake:** die Store-/Publish-Seams *stagen* in `pending`-Puffer; die
-//! `UnitOfWork` flusht sie beim Commit nach `committed` und verwirft nicht-committete Arbeit beim
-//! Fallenlassen (Rollback). So beweist der Test, dass bei Erfolg **beides** atomar committet und
-//! bei einem terminalen Fehler **nichts**.
+//! **Atomarität als Fake — typ-erzwungen:** die Arbeitseinheit ([`FakeUnit`]) **ist** der gestagete
+//! Speicher (`StoreSeam`) **und** die Outbox (`OutboxPublisher`); der `einlesen`-Handler wird von
+//! `io` **aus ihr** gebaut. Sie hält die gestagete Arbeit in eigenen `pending`-Puffern und flusht sie
+//! beim Commit in den geteilten `committed`-Sink; wird sie ohne Commit fallengelassen (Handler-
+//! Fehler), verwirft das Fallenlassen der Unit ihre `pending`-Arbeit (Rollback ohne Sonderfall). So
+//! kann eine gestagete Schreibung die committete Transaktion nicht verlassen.
+//!
+//! Die Seam-Fakes (`FakeSource`/`FakeCalendar`/`FakeMoney`) sind **bewusst minimale Stubs** für die
+//! zwei Fixtures — kein Nachbau des echten Dekodierens (das prüft der `einlesen`-Spec hinter den
+//! Seams). So gibt es keine „reiche" Parser-Duplikation, die gegen den Adapter driften könnte.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::convert::Infallible;
 use std::rc::Rc;
 
@@ -19,10 +25,11 @@ use einlesen_adapter::{
     CalendarDay, CalendarSeam, DecodedAmount, Line, MoneySeam, RawRecord, Sign, SourceSeam,
     SourceUnavailable, StoreSeam,
 };
-use io::{Dispatcher, PublishingPort, UnitOfWorkFactory};
+use io::Dispatcher;
+use io::einlesen::Transactions;
 use shared_kernel::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 
-// --- Fakes der io-Seams -----------------------------------------------------------------
+// --- Seam-Fakes (minimale Stubs für die Fixtures) ---------------------------------------
 
 /// Fake-Quelle: liefert die arrangierten Roh-Zeilen (die Beschaffung gelingt).
 struct FakeSource {
@@ -35,163 +42,140 @@ impl SourceSeam for FakeSource {
     }
 }
 
-/// Fake-Kalender: deutet „TT.MM.JJJJ" (grobe Bereichsprüfung); ungültig → `None`.
+/// Minimaler Kalender-Stub: zerlegt „TT.MM.JJJJ" ohne Bereichsprüfung (die Fixtures sind gültig;
+/// ungültige Daten prüft der `einlesen`-Spec, nicht dieser Maschinen-Test).
 struct FakeCalendar;
 
 impl CalendarSeam for FakeCalendar {
     fn parse(&self, raw: &str) -> Option<CalendarDay> {
         let mut parts = raw.split('.');
-        let day: u8 = parts.next()?.parse().ok()?;
-        let month: u8 = parts.next()?.parse().ok()?;
-        let year: u16 = parts.next()?.parse().ok()?;
-        ((1..=12).contains(&month) && (1..=31).contains(&day)).then_some(CalendarDay {
-            year,
-            month,
-            day,
+        Some(CalendarDay {
+            day: parts.next()?.parse().ok()?,
+            month: parts.next()?.parse().ok()?,
+            year: parts.next()?.parse().ok()?,
         })
     }
 }
 
-/// Fake-Geld: streift das Vorzeichen ab, parst die Restziffern naiv; ohne Vorzeichen oder bei
-/// Nicht-Ziffern → `None` (die Domäne sieht dann `AmountInvalid`).
+/// Minimaler Geld-Stub: das negative Fixture-Format dekodiert zu Cent, alles Nicht-Numerische
+/// (z. B. eine IBAN im Betragsfeld) zu `None` — genug, um „gültig vs. terminal" zu unterscheiden.
 struct FakeMoney;
 
 impl MoneySeam for FakeMoney {
     fn decode(&self, raw: &str) -> Option<DecodedAmount> {
-        let (sign, digits) = raw
-            .strip_prefix('-')
-            .map(|rest| (Sign::Negative, rest))
-            .or_else(|| raw.strip_prefix('+').map(|rest| (Sign::Positive, rest)))?;
-        let (euro, cent) = digits.split_once(',').unwrap_or((digits, ""));
-        let euro: u64 = euro.replace('.', "").parse().ok()?;
-        let cent: u64 = if cent.is_empty() {
-            0
-        } else {
-            cent.parse().ok()?
-        };
+        let digits = raw.strip_prefix('-')?;
+        let cent = digits.replace([',', '.'], "").parse().ok()?;
         Some(DecodedAmount {
-            cent: euro.checked_mul(100)?.checked_add(cent)?,
-            sign,
+            cent,
+            sign: Sign::Negative,
         })
     }
 }
 
-/// Der gemeinsame Fake-Speicher hinter Store-Seam, `OutboxPublisher` **und**
-/// `UnitOfWorkFactory`: die drei teilen dieselben `pending`/`committed`-Puffer (Rc), sodass eine
-/// [`FakeUnit`] die gestagete Store- **und** Publish-Arbeit gemeinsam committet — die eine
-/// Arbeitseinheit des Outbox-Patterns.
+// --- Fake-Arbeitseinheit: Ports = die Unit, die committet -------------------------------
+
+/// Die geteilte, committete Wahrheit hinter allen Arbeitseinheiten.
 #[derive(Clone, Default)]
 struct FakeDb {
-    state: Rc<RefCell<DbState>>,
+    committed: Rc<RefCell<Committed>>,
 }
 
 #[derive(Default)]
-struct DbState {
-    next_id: u32,
-    pending_lines: Vec<(String, Line)>,
-    committed_lines: Vec<(String, Line)>,
-    pending_messages: Vec<(String, String)>,
-    committed_messages: Vec<(String, String)>,
+struct Committed {
+    lines: Vec<(String, Line)>,
+    messages: Vec<(String, String)>,
 }
 
 impl FakeDb {
     fn committed_lines(&self) -> Vec<Line> {
-        self.state
+        self.committed
             .borrow()
-            .committed_lines
+            .lines
             .iter()
             .map(|(_, line)| line.clone())
             .collect()
     }
 
     fn committed_line_ids(&self) -> Vec<String> {
-        self.state
+        self.committed
             .borrow()
-            .committed_lines
+            .lines
             .iter()
             .map(|(id, _)| id.clone())
             .collect()
     }
 
     fn committed_message_types(&self) -> Vec<String> {
-        self.state
+        self.committed
             .borrow()
-            .committed_messages
+            .messages
             .iter()
             .map(|(message_type, _)| message_type.clone())
             .collect()
     }
 
     fn committed_partition_keys(&self) -> Vec<String> {
-        self.state
+        self.committed
             .borrow()
-            .committed_messages
+            .messages
             .iter()
             .map(|(_, partition_key)| partition_key.clone())
             .collect()
     }
 }
 
-impl StoreSeam for FakeDb {
+impl Transactions for FakeDb {
+    type Unit = FakeUnit;
+
+    fn begin(&self) -> FakeUnit {
+        FakeUnit {
+            committed: Rc::clone(&self.committed),
+            pending: RefCell::new(Committed::default()),
+            next_id: Cell::new(0),
+        }
+    }
+}
+
+/// Eine Arbeitseinheit: der gestagete Speicher **und** die Outbox in einem. `store`/`publish` stagen
+/// in eigene `pending`-Puffer; `commit` flusht sie in den geteilten `committed`-Sink. Ohne Commit
+/// (Handler-Fehler) verwirft das Fallenlassen der Unit die `pending`-Arbeit — Rollback ohne Drop-Impl.
+struct FakeUnit {
+    committed: Rc<RefCell<Committed>>,
+    pending: RefCell<Committed>,
+    next_id: Cell<u32>,
+}
+
+impl StoreSeam for FakeUnit {
     fn store(&self, line: &Line) -> String {
-        let mut state = self.state.borrow_mut();
-        state.next_id += 1;
-        let id = format!("ingested-{}", state.next_id);
-        state.pending_lines.push((id.clone(), line.clone()));
+        let id = self.next_id.get() + 1;
+        self.next_id.set(id);
+        let id = format!("ingested-{id}");
+        self.pending
+            .borrow_mut()
+            .lines
+            .push((id.clone(), line.clone()));
         id
     }
 }
 
-impl OutboxPublisher for FakeDb {
+impl OutboxPublisher for FakeUnit {
     fn publish<T: OutboxCommand>(&self, command: T) {
-        self.state.borrow_mut().pending_messages.push((
+        self.pending.borrow_mut().messages.push((
             T::MESSAGE_TYPE.to_string(),
             command.partition_key().to_string(),
         ));
     }
 }
 
-impl UnitOfWorkFactory for FakeDb {
-    type Unit = FakeUnit;
-
-    fn begin(&self) -> FakeUnit {
-        FakeUnit {
-            state: Rc::clone(&self.state),
-            committed: false,
-        }
-    }
-}
-
-/// Die eine Arbeitseinheit: `commit` flusht `pending` → `committed` (Store **und** Publish
-/// gemeinsam); wird sie ohne Commit fallengelassen (Handler-Fehler), verwirft `Drop` die
-/// gestagete Arbeit (Rollback).
-struct FakeUnit {
-    state: Rc<RefCell<DbState>>,
-    committed: bool,
-}
-
 impl UnitOfWork for FakeUnit {
     type Error = Infallible;
 
-    fn commit(mut self) -> Result<(), Infallible> {
-        let mut state = self.state.borrow_mut();
-        let staged_lines = std::mem::take(&mut state.pending_lines);
-        state.committed_lines.extend(staged_lines);
-        let staged_messages = std::mem::take(&mut state.pending_messages);
-        state.committed_messages.extend(staged_messages);
-        drop(state);
-        self.committed = true;
+    fn commit(self) -> Result<(), Infallible> {
+        let pending = self.pending.into_inner();
+        let mut committed = self.committed.borrow_mut();
+        committed.lines.extend(pending.lines);
+        committed.messages.extend(pending.messages);
         Ok(())
-    }
-}
-
-impl Drop for FakeUnit {
-    fn drop(&mut self) {
-        if !self.committed {
-            let mut state = self.state.borrow_mut();
-            state.pending_lines.clear();
-            state.pending_messages.clear();
-        }
     }
 }
 
@@ -231,10 +215,7 @@ fn ein_envelope_wird_end_to_end_verarbeitet_und_atomar_committet() {
     let source = FakeSource {
         records: vec![gültiger_rohsatz()],
     };
-    let calendar = FakeCalendar;
-    let money = FakeMoney;
-    let publishing = PublishingPort::new(&db);
-    let consumer = io::einlesen::consumer(&source, &calendar, &money, &db, &publishing, db.clone());
+    let consumer = io::einlesen::consumer(&source, &FakeCalendar, &FakeMoney, db.clone());
 
     let mut dispatcher = Dispatcher::new();
     dispatcher.register(io::einlesen::CONSUMED_MESSAGE_TYPE, Box::new(consumer));
@@ -261,10 +242,7 @@ fn ein_terminaler_fehler_wird_redigiert_dead_lettered() {
     let source = FakeSource {
         records: vec![rohsatz],
     };
-    let calendar = FakeCalendar;
-    let money = FakeMoney;
-    let publishing = PublishingPort::new(&db);
-    let consumer = io::einlesen::consumer(&source, &calendar, &money, &db, &publishing, db.clone());
+    let consumer = io::einlesen::consumer(&source, &FakeCalendar, &FakeMoney, db.clone());
 
     let mut dispatcher = Dispatcher::new();
     dispatcher.register(io::einlesen::CONSUMED_MESSAGE_TYPE, Box::new(consumer));
@@ -276,7 +254,7 @@ fn ein_terminaler_fehler_wird_redigiert_dead_lettered() {
         matches!(&ergebnis, Err(OutboxError::Warning { reason }) if !reason.contains(leck)),
         "erwartet redigiertes Dead-Letter: {ergebnis:?}"
     );
-    // Nichts committet: die Arbeitseinheit fiel zurück.
+    // Nichts committet: die Arbeitseinheit fiel zurück (Rollback).
     assert!(db.committed_lines().is_empty());
     assert!(db.committed_message_types().is_empty());
 }
