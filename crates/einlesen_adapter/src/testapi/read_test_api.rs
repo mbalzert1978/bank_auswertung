@@ -1,32 +1,31 @@
-use einlesen_domain::ReadHandler;
-use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
+use application_kernel::{CommandDecoder, Handler};
+use einlesen_domain::ReadError;
 
-use super::fakes::{
-    FakeCalendarSeam, FakeMoneySeam, FakeOutboxPublisher, FakeSourceSeam, FakeStoreSeam,
-};
-use crate::bridges::{
-    CONSUMED_MESSAGE_TYPE, CalendarBridge, ConsumeBridge, IngestedPublisher, MoneyBridge,
-    SourceBridge, StoreBridge,
-};
+use super::fakes::{FakeCalendarSeam, FakeMoneySeam, FakePublisher, FakeSourceSeam, FakeStoreSeam};
+use crate::commands::ReadCommandDecoder;
 use crate::dto::{Line, RawRecord};
+use crate::handler::ReadingHandler;
 
-/// Fluent-TestApi des einlesen-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md)):
-/// die **Eingangsfläche spricht nur DTOs** (`RawRecord` in der Quelle arrangieren), `run` fährt
-/// dann eine **echte** Kette Consume-Bridge → Quell-Bridge (Beschaffung über den
-/// Datenquellen-Port) → Kalender-/Geld-/Speicher-Bridge + domänen-interner [`ReadHandler`] →
-/// Publisher-Bridge gegen öffentliche Fakes (Vorbild `DownloaderTestApi`: echte Bridges gegen
-/// Fakes der public Abstractions, nie gegen interne Domänen-Ports direkt). Die Nachricht ist nur
-/// der **Auslöser** — den Batch beschafft der Handler über den Quell-Seam. Beobachtet wird
-/// zweifach: die veröffentlichten „Eingelesen"-Commands (Fan-out) **und** die gestageten
-/// Aggregate am Speicher-Seam. Eine nicht beschaffbare Quelle oder eine ungültige Zeile lässt
-/// `run` **terminal** mit `OutboxError::Warning` scheitern (io dead-lettert dann); nichts wird
-/// veröffentlicht/gestaged.
+/// Fluent-TestApi des einlesen-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
+/// [ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)): die
+/// **Eingangsfläche spricht nur DTOs** (`RawRecord` in der Quelle arrangieren), `run` fährt dann
+/// die **echte** Kette über den `application_kernel`-Vertrag — [`ReadCommandDecoder`] (Envelope-
+/// Strings → Kommando, Shape Y) → [`ReadingHandler`] (Quell-/Kalender-/Geld-/Speicher-/Publisher-
+/// Bridge + domänen-interner Handler) gegen öffentliche Fakes. **Keine Outbox-Mechanik mehr:** der
+/// Slice ist eine reine Pipeline; die `OutboxConsumer`/`UnitOfWork`/Dead-Letter-Taktik prüft der
+/// io-Integrationstest, nicht dieser Spec.
+///
+/// Die Nachricht ist nur der **Auslöser** — den Batch beschafft der Handler über den Quell-Seam.
+/// Beobachtet wird zweifach: die veröffentlichten „Eingelesen"-Commands (Fan-out) **und** die
+/// gestageten Aggregate am Speicher-Seam. `run` gibt den **nackten Domänen-[`ReadError`]** zurück
+/// (kein `OutboxError`): eine nicht beschaffbare Quelle oder eine ungültige Zeile lässt ihn
+/// **terminal** scheitern; nichts wird veröffentlicht/gestaged.
 pub struct ReadTestApi {
     source_seam: FakeSourceSeam,
     calendar_seam: FakeCalendarSeam,
     money_seam: FakeMoneySeam,
     store_seam: FakeStoreSeam,
-    outbox: FakeOutboxPublisher,
+    publisher: FakePublisher,
 }
 
 impl ReadTestApi {
@@ -37,7 +36,7 @@ impl ReadTestApi {
             calendar_seam: FakeCalendarSeam,
             money_seam: FakeMoneySeam,
             store_seam: FakeStoreSeam::default(),
-            outbox: FakeOutboxPublisher::default(),
+            publisher: FakePublisher::default(),
         }
     }
 
@@ -49,49 +48,33 @@ impl ReadTestApi {
     }
 
     /// Arrangiert den **Fehlschlag der Beschaffung**: der Quell-Seam scheitert terminal mit der
-    /// gegebenen io-Diagnose (statt Zeilen zu liefern) — `run` endet im Dead-Letter, dessen
+    /// gegebenen io-Diagnose (statt Zeilen zu liefern) — `run` endet im terminalen Fehler, dessen
     /// Grund die Diagnose trägt.
     pub fn with_unavailable_source(mut self, message: &str) -> Self {
         self.source_seam.fail_with(message);
         self
     }
 
-    /// Fährt die echte Bridge-Kette für eine `ReadTransactions`-Nachricht der gegebenen Quelle
-    /// und gibt das Outbox-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` = Dead-Letter).
-    /// Die Nachricht ist **inhaltslos** — die Quelle reist nur als `partition_key` des
-    /// Envelopes (ADR-0008-Envelope-Konvention).
-    pub fn run(&self, source: &str) -> Result<(), OutboxError> {
-        let line_source = SourceBridge {
-            seam: &self.source_seam,
-        };
-        let calendar = CalendarBridge {
-            seam: &self.calendar_seam,
-        };
-        let money = MoneyBridge {
-            seam: &self.money_seam,
-        };
-        let store = StoreBridge {
-            seam: &self.store_seam,
-        };
-        let publisher = IngestedPublisher {
-            outbox: &self.outbox,
-        };
-        let handler = ReadHandler::new(&line_source, &calendar, &money, &store, &publisher);
-        let bridge = ConsumeBridge { handler };
-        let message = OutboxMessage {
-            id: "test-message".to_string(),
-            message_type: CONSUMED_MESSAGE_TYPE.to_string(),
-            partition_key: source.to_string(),
-            content: String::new(),
-            occurred_on_utc: 0,
-            attempt: 0,
-        };
-        bridge.handle(message)
+    /// Fährt die echte Kette (Decoder → Handler) für einen `ReadTransactions`-Auslöser der
+    /// gegebenen Quelle und gibt das Handler-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` =
+    /// terminaler [`ReadError`], den `io` dead-lettert). Die Envelope ist **inhaltslos** — die
+    /// Quelle reist nur als `partition_key`.
+    pub fn run(&self, source: &str) -> Result<(), ReadError> {
+        let command = ReadCommandDecoder::decode(source, "")
+            .expect("der einlesen-Auslöser trägt keine Nutzlast und ist stets dekodierbar");
+        let handler = ReadingHandler::new(
+            &self.source_seam,
+            &self.calendar_seam,
+            &self.money_seam,
+            &self.store_seam,
+            &self.publisher,
+        );
+        handler.handle(command)
     }
 
-    /// Die veröffentlichten Outbox-Message-Types (z. B. `Ingested`) in Reihenfolge.
+    /// Die veröffentlichten Publish-Command-Types (z. B. `Ingested`) in Reihenfolge.
     pub fn published_message_types(&self) -> Vec<String> {
-        self.outbox.message_types()
+        self.publisher.message_types()
     }
 
     /// Die Partition-Keys der veröffentlichten „Eingelesen"-Kommandos in Lesereihenfolge — je
@@ -100,7 +83,7 @@ impl ReadTestApi {
     /// [`stored_ids`](Self::stored_ids) (Tabelle = Wahrheit, Message = Pointer) — die TestApi
     /// assertiert nicht.
     pub fn published_partition_keys(&self) -> Vec<String> {
-        self.outbox.partition_keys()
+        self.publisher.partition_keys()
     }
 
     /// Die Schlüssel, unter denen die Roh-Zeilen am Speicher-Seam abgelegt wurden, in

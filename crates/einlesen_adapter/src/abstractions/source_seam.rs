@@ -12,8 +12,8 @@ use crate::dto::RawRecord;
 /// darum ein `Result`, kein überladenes `Option::None` (die `Option`-Form des
 /// `IngestedSourceSeam` im Obfuskierungs-Slice kodiert dort echtes „(noch) nicht da", einen
 /// transienten Normal-Ausgang; diesen Ausgang gibt es hier nicht). `Ok(vec![])` = leerer
-/// Batch (gültig, es passiert nichts). Wie `StoreSeam` **crate-intern** (kein
-/// `lib.rs`-Re-Export), bis io ihn erfüllt.
+/// Batch (gültig, es passiert nichts). Seit [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
+/// **öffentlich** (wie `StoreSeam`), damit `io` ihn erfüllt.
 pub trait SourceSeam {
     /// Beschafft die rohen Zeilen der Quelle (in Lesereihenfolge); `Err` = Beschaffung
     /// misslungen (terminal).

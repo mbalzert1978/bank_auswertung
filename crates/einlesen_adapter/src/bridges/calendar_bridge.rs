@@ -7,11 +7,11 @@ use crate::abstractions::CalendarSeam;
 /// `SftpPullerAdapter : IFilePuller` der C#-Referenz. Der Handler kennt **nur** den
 /// Domänen-Port; das Mappen der äußeren (primitiven) Form auf den Domänentyp lebt **hier**,
 /// nicht im Handler.
-pub(crate) struct CalendarBridge<'a, S: CalendarSeam> {
-    pub(crate) seam: &'a S,
+pub(crate) struct CalendarBridge<'a> {
+    pub(crate) seam: &'a dyn CalendarSeam,
 }
 
-impl<S: CalendarSeam> Calendar for CalendarBridge<'_, S> {
+impl Calendar for CalendarBridge<'_> {
     fn parse(&self, raw: &NonEmptyString) -> Option<CalendarDay> {
         // Der Seam trägt die **ganze** Gültigkeit (inkl. Bereich): ein ungültiges Datum ist
         // schon `None`. Bleibt es `Some`, bündelt der (nun unfehlbare) Konstruktor die Teile.
