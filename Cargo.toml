@@ -9,6 +9,7 @@ members = [
     "crates/einlesen_domain",
     "crates/einlesen_adapter",
     "crates/einlesen_specs",
+    "crates/io",
     "architecture",
 ]
 

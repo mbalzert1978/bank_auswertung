@@ -132,7 +132,11 @@ fn shared_kernel_ist_interface_only() {
 }
 
 #[test]
-fn application_kernel_ist_slice_intern_nur_adapter_haengt_daran() {
+fn application_kernel_binden_nur_adapter_und_io() {
+    // Nach dem Kernel-Flip (ADR-0011, Entscheidung D) ist `application_kernel` der
+    // `io`-sichtbare Slice↔`io`-Vertrag: ihn binden **`_adapter` und `io`**, nie `_domain`/
+    // `_specs`. (Gelockert gegenüber ADR-0009 „nur `_adapter`", weil `io`s generische
+    // `OutboxConsumer<H: Handler>` den `application_kernel::Handler` sehen muss.)
     let crates = workspace_crates();
     let violations: Vec<String> = crates
         .iter()
@@ -140,10 +144,10 @@ fn application_kernel_ist_slice_intern_nur_adapter_haengt_daran() {
         .flat_map(|item| {
             item.internal_deps()
                 .filter(|dep| *dep == "application_kernel")
-                .filter(move |_| !item.name.ends_with("_adapter"))
+                .filter(move |_| !item.name.ends_with("_adapter") && item.name != "io")
                 .map(move |_| {
                     format!(
-                        "`{}` hängt an `application_kernel` — die slice-internen Handler-Konventionen sieht nur ein `_adapter`, nie `io`/`_domain`/`_specs`",
+                        "`{}` hängt an `application_kernel` — den Slice↔io-Vertrag binden nur ein `_adapter` und `io`, nie `_domain`/`_specs`",
                         item.name
                     )
                 })
@@ -151,7 +155,7 @@ fn application_kernel_ist_slice_intern_nur_adapter_haengt_daran() {
         .collect();
     assert_no_violations(
         &violations,
-        "`application_kernel` ist slice-intern (nur `_adapter` bindet ihn)",
+        "`application_kernel` binden nur `_adapter` und `io`",
     );
 }
 
@@ -231,19 +235,24 @@ fn specs_haengen_nur_am_eigenen_adapter() {
     );
 }
 
+/// Die internen Crates, die `io` **neben** den Slice-Adaptern binden darf: die beiden Kernel.
+/// `application_kernel` ist der Slice↔`io`-Vertrag (`OutboxConsumer<H: Handler>`), `shared_kernel`
+/// die io-private Outbox-Mechanik — beide sind Geschwister, `io` bindet sie (ADR-0011).
+const IO_ZUSATZ_DEPS: &[&str] = &["application_kernel", "shared_kernel"];
+
 #[test]
-fn io_haengt_nur_an_adaptern_nie_an_domaenen() {
+fn io_haengt_nur_an_adaptern_und_kerneln_nie_an_domaenen() {
     let crates = workspace_crates();
     let violations: Vec<String> = crates
         .iter()
         .filter(|item| item.name == "io" || item.name.ends_with("_io"))
         .flat_map(|item| {
             item.internal_deps().filter_map(move |dep| {
-                if dep.ends_with("_adapter") {
+                if dep.ends_with("_adapter") || IO_ZUSATZ_DEPS.contains(&dep) {
                     None
                 } else {
                     Some(format!(
-                        "`{}` hängt an `{dep}` — `io` darf nur an `_adapter`-Crates hängen",
+                        "`{}` hängt an `{dep}` — `io` darf nur an `_adapter`-Crates und die Kernel hängen, nie an einer Domäne",
                         item.name
                     ))
                 }
@@ -252,6 +261,6 @@ fn io_haengt_nur_an_adaptern_nie_an_domaenen() {
         .collect();
     assert_no_violations(
         &violations,
-        "`io` hängt nur an `_adaptern` (nie an einer Domäne)",
+        "`io` hängt nur an `_adaptern` und den Kerneln (nie an einer Domäne)",
     );
 }

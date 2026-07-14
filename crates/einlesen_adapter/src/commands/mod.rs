@@ -1,9 +1,11 @@
-//! Das adapter-lokale Wire-DTO des Slice: ausgehend [`IngestedMessage`] (Domäne → Wire, ein
-//! reiner **ID-Zeiger** ohne serde — die Nutzlast liegt im Speicher). Es trägt die
-//! Dispatch-Kenntnis, die die serde-freie Domäne bewusst nicht kennt. Eingehend gibt es kein
-//! Wire-DTO: die `ReadTransactions`-Nachricht ist reiner Auslöser (feldlos, ohne Inhalt), die
-//! [`ConsumeBridge`](crate::bridges::ConsumeBridge) baut das Kommando direkt aus dem Envelope.
+//! Die Kommandos des Slice: der **eingehende** Auslöser [`ReadCommand`] samt slice-geliefertem
+//! [`ReadCommandDecoder`] (Envelope → Kommando, Shape Y) und das **ausgehende** [`IngestedMessage`]
+//! (Domäne → Publish-Command, ein reiner **ID-Zeiger** ohne serde — die Nutzlast liegt im Speicher).
+//! Beide sprechen nur `application_kernel`-Verträge; die Outbox-Mechanik lebt in `io`
+//! ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 
-pub(crate) mod ingested_message;
+mod ingested_message;
+mod read_command;
 
-pub(crate) use ingested_message::IngestedMessage;
+pub use ingested_message::IngestedMessage;
+pub use read_command::{CONSUMED_MESSAGE_TYPE, ReadCommand, ReadCommandDecoder};

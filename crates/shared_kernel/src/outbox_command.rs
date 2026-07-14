@@ -1,6 +1,8 @@
 /// Ein Kommando, das in die Outbox veröffentlicht werden kann (Wire-Marker,
-/// getrennt vom Domänen-`PublishCommand` im `application_kernel`: die
-/// Publisher-Bridge mappt das Domänen-Kommando auf dieses Wire-DTO). Jeder
+/// getrennt vom adapter-seitigen `PublishCommand` im `application_kernel`: `io` macht den
+/// letzten Outbox-Hop und bildet den `PublishCommand` auf dieses Wire-DTO ab —
+/// [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
+/// Entscheidung D). Jeder
 /// Kommandotyp trägt seinen eigenen Dispatch-Key über
 /// [`MESSAGE_TYPE`](OutboxCommand::MESSAGE_TYPE) — die eine Quelle, die Publisher,
 /// Prozessor-Dispatch und

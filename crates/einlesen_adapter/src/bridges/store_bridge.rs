@@ -10,11 +10,11 @@ use crate::dto::Line;
 /// der Handler kennt nur den Domänen-Port. Die vom Seam beim Ablegen **vergebene ID** hüllt sie
 /// „außen → innen" in die [`IngestionId`] und reicht sie an den Handler zurück, der sie als Zeiger
 /// weiterpubliziert.
-pub(crate) struct StoreBridge<'a, S: StoreSeam> {
-    pub(crate) seam: &'a S,
+pub(crate) struct StoreBridge<'a> {
+    pub(crate) seam: &'a dyn StoreSeam,
 }
 
-impl<S: StoreSeam> Store for StoreBridge<'_, S> {
+impl Store for StoreBridge<'_> {
     fn store(&self, aggregate: &LineAggregate) -> IngestionId {
         IngestionId::new(self.seam.store(&Line::from_aggregate(aggregate)))
     }

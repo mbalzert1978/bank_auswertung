@@ -7,9 +7,12 @@ use std::fmt;
 ///
 /// Löst die C#-nahen Typen `HandleOutcome` **und** `Severity` ab: Rusts `Result`
 /// trägt Erfolg/Misserfolg selbst, also lebt hier nur noch das Fehlerbild, und der
-/// frühere Schweregrad ist zu den Fehler-Varianten geworden. Die Consume-Bridge
-/// eines Slice mappt ihren Domänen-Fehler über `Into<OutboxError>` hierauf —
-/// Retry vs. Dead-Letter ist damit eine Adapter-Entscheidung, keine Kernel-Regel.
+/// frühere Schweregrad ist zu den Fehler-Varianten geworden. Seit dem Kernel-Flip
+/// ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
+/// baut **`io`** diesen Fehler — die generische `OutboxConsumer` klassifiziert die
+/// Disposition (Handler-Fehler → `Warning` terminal, Commit-Fehler → `Retry`,
+/// leerer/ungültiger Inhalt → `Critical`); der Slice gibt nur seinen **nackten
+/// Domänen-Fehler** zurück und kennt `OutboxError` nicht mehr.
 ///
 /// Geschlossener Summentyp — nur diese Fälle sind konstruierbar. Der Kernel bleibt
 /// dependency-frei: `Display`/`Error` sind von Hand geschrieben, kein `thiserror`.

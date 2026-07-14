@@ -1,37 +1,38 @@
 //! Black-Box-Spezifikation des einlesen-Slice — nur über die **eine** öffentliche
-//! Adapter-Fläche (Fluent-`ReadTestApi`, das `RawRecord`-DTO und die aus `shared_kernel`
-//! referenzierte Outbox-Ergebnisform `OutboxError`), nie über Interna. `run` fährt die
-//! **echte** Bridge-Kette (Consume-Bridge → Quell-Bridge → Kalender-/Geld-Bridge +
-//! `ReadHandler` → Publisher-Bridge) gegen öffentliche Fakes der Abstractions.
+//! Adapter-Fläche (Fluent-`ReadTestApi`, das `RawRecord`-DTO und der re-exportierte Domänen-
+//! `ReadError`), nie über Interna. Seit dem Kernel-Flip ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
+//! spezifiziert der Spec auf **Handler-Ebene** über den `application_kernel`-Vertrag: `run`
+//! fährt die **echte** Kette (`ReadCommandDecoder` → `ReadingHandler`: Quell-Bridge →
+//! Kalender-/Geld-Bridge + interner `ReadHandler` → Publisher-Bridge) gegen öffentliche Fakes
+//! und gibt den **nackten Domänen-`ReadError`** zurück — **keine** `OutboxError`-Asserts mehr
+//! (die Outbox-Mechanik prüft der io-Integrationstest).
 //!
-//! **Der maßgebliche Ablauf (Transaktionsgrenze):** das Kommando ist reiner **Auslöser**
-//! (Issue 0018); den Batch (alle Rohzeilen) **beschafft** der Handler über den
-//! Datenquellen-Port, hinter dem der Quell-Seam liegt — `with_line` arrangiert die Zeilen
-//! darum **in der Quelle**, nicht in der Nachricht. Die Domäne deutet **pro Zeile** ein
-//! `LineAggregate` — scheitert die Beschaffung oder eine Zeile am Aggregat, ist das
-//! **terminal**: der Handler steigt mit dem Fehler aus, der über die Consume-Bridge zu
-//! `OutboxError::Warning` bubblet, und die io-Outbox dead-lettert die Nachricht (der Slice
-//! dead-lettert nicht selbst). Die gültigen Aggregate werden erst **nach** vollständigem
-//! Durchlauf (`collect`) publiziert und atomar committet (der Commit gehört io).
+//! **Der maßgebliche Ablauf:** das Kommando ist reiner **Auslöser** (Issue 0018); den Batch
+//! (alle Rohzeilen) **beschafft** der Handler über den Datenquellen-Port, hinter dem der
+//! Quell-Seam liegt — `with_line` arrangiert die Zeilen darum **in der Quelle**, nicht in der
+//! Nachricht. Die Domäne deutet **pro Zeile** ein `LineAggregate` — scheitert die Beschaffung
+//! oder eine Zeile am Aggregat, ist das **terminal**: der Handler steigt mit dem `ReadError`
+//! aus (den `io` dead-lettert, der Slice dead-lettert nicht selbst). Die gültigen Aggregate
+//! werden erst **nach** vollständigem Durchlauf (`collect`) gestaged; den atomaren Commit
+//! besitzt `io`.
 //!
 //! **Warum es KEIN gemischtes „einige verworfen, andere laufen durch"-Szenario gibt**
 //! (bewusst bestätigt, nicht getestet): Das ist kein konstruierbarer Zustand. Es ist
 //! **alles-oder-nichts** — die erste terminal ungültige Zeile lässt den ganzen Lauf aussteigen
-//! (nichts wird veröffentlicht), sonst laufen alle Zeilen durch.
+//! (nichts wird gestaged), sonst laufen alle Zeilen durch.
 //!
 //! **Feld-Treue der `Line`-Projektion** (originalgetreue Übernahme **aller** Felder inkl.
 //! Währung, Pflicht-/Optional-Verhalten) ist ein **Blackbox-Szenario**: `RawRecord` arrangieren,
 //! `run` **einmal real** fahren, die gestagete `Line` am Speicher-Seam (`stored_lines`)
 //! assertieren — kein Unit-Test der Projektion, sondern beobachtetes Pipeline-Verhalten. Das
-//! ausgehende DTO wird am **konkreten** Seam-Typ beobachtet, nicht per generischem Serialisieren
-//! (der `OutboxPublisher::publish`-Seam trägt bewusst keine `Serialize`-Schranke).
+//! ausgehende DTO wird am **konkreten** Seam-Typ beobachtet, nicht per generischem Serialisieren.
 //!
 //! **Was hier sehr wohl abgelehnt wird — und warum das Slice-Verhalten ist:** die *Präsenz*
 //! eines Pflichtfelds erzwingt der **Adapter** (ACL, „außen → innen": `RawRecord` → `RawLine`)
 //! — seit Issue 0018 **hinter dem Quell-Seam in der Source-Bridge**, weiterhin batch-atomar:
-//! fehlt eins, dead-lettert der **ganze** Batch redigiert (nur Feldname, nie ein Rohwert). Das
+//! fehlt eins, scheitert der **ganze** Batch redigiert (nur Feldname, nie ein Rohwert). Das
 //! ist beobachtbares Slice-Verhalten, kein io-Detail — darum prüfen Specs es. Ebenso sind die
-//! Abbildung „Quelle nicht beschaffbar → Dead-Letter mit durchgereichter io-Diagnose"
+//! Abbildung „Quelle nicht beschaffbar → terminaler Fehler mit durchgereichter io-Diagnose"
 //! (Bridge-Verhalten, kein io-Format-Detail) und „unbekannte Währung" (eine
 //! **Domänen**-Deutungsentscheidung, `Currency::from_code`) Slice-Verhalten. Weiterhin
 //! **nicht** getestet wird reine io-Mechanik (Datei lesen, echtes Dekodieren von deutschem
@@ -41,7 +42,6 @@
 //! Teil der Adapter-API.
 
 use einlesen_adapter::{CalendarDay, Currency, Direction, Line, RawRecord, ReadTestApi};
-use shared_kernel::OutboxError;
 
 /// Die Quelle eines Einlese-Laufs — seit Issue 0018 reiner Routing-Kontext: sie reist nur
 /// noch als `partition_key` des Envelopes (die Payload ist feldlos), der Batch kommt über
@@ -189,17 +189,17 @@ fn fehlende_optionalfelder_werden_als_none_gestaged() {
     assert_eq!(api.stored_lines(), vec![erwartet]);
 }
 
-// --- Redaktion: der Dead-Letter-Grund spiegelt keinen Rohwert ----------------------
-// Scheitert eine Zeile terminal, bubblet der Fehler zu `OutboxError::Warning`, dessen Grund
-// io als Dead-Letter persistiert. Hier zählt **das Verhalten der Domäne**, nicht die
+// --- Redaktion: der terminale Fehlergrund spiegelt keinen Rohwert ------------------
+// Scheitert eine Zeile terminal, gibt der Handler seinen nackten `ReadError` zurück, dessen
+// `Display` io als Dead-Letter-Grund spiegelt. Hier zählt **das Verhalten der Domäne**, nicht die
 // io-seitige Format-/Vollständigkeitsprüfung (die die Domäne fordert, nicht selbst leistet):
 // der Grund darf den Rohwert nie spiegeln.
 
 #[test]
 fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
-    // Spaltenverschub: eine IBAN landet im Betragsfeld. Der terminale Grund wird als
-    // Dead-Letter-reason der Outbox persistiert — er darf den Rohwert nicht spiegeln. Die
-    // Redaktion ist Domänen-Invariante; hier prüfen wir, dass sie bis in die Outbox-Meldung trägt.
+    // Spaltenverschub: eine IBAN landet im Betragsfeld. Die `Display` des terminalen `ReadError`
+    // wird io als Dead-Letter-reason persistieren — sie darf den Rohwert nicht spiegeln. Die
+    // Redaktion ist Domänen-Invariante; hier prüfen wir, dass sie bis in die Fehlermeldung trägt.
     let leck = "DE89370400440532013000";
     let mut rohsatz = gültiger_rohsatz();
     rohsatz.amount = feld(&format!("-{leck}"));
@@ -208,12 +208,12 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
     let ergebnis = api.run(QUELLE);
 
     assert!(
-        matches!(&ergebnis, Err(OutboxError::Warning { reason }) if !reason.contains(leck)),
-        "der Dead-Letter-Grund leakt den Rohwert: {ergebnis:?}"
+        matches!(&ergebnis, Err(error) if !error.to_string().contains(leck)),
+        "der terminale Fehlergrund leakt den Rohwert: {ergebnis:?}"
     );
 }
 
-// --- Präsenz: ein fehlendes Pflichtfeld lettert den GANZEN Batch ins Dead-Letter ---------
+// --- Präsenz: ein fehlendes Pflichtfeld lässt den GANZEN Batch terminal scheitern --------
 // Die Präsenz eines Pflichtfelds erzwingt der Adapter (ACL) — seit Issue 0018 in der
 // Source-Bridge hinter dem Quell-Seam. Fehlt eins irgendwo, scheitert die „außen → innen"-
 // Abbildung schon bei der Beschaffung, bevor der Handler eine Zeile deutet — batch-atomar:
@@ -229,10 +229,10 @@ fn ein_fehlendes_pflichtfeld_lettert_den_ganzen_batch() {
 
     let ergebnis = api.run(QUELLE);
 
-    // Dead-Letter, dessen Grund nur den Feldnamen benennt (kein Rohwert).
+    // Terminaler Fehler, dessen Grund nur den Feldnamen benennt (kein Rohwert).
     assert!(
-        matches!(&ergebnis, Err(OutboxError::Warning { reason }) if reason.contains("amount")),
-        "erwartet redigierter Dead-Letter (nur Feldname): {ergebnis:?}"
+        matches!(&ergebnis, Err(error) if error.to_string().contains("amount")),
+        "erwartet redigierter Fehler (nur Feldname): {ergebnis:?}"
     );
     // Batch-atomar: nichts wird gestaged oder veröffentlicht — auch die gültige Zeile nicht.
     assert!(api.stored_lines().is_empty());
@@ -260,12 +260,12 @@ fn eine_gebührenzeile_ohne_empfänger_wird_ohne_namen_gestaged() {
     assert_eq!(api.stored_lines(), vec![erwartet]);
 }
 
-// --- Beschaffung: eine nicht beschaffbare Quelle lettert ins Dead-Letter -----------------
+// --- Beschaffung: eine nicht beschaffbare Quelle scheitert terminal ----------------------
 // Ein Fehlschlag der Beschaffung ist **nie Abwesenheit**, sondern terminal (Issue 0018): die
-// Source-Bridge mappt den Seam-Fehler auf den domänen-typisierten `SourceError::Unavailable`,
-// der als `OutboxError::Warning` bubblet. Der Grund trägt die **durchgereichte io-Diagnose**
-// (Nachvollziehbarkeit ist beobachtbares Verhalten, kein Detail); die reale Lese-Mechanik
-// dahinter bleibt untestiert (io-Sache). Nichts wird gestaged, nichts publiziert.
+// Source-Bridge mappt den Seam-Fehler auf den domänen-typisierten `SourceError::Unavailable`.
+// Der Grund trägt die **durchgereichte io-Diagnose** (Nachvollziehbarkeit ist beobachtbares
+// Verhalten, kein Detail); die reale Lese-Mechanik dahinter bleibt untestiert (io-Sache).
+// Nichts wird gestaged, nichts publiziert.
 
 #[test]
 fn eine_nicht_beschaffbare_quelle_lettert_ins_dead_letter() {
@@ -275,15 +275,15 @@ fn eine_nicht_beschaffbare_quelle_lettert_ins_dead_letter() {
     let ergebnis = api.run(QUELLE);
 
     assert!(
-        matches!(&ergebnis, Err(OutboxError::Warning { reason }) if reason.contains(diagnose)),
-        "erwartet Dead-Letter mit durchgereichter io-Diagnose: {ergebnis:?}"
+        matches!(&ergebnis, Err(error) if error.to_string().contains(diagnose)),
+        "erwartet terminaler Fehler mit durchgereichter io-Diagnose: {ergebnis:?}"
     );
     // Terminal und leer: nichts wird gestaged oder veröffentlicht.
     assert!(api.stored_lines().is_empty());
     assert!(api.published_message_types().is_empty());
 }
 
-// --- Deutung: eine unbekannte Währung lettert ins Dead-Letter ----------------------------
+// --- Deutung: eine unbekannte Währung scheitert terminal ---------------------------------
 // „Kennt die Domäne diese Währung?" ist eine Domänen-Deutungsentscheidung (`Currency::from_code`),
 // kein Präsenz-/Format-Check: die Zelle ist da, aber nicht deutbar → terminaler `CurrencyUnknown`.
 
@@ -296,8 +296,8 @@ fn eine_unbekannte_währung_lettert_ins_dead_letter() {
     let ergebnis = api.run(QUELLE);
 
     assert!(
-        matches!(&ergebnis, Err(OutboxError::Warning { .. })),
-        "erwartet Dead-Letter bei unbekannter Währung: {ergebnis:?}"
+        ergebnis.is_err(),
+        "erwartet terminaler Fehler bei unbekannter Währung: {ergebnis:?}"
     );
     assert!(api.stored_lines().is_empty());
 }

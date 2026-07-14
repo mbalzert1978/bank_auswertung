@@ -7,11 +7,11 @@ use crate::abstractions::{self, MoneySeam};
 /// [`CalendarBridge`](crate::bridges::CalendarBridge). Sie mappt **rein mechanisch**
 /// (Seam-Primitive → Domänen-VO, das zwei-wertige Vorzeichen 1:1); die fachliche Deutung
 /// — Vorzeichen → `Direction` — lebt in der Domäne (`Amount::with_direction`), nicht hier.
-pub(crate) struct MoneyBridge<'a, S: MoneySeam> {
-    pub(crate) seam: &'a S,
+pub(crate) struct MoneyBridge<'a> {
+    pub(crate) seam: &'a dyn MoneySeam,
 }
 
-impl<S: MoneySeam> Money for MoneyBridge<'_, S> {
+impl Money for MoneyBridge<'_> {
     fn decode(&self, raw: &NonEmptyString) -> Option<DecodedAmount> {
         let decoded = self.seam.decode(raw.as_str())?;
         let sign = match decoded.sign {

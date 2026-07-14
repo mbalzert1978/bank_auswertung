@@ -1,22 +1,24 @@
+use application_kernel::Publisher;
 use einlesen_domain::{EventSink, IngestionId};
-use shared_kernel::OutboxPublisher;
 
 use crate::commands::IngestedMessage;
 
 /// Die **Publisher-Bridge**: erfüllt den internen Domänen-Port `einlesen_domain::EventSink`
-/// und setzt die [`IngestionId`] auf das Wire-DTO [`IngestedMessage`] um (nur die ID = Zeiger),
-/// das sie in die Outbox einreiht. Die einzige Stelle, an der der Domänen-Port und
-/// `shared_kernel::OutboxPublisher` zusammentreffen — dadurch kann ein Slice-Test einen
-/// Fake-`OutboxPublisher` unterschieben und veröffentlichte Kommandos beobachten.
+/// und setzt die [`IngestionId`] auf das adapter-seitige [`IngestedMessage`] um (nur die ID =
+/// Zeiger), das sie über den `application_kernel::Publisher` weiterreicht. Die einzige Stelle,
+/// an der der Domänen-Port und der `Publisher`-Vertrag zusammentreffen — dadurch kann ein
+/// Slice-Test einen Fake-Publisher unterschieben und veröffentlichte Kommandos beobachten.
 ///
-/// Generisch über den konkreten `OutboxPublisher`, weil dessen `publish<T>` eine generische
-/// Methode ist (nicht objekt-sicher) — kein `&dyn OutboxPublisher` möglich.
-pub(crate) struct IngestedPublisher<'a, O: OutboxPublisher> {
-    pub(crate) outbox: &'a O,
+/// **Kein `shared_kernel` mehr** (ADR-0011, Entscheidung D): der Ausgang zielt auf
+/// `application_kernel::Publisher`; den letzten Outbox-Hop (`PublishCommand → OutboxCommand`)
+/// macht `io`. Der Adapter ist damit restlos outbox-frei.
+pub(crate) struct IngestedPublisher<'a> {
+    pub(crate) publisher: &'a dyn Publisher<IngestedMessage>,
 }
 
-impl<O: OutboxPublisher> EventSink for IngestedPublisher<'_, O> {
+impl EventSink for IngestedPublisher<'_> {
     fn publish(&self, id: &IngestionId) {
-        self.outbox.publish(IngestedMessage::from_id(id.as_str()));
+        self.publisher
+            .publish(IngestedMessage::from_id(id.as_str()));
     }
 }
