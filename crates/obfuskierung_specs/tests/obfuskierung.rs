@@ -190,10 +190,10 @@ fn absente_id_wird_terminal_dead_lettert_ohne_etwas_zu_emittieren() {
 
     // Zur ID liegt keine Zeile vor — ein **gebrochenes Invariant** (terminal): `einlesen` committet
     // Zeile+Nachricht atomar und der Broker stellt erst danach zu, also müsste die Zeile liegen.
-    // Der Handler steigt mit dem nackten `NotYetAvailable` aus (Variantenname bleibt); `io`
-    // dead-lettert ihn uniform. Der redigierte Grund trägt nur die opake ID (kein Rohwert).
+    // Der Handler steigt mit dem nackten `SourceMissing` aus; `io` dead-lettert ihn uniform. Der
+    // redigierte Grund trägt nur die opake ID (kein Rohwert).
     assert!(
-        matches!(&ergebnis, Err(HandleError::NotYetAvailable(_))),
+        matches!(&ergebnis, Err(HandleError::SourceMissing(_))),
         "erwartet terminales gebrochenes Invariant: {ergebnis:?}"
     );
     assert!(

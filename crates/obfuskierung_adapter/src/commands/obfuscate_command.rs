@@ -28,15 +28,18 @@ impl Command for ObfuscateCommand {}
 /// liegt im `partition_key` (Konvention: Aggregat-Identität = `partition_key`); der `content` ist
 /// leer (reiner Zeiger, kein serde). Ein **leerer/blanker** `partition_key` ist kein gültiger Zeiger
 /// → `None`, das `io` auf der Envelope-Ebene zu einem `Critical`-Dead-Letter macht (nicht als
-/// Handler-Fehler durchgereicht).
+/// Handler-Fehler durchgereicht). **Parse, don't validate:** die Prüfung und der übernommene Wert
+/// stimmen überein — der getrimmte Zeiger wandert ins Kommando, sodass ein umrandeter `partition_key`
+/// nicht als sauberer Wert geprüft, aber roh gespeichert wird (was den Lookup still verfehlen ließe).
 pub struct ObfuscateCommandDecoder;
 
 impl CommandDecoder for ObfuscateCommandDecoder {
     type Command = ObfuscateCommand;
 
     fn decode(partition_key: &str, _content: &str) -> Option<Self::Command> {
-        (!partition_key.trim().is_empty()).then(|| ObfuscateCommand {
-            id: partition_key.to_string(),
+        let pointer = partition_key.trim();
+        (!pointer.is_empty()).then(|| ObfuscateCommand {
+            id: pointer.to_string(),
         })
     }
 }

@@ -54,7 +54,7 @@ impl<'a> ObfuscationHandler<'a> {
         let aggregate = match self.source.read(command.id()) {
             BookingLookup::Found(aggregate) => *aggregate,
             BookingLookup::Absent => {
-                return Err(HandleError::NotYetAvailable(command.id().clone()));
+                return Err(HandleError::SourceMissing(command.id().clone()));
             }
             BookingLookup::Malformed { field } => {
                 return Err(HandleError::MalformedSource { field });
@@ -67,17 +67,17 @@ impl<'a> ObfuscationHandler<'a> {
     }
 }
 
-/// Warum der Handler eine Buchung nicht verarbeiten konnte — die beiden Ausgänge liegen im **Typ**,
-/// nicht in einer überladenen Fehlermeldung, damit der Adapter transient von terminal sauber trennt.
+/// Warum der Handler eine Buchung nicht verarbeiten konnte — **beide** Ausgänge sind terminal; sie
+/// liegen im **Typ** getrennt, damit `io` je Ausgang einen eigenen redigierten Grund spiegelt (opake
+/// ID vs. statischer Feldname), nicht in einer überladenen Fehlermeldung.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandleError {
     /// Zur ID liegt **kein** rohes Aggregat im einlesen-Speicher vor — ein **gebrochenes Invariant**
     /// (terminal): `einlesen` committet Zeile+Nachricht atomar und der Broker stellt erst danach zu,
     /// also **liegt** die Zeile, wenn der Slice den Zeiger sieht; ihre Abwesenheit heißt korrupter
     /// Speicher / falsche ID. Trägt die opake [`BookingId`] mit (kein sensibler Wert) für den
-    /// Dead-Letter-Grund. (Der Variantenname bleibt aus 0021-Kompatibilität; die Disposition ist
-    /// terminal, nicht mehr Wiedervorlage.)
-    NotYetAvailable(BookingId),
+    /// Dead-Letter-Grund. (Direkter Gegenpart zu [`BookingLookup::Absent`](crate::BookingLookup::Absent).)
+    SourceMissing(BookingId),
     /// Zur ID liegt ein Aggregat vor, aber ein **Pflichtfeld fehlt/ist leer** — **terminal**
     /// (Dead-Letter). Trägt **nur** den statischen Feldnamen (redigiert, nie ein Rohwert).
     MalformedSource { field: &'static str },
@@ -86,7 +86,7 @@ pub enum HandleError {
 impl fmt::Display for HandleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            HandleError::NotYetAvailable(id) => {
+            HandleError::SourceMissing(id) => {
                 write!(f, "referenced booking not found in source: {}", id.as_str())
             }
             HandleError::MalformedSource { field } => {

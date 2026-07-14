@@ -17,7 +17,7 @@
 //! Die Seam-Fakes sind **bewusst minimale Stubs** — kein Nachbau der echten Obfuskierung (die prüft
 //! der `obfuskierung`-Spec hinter den Seams).
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
@@ -142,7 +142,7 @@ impl UnitFactory for FakeDb {
         FakeUnit {
             committed: Rc::clone(&self.committed),
             pending: RefCell::new(Committed::default()),
-            fail_commit: Cell::new(self.fail_commit),
+            fail_commit: self.fail_commit,
         }
     }
 }
@@ -154,7 +154,7 @@ impl UnitFactory for FakeDb {
 struct FakeUnit {
     committed: Rc<RefCell<Committed>>,
     pending: RefCell<Committed>,
-    fail_commit: Cell<bool>,
+    fail_commit: bool,
 }
 
 impl ObfuscatedStoreSeam for FakeUnit {
@@ -176,7 +176,7 @@ impl UnitOfWork for FakeUnit {
     type Error = CommitFailed;
 
     fn commit(self) -> Result<(), CommitFailed> {
-        if self.fail_commit.get() {
+        if self.fail_commit {
             return Err(CommitFailed);
         }
         let pending = self.pending.into_inner();
