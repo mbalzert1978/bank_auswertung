@@ -17,9 +17,11 @@ use crate::{BookingId, ObfuscateBooking, Seed};
 /// 4. seine **ID als Zeiger publizieren** ([`BookingPublisher`]).
 ///
 /// Der Handler kennt **keine** Transaktion: Ablage und Publish *stagen* nur, den atomaren Commit
-/// besorgt io. Kann er die Buchung nicht verarbeiten, steigt er mit [`HandleError`] aus — **abwesend**
-/// (noch kein Aggregat) mappt der Adapter transient (Retry), **ungültig** (Pflichtfeld fehlt) terminal
-/// (Dead-Letter, redigiert).
+/// besorgt io. Kann er die Buchung nicht verarbeiten, steigt er mit [`HandleError`] aus — **jeder**
+/// Ausgang ist terminal (`io` spiegelt ihn über sein `Display` als Dead-Letter): **abwesend**
+/// (gebrochenes Invariant, weil `einlesen` Zeile+Nachricht atomar committet und der Broker erst
+/// danach zustellt) wie **ungültig** (Pflichtfeld fehlt, redigiert). Die beiden Varianten bleiben im
+/// Typ getrennt, nur damit der Dead-Letter-Grund je zutrifft (opake ID vs. Feldname).
 pub struct ObfuscationHandler<'a> {
     seed: Seed,
     source: &'a dyn RawBookingSource,
@@ -46,8 +48,8 @@ impl<'a> ObfuscationHandler<'a> {
     }
 
     /// Verarbeitet das Kommando: lesen → obfuskieren → (staged) ablegen + Zeiger publizieren.
-    /// `Ok(())` = verarbeitet; `Err(HandleError)` trennt **abwesend** (transient) von **ungültig**
-    /// (terminal, redigiert) — der Adapter mappt beide auf die passende Outbox-Fehlerklasse.
+    /// `Ok(())` = verarbeitet; `Err(HandleError)` trennt **abwesend** von **ungültig** — beide
+    /// terminal, `io` spiegelt jeden Ausgang als redigiertes Dead-Letter.
     pub fn handle(&self, command: ObfuscateBooking) -> Result<(), HandleError> {
         let aggregate = match self.source.read(command.id()) {
             BookingLookup::Found(aggregate) => *aggregate,
@@ -69,9 +71,12 @@ impl<'a> ObfuscationHandler<'a> {
 /// nicht in einer überladenen Fehlermeldung, damit der Adapter transient von terminal sauber trennt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandleError {
-    /// Zur ID liegt (noch) **kein** rohes Aggregat im einlesen-Speicher vor — **transient** (die
-    /// einlesen-Schreibung kann nachhängen). Trägt die opake [`BookingId`] mit (kein sensibler Wert)
-    /// für Diagnose/Wiedervorlage; der Adapter mappt sie auf erneute Zustellung (Retry).
+    /// Zur ID liegt **kein** rohes Aggregat im einlesen-Speicher vor — ein **gebrochenes Invariant**
+    /// (terminal): `einlesen` committet Zeile+Nachricht atomar und der Broker stellt erst danach zu,
+    /// also **liegt** die Zeile, wenn der Slice den Zeiger sieht; ihre Abwesenheit heißt korrupter
+    /// Speicher / falsche ID. Trägt die opake [`BookingId`] mit (kein sensibler Wert) für den
+    /// Dead-Letter-Grund. (Der Variantenname bleibt aus 0021-Kompatibilität; die Disposition ist
+    /// terminal, nicht mehr Wiedervorlage.)
     NotYetAvailable(BookingId),
     /// Zur ID liegt ein Aggregat vor, aber ein **Pflichtfeld fehlt/ist leer** — **terminal**
     /// (Dead-Letter). Trägt **nur** den statischen Feldnamen (redigiert, nie ein Rohwert).

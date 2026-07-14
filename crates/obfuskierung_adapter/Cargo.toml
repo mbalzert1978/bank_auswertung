@@ -8,7 +8,7 @@ workspace = true
 
 [dependencies]
 obfuskierung_domain = { path = "../obfuskierung_domain" }
-shared_kernel = { path = "../shared_kernel" }
+application_kernel = { path = "../application_kernel" }
 
 [dev-dependencies]
 # Nur für den compilergeprüften „kein Serialize"-Guard auf `ObfuscatedBooking` (das Egress-DTO

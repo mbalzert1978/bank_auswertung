@@ -1,0 +1,97 @@
+//! Verdrahtung des `obfuskierung`-Slice in die generische Consumer-Maschinerie — **Zeile für Zeile
+//! parallel zu [`einlesen`](crate::einlesen)**: `ObfuskierungTransactionalHandler` ist der
+//! [`TransactionalHandler`] des Slice — es öffnet je Nachricht **eine** Arbeitseinheit, baut den
+//! `ObfuscatingHandler` **aus ihr** (Store-/Publish-Ports = die Unit selbst) und committet atomar.
+//! [`consumer`] steckt es zu einem [`OutboxConsumer`] zusammen; registriert wird der beim
+//! [`Dispatcher`](crate::Dispatcher) unter [`CONSUMED_MESSAGE_TYPE`] (message_type-Auflösung).
+//!
+//! **Was in die Transaktion gehört und was nicht:** die Unit erfüllt genau die **committenden** Ports
+//! (`ObfuscatedStoreSeam` + `OutboxPublisher` + `UnitOfWork`) — Ablage und Nachricht committen
+//! gemeinsam oder gar nicht. Das **Lesen** (`IngestedSourceSeam`) und der reine `ObfuscatorSeam` sind
+//! **message-unabhängige Seams**, die der Aufrufer separat hereinreicht — die direkten Gegenparts zu
+//! einlesens `source` bzw. `calendar`/`money`; der idempotente Lesevorgang (die einlesen-Zeile ist
+//! append-only/unveränderlich) bleibt **außerhalb** der Transaktion und weitet sie nicht. Den Seed
+//! reicht der Aufrufer als rohen `u64` herein (io liest ihn aus der Config), heute der
+//! Integrationstest mit Fakes, später die realen io-Adapter (Build-Order Schritt 5).
+
+use application_kernel::Handler;
+use obfuskierung_adapter::{
+    HandleError, IngestedSourceSeam, ObfuscateCommand, ObfuscateCommandDecoder,
+    ObfuscatedStoreSeam, ObfuscatingHandler, ObfuscatorSeam,
+};
+use shared_kernel::{OutboxPublisher, UnitOfWork};
+
+use crate::{OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler};
+
+/// Der `message_type`, unter dem der Dispatcher den `obfuskierung`-Consumer auflöst (der konsumierte
+/// Auslöser, `Ingested`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
+/// Slice-Eingang.
+pub const CONSUMED_MESSAGE_TYPE: &str = obfuskierung_adapter::CONSUMED_MESSAGE_TYPE;
+
+/// Die **Unit-Quelle** von `obfuskierung`: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
+/// **zugleich** die gestagete `obfuskiert`-Ablage ([`ObfuscatedStoreSeam`]) **und** die Outbox
+/// ([`OutboxPublisher`]) ist und beides atomar committet ([`UnitOfWork`]). Weil dieselbe Unit staged
+/// **und** committet, committet eine gestagete Schreibung mit der Nachricht oder gar nicht. Spiegel
+/// von einlesens `UnitFactory`; der echte io backt eine Unit mit **einer** `sqlx`-Transaktion.
+pub trait UnitFactory {
+    /// Die Arbeitseinheit: gestagete Ablage + Outbox in einem, atomar committbar.
+    type Unit: UnitOfWork + ObfuscatedStoreSeam + OutboxPublisher;
+
+    /// Öffnet die Arbeitseinheit für die anstehende Nachricht.
+    fn begin(&self) -> Self::Unit;
+}
+
+/// Der [`TransactionalHandler`] von `obfuskierung`: hält die message-unabhängigen Seams (Lese-Quelle
+/// und Obfuskator) und den Seed sowie die [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den
+/// `ObfuscatingHandler` **aus ihr** (Store = die Unit, Publish über die Unit) und committet atomar,
+/// wenn der Handler gelingt. Weil beide committenden Ports dieselbe Unit sind, kann eine gestagete
+/// Schreibung die Transaktion nicht überleben. Der nackte [`HandleError`] ist **terminal** →
+/// [`TransactionError::Handler`].
+pub struct ObfuskierungTransactionalHandler<'a, F: UnitFactory> {
+    source: &'a dyn IngestedSourceSeam,
+    obfuscator: &'a dyn ObfuscatorSeam,
+    seed: u64,
+    units: F,
+}
+
+impl<F: UnitFactory> TransactionalHandler for ObfuskierungTransactionalHandler<'_, F> {
+    type Command = ObfuscateCommand;
+    type Decoder = ObfuscateCommandDecoder;
+    type Error = HandleError;
+
+    fn handle(&self, command: ObfuscateCommand) -> Result<(), TransactionError<HandleError>> {
+        let unit = self.units.begin();
+        // Store- und Publish-Ports **sind** die Unit: was der Handler staged, landet in genau der
+        // Unit, die unten committet. Der innere Block gibt die Borrows auf die Unit wieder frei,
+        // bevor `commit` sie verbraucht. Quelle/Obfuskator liegen außerhalb (idempotentes Lesen).
+        let outcome = {
+            let publishing = PublishingPort::new(&unit);
+            let handler = ObfuscatingHandler::new(
+                self.seed,
+                self.source,
+                self.obfuscator,
+                &unit,
+                &publishing,
+            );
+            handler.handle(command)
+        };
+        outcome.map_err(TransactionError::Handler)?;
+        unit.commit()
+            .map_err(|error| TransactionError::Commit(error.to_string()))
+    }
+}
+
+/// Steckt `obfuskierung`s [`TransactionalHandler`] zu einem [`OutboxConsumer`] zusammen.
+pub fn consumer<'a, F: UnitFactory>(
+    source: &'a dyn IngestedSourceSeam,
+    obfuscator: &'a dyn ObfuscatorSeam,
+    seed: u64,
+    units: F,
+) -> OutboxConsumer<ObfuskierungTransactionalHandler<'a, F>> {
+    OutboxConsumer::new(ObfuskierungTransactionalHandler {
+        source,
+        obfuscator,
+        seed,
+        units,
+    })
+}

@@ -1,24 +1,31 @@
+use application_kernel::{CommandDecoder, Handler};
 use obfuskierung_domain::{
-    AccountToken, NonEmptyString, ObfuscatedText as DomainText, ObfuscationHandler, Obfuscator,
+    AccountToken, HandleError, NonEmptyString, ObfuscatedText as DomainText, Obfuscator,
     Pseudonym as DomainPseudonym, Replacement, Seed,
 };
-use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 
-use super::fakes::{FakeIngestedSource, FakeObfuscatedStore, FakeObfuscator, FakeOutboxPublisher};
-use crate::bridges::{
-    CONSUMED_MESSAGE_TYPE, ConsumeBridge, ObfuscatorBridge, PublisherBridge, RepositoryBridge,
-    SourceBridge,
-};
+use super::fakes::{FakeIngestedSource, FakeObfuscatedStore, FakeObfuscator, FakePublisher};
+use crate::bridges::ObfuscatorBridge;
+use crate::commands::ObfuscateCommandDecoder;
 use crate::dto::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, Pseudonym};
+use crate::handler::ObfuscatingHandler;
 
-/// Fluent-TestApi des Obfuskierungs-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md)):
-/// die **Eingangsfläche spricht nur DTOs** — mit [`with_ingested`](Self::with_ingested) arrangiert
-/// man eine rohe einlesen-Zeile im (Fake-)einlesen-Speicher unter einer ID, [`run`](Self::run) fährt
-/// dann für den **ID-Zeiger** die **echte** Kette Consume-Bridge → Handler (liest per ID →
-/// obfuskiert → legt ab → publiziert ID) gegen öffentliche Fakes (Vorbild `ReadTestApi`).
+/// Fluent-TestApi des Obfuskierungs-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
+/// [ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)): die
+/// **Eingangsfläche spricht nur DTOs** — mit [`with_ingested`](Self::with_ingested) arrangiert man
+/// eine rohe einlesen-Zeile im (Fake-)einlesen-Speicher unter einer ID, [`run`](Self::run) fährt dann
+/// für den **ID-Zeiger** die **echte** Kette über den `application_kernel`-Vertrag —
+/// [`ObfuscateCommandDecoder`] (Envelope-Strings → Kommando, Shape Y) → [`ObfuscatingHandler`]
+/// (Quell-/Obfuskator-/Repository-/Publisher-Bridge + domänen-interner Handler) gegen öffentliche
+/// Fakes. **Keine Outbox-Mechanik mehr:** der Slice ist eine reine Pipeline; die
+/// `OutboxConsumer`/`UnitOfWork`/Dead-Letter-Taktik prüft der io-Integrationstest, nicht dieser Spec.
 ///
-/// **Erwartungen prüft die TestApi selbst** (`assert_*`): die Spec formuliert das erwartete
-/// Ergebnis als **DTO** — die Token-Felder über die deterministischen `expected_*`-Helfer (dieselbe
+/// `run` gibt den **nackten Domänen-[`HandleError`]** zurück (kein `OutboxError`): eine absente Zeile
+/// (gebrochenes Invariant) oder ein fehlendes Pflichtfeld lässt ihn **terminal** scheitern; nichts
+/// wird abgelegt/publiziert.
+///
+/// **Erwartungen prüft die TestApi selbst** (`assert_*`): die Spec formuliert das erwartete Ergebnis
+/// als **DTO** — die Token-Felder über die deterministischen `expected_*`-Helfer (dieselbe
 /// Fake-Vergabe wie der Lauf) —, und die TestApi validiert die **ganze** abgelegte Buchung sowie den
 /// publizierten Zeiger dagegen. Rohe Beobachter liegen für Eigenschafts-/Negativ-Prüfungen daneben.
 pub struct ObfuscationTestApi {
@@ -26,7 +33,7 @@ pub struct ObfuscationTestApi {
     obfuscator: FakeObfuscator,
     source: FakeIngestedSource,
     store: FakeObfuscatedStore,
-    outbox: FakeOutboxPublisher,
+    publisher: FakePublisher,
 }
 
 impl ObfuscationTestApi {
@@ -37,12 +44,12 @@ impl ObfuscationTestApi {
             obfuscator: FakeObfuscator,
             source: FakeIngestedSource::default(),
             store: FakeObfuscatedStore::default(),
-            outbox: FakeOutboxPublisher::default(),
+            publisher: FakePublisher::default(),
         }
     }
 
-    /// Injiziert den Seed (den io später aus der Config liest) — er keyt die deterministische
-    /// Vergabe und wird in jede abgelegte Buchung mitpersistiert.
+    /// Injiziert den Seed (den io später aus der Config liest) — er keyt die deterministische Vergabe
+    /// und wird in jede abgelegte Buchung mitpersistiert.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
@@ -55,38 +62,23 @@ impl ObfuscationTestApi {
         self
     }
 
-    /// Fährt die echte Bridge-Kette für einen `Ingested`-**Zeiger** (die ID reist in der Hülle, kein
-    /// Inhalt) und gibt das Outbox-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` = Retry/Dead-Letter).
-    pub fn run(&self, id: &str) -> Result<(), OutboxError> {
-        let obfuscator = ObfuscatorBridge {
-            seam: &self.obfuscator,
-        };
-        let source = SourceBridge { seam: &self.source };
-        let repository = RepositoryBridge { seam: &self.store };
-        let publisher = PublisherBridge {
-            outbox: &self.outbox,
-        };
-        let handler = ObfuscationHandler::new(
-            Seed::new(self.seed),
-            &source,
-            &obfuscator,
-            &repository,
-            &publisher,
+    /// Fährt die echte Kette (Decoder → Handler) für einen `Ingested`-**Zeiger** (die ID reist als
+    /// `partition_key` der Envelope, kein Inhalt) und gibt das Handler-Ergebnis zurück (`Ok(())` =
+    /// verarbeitet, `Err` = terminaler [`HandleError`], den `io` dead-lettert).
+    pub fn run(&self, id: &str) -> Result<(), HandleError> {
+        // Der Zeiger ist der `partition_key`; der `content` ist leer (reiner Zeiger). Ein blanker
+        // Zeiger (→ Decoder `None`) ist eine io-Envelope-Sorge (`Critical`), nicht Handler-Eingabe —
+        // die Specs reichen stets einen echten Zeiger herein.
+        let command =
+            ObfuscateCommandDecoder::decode(id, "").expect("nicht-leerer Aggregat-Zeiger");
+        let handler = ObfuscatingHandler::new(
+            self.seed,
+            &self.source,
+            &self.obfuscator,
+            &self.store,
+            &self.publisher,
         );
-        let bridge = ConsumeBridge { handler };
-        let message = OutboxMessage {
-            // Die Envelope-`id` ist eine io-vergebene Message-UUID — bewusst **verschieden** vom
-            // Aggregat-Zeiger, damit der Test den Handshake über `partition_key` erzwingt: griffe
-            // die Bridge auf `message.id`, schlüge der Lookup fehl (die Roh-Zeile liegt unter dem
-            // Zeiger, nicht unter der Message-UUID).
-            id: format!("msg-uuid-{id}"),
-            message_type: CONSUMED_MESSAGE_TYPE.to_string(),
-            partition_key: id.to_string(),
-            content: String::new(),
-            occurred_on_utc: 0,
-            attempt: 0,
-        };
-        bridge.handle(message)
+        handler.handle(command)
     }
 
     // --- Erwartete Token (deterministisch über dieselbe Fake-Vergabe wie der Lauf) ----------
@@ -129,18 +121,18 @@ impl ObfuscationTestApi {
     pub fn assert_published(&self, ids: &[&str]) {
         let expected_types = vec!["Obfuscated".to_string(); ids.len()];
         let expected_ids: Vec<String> = ids.iter().map(|id| (*id).to_string()).collect();
-        assert_eq!(self.outbox.message_types(), expected_types);
-        assert_eq!(self.outbox.partition_keys(), expected_ids);
+        assert_eq!(self.publisher.message_types(), expected_types);
+        assert_eq!(self.publisher.partition_keys(), expected_ids);
     }
 
-    /// Prüft, dass **nichts** abgelegt oder publiziert wurde (Dead-Letter-/Retry-Fall).
+    /// Prüft, dass **nichts** abgelegt oder publiziert wurde (Dead-Letter-Fall).
     pub fn assert_nothing_emitted(&self) {
         assert!(
             self.store.bookings().is_empty(),
             "es wurde eine Buchung abgelegt"
         );
         assert!(
-            self.outbox.partition_keys().is_empty(),
+            self.publisher.partition_keys().is_empty(),
             "es wurde ein Zeiger publiziert"
         );
     }

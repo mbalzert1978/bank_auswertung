@@ -6,8 +6,8 @@ use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 /// löst eine Nachricht über ihren [`message_type`](shared_kernel::OutboxMessage::message_type) auf
 /// den registrierten Consumer auf und übergibt sie. Ein [`OutboxConsumer`](crate::OutboxConsumer)
 /// wird als `dyn OutboxHandler` registriert; so hält der Dispatcher heterogene Slice-Consumer
-/// uniform. Heute ist nur `einlesen` verdrahtet (`obfuskieren` folgt, wenn es migriert ist —
-/// bis dahin bleibt es bewusst auf seiner eigenen Consume-Bridge, ADR-0011/Issue 0020).
+/// uniform. Verdrahtet sind `einlesen` und `obfuskierung` — dieselbe generische Maschinerie über
+/// zwei Slices (ADR-0011/Issues 0020, 0021).
 ///
 /// Der Lebensdauer-Parameter `'a` bindet die registrierten Consumer an die Seams, die sie borgen
 /// (heute die Test-Fakes; später die realen io-Adapter).

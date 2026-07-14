@@ -10,3 +10,4 @@ workspace = true
 application_kernel = { path = "../application_kernel" }
 shared_kernel = { path = "../shared_kernel" }
 einlesen_adapter = { path = "../einlesen_adapter" }
+obfuskierung_adapter = { path = "../obfuskierung_adapter" }

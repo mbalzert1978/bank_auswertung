@@ -1,23 +1,36 @@
 //! Obfuskierungs-Slice — **Adapter**: umschließt die blinde Domäne ([`obfuskierung_domain`]) und ist
 //! die **einzige** öffentliche Fläche des Slice ([ADR-0007](../../../docs/adr/0007-modularer-monolith-feature-slices.md),
-//! [ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)). Er ist der zweite
-//! Schritt der Pipeline und die **Datenschutz-Grenze**: konsumiert einen `Ingested`-**Zeiger** (nur
-//! die ID in der Outbox-Hülle), **liest** das rohe Aggregat per ID aus dem einlesen-Speicher,
-//! obfuskiert seed-basiert, **legt die ganze obfuskierte Buchung in der `obfuskiert`-Tabelle ab** und
-//! **publiziert nur die ID** als Zeiger (Tabelle = Wahrheit, Message = Pointer) — Ablage und Publish
-//! in **einer** `UnitOfWork`.
+//! [ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md),
+//! [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)). Er ist der
+//! zweite Schritt der Pipeline und die **Datenschutz-Grenze**. Seit dem Kernel-Flip ist er **restlos
+//! outbox-frei**: er bindet **nur** `application_kernel`, nie `shared_kernel` — die Outbox-Mechanik
+//! (Envelope, Consumer-Rolle, `UnitOfWork`, Dead-Letter/Retry-Taktik) lebt vollständig in `io`.
 //!
-//! **Schichtung:** ein interner [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler) hängt
-//! **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
+//! **Reine Pipeline (ADR-0011, Entscheidung A):** der [`ObfuscatingHandler`] ist der
+//! `application_kernel::Handler` des Slice — `ObfuscateCommand → Domäne → Response`. `io`s generische
+//! `OutboxConsumer` fährt ihn: sie extrahiert die Envelope, ruft den slice-gelieferten
+//! [`ObfuscateCommandDecoder`] (Shape Y, nur nackte Strings; der Aggregat-Zeiger liegt im
+//! `partition_key`) und dispatcht. Der Handler **liest** das rohe Aggregat per ID aus dem
+//! einlesen-Speicher, obfuskiert seed-basiert, **legt die ganze obfuskierte Buchung in der
+//! `obfuskiert`-Tabelle ab** und **publiziert nur die ID** als Zeiger (Tabelle = Wahrheit, Message =
+//! Pointer). Ein terminaler Fehler ist der **nackte Domänen-[`HandleError`]** (hier re-exportiert),
+//! dessen **redigierte** `Display` `io` als Dead-Letter-Grund spiegelt.
+//!
+//! **Schichtung:** der domänen-interne [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler)
+//! hängt **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
 //! `BookingPublisher`); die Port-Bridges (Modul [`bridges`]) mappen die öffentlichen, mechanischen
 //! Abstractions ([`IngestedSourceSeam`]/[`ObfuscatorSeam`]/[`ObfuscatedStoreSeam`], die io erfüllt)
-//! bzw. den `OutboxPublisher` darauf. Betrag/Datum &c. reist als Pass-Through verbatim mit.
+//! darauf. Der Ausgang (Publisher-Bridge) zielt auf `application_kernel::Publisher`; den letzten
+//! Outbox-Hop macht `io`. Betrag/Datum &c. reist als Pass-Through verbatim mit.
 //!
-//! **Genau ein öffentlicher Zugang:** die [`ObfuscationTestApi`], die rohe Speicher-Zeile
-//! [`IngestedRow`] (die der Lese-Seam liefert) und die obfuskierten Ausgangs-DTOs
-//! ([`ObfuscatedBooking`] + [`AccountId`]/[`Pseudonym`]/[`ObfuscatedText`]/[`Recipient`]) sowie die
-//! öffentlichen Abstractions. Alles andere ist crate-privat. Die eingehende Nachricht trägt **nur die
-//! ID** — kein Wire-DTO, **kein serde** im Slice.
+//! **Öffentliche Fläche:** die Fluent-[`ObfuscationTestApi`], die rohe Speicher-Zeile [`IngestedRow`]
+//! (die der Lese-Seam liefert) und die obfuskierten Ausgangs-DTOs ([`ObfuscatedBooking`] +
+//! [`AccountId`]/[`Pseudonym`]/[`ObfuscatedText`]/[`Recipient`]), die von `io` erfüllten Seams
+//! ([`IngestedSourceSeam`]/[`ObfuscatedStoreSeam`]/[`ObfuscatorSeam`]) und der von `io` verdrahtete
+//! Slice-Vertrag ([`ObfuscatingHandler`], [`ObfuscateCommand`]/[`ObfuscateCommandDecoder`], das opake
+//! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`HandleError`]). Alles andere
+//! ist crate-privat. Die eingehende Nachricht trägt **nur die ID** — kein Wire-DTO, **kein serde** im
+//! Slice.
 //!
 //! **Datenschutz-Guard:** ab hier fließen nur Token — der `assert_not_impl_any!`-„kein
 //! Serialize"-Guard liegt auf dem obfuskierten Egress-DTO [`ObfuscatedBooking`] (nicht mehr auf einer
@@ -28,11 +41,24 @@ mod abstractions;
 mod bridges;
 mod commands;
 mod dto;
+mod handler;
 mod testapi;
 
 pub use abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam};
+pub use commands::{
+    CONSUMED_MESSAGE_TYPE, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedMessage,
+};
 pub use dto::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, Pseudonym, Recipient};
+pub use handler::ObfuscatingHandler;
 pub use testapi::ObfuscationTestApi;
+
+/// Der **nackte Domänen-Fehler** des Slice, re-exportiert (ADR-0011, Entscheidung B): der
+/// [`ObfuscatingHandler`] gibt ihn 1:1 zurück, `io` spiegelt seine **redigierte** `Display` als
+/// Dead-Letter-Grund. Bewusst re-exportiert statt adapter-lokal re-deklariert — anders als die
+/// projizierten DTO-Typen ist der Fehler kein Datenwert, sondern der Redaktions-Vertrag selbst: seine
+/// `Display` ist der **alleinige** Eigentümer des Meldungssatzes, ein Re-Deklarat wäre ein
+/// Satz-Duplikat über Crates.
+pub use obfuskierung_domain::HandleError;
 
 #[cfg(test)]
 mod datenschutz {

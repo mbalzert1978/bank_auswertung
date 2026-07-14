@@ -132,6 +132,32 @@ fn shared_kernel_ist_interface_only() {
 }
 
 #[test]
+fn adapter_binden_kein_shared_kernel() {
+    // Nach der Migration des zweiten Slice (Issue 0021) ist **kein** `<slice>_adapter` mehr
+    // outbox-koppelnd: die Outbox-Mechanik (`shared_kernel`: `OutboxMessage`/`OutboxError`/
+    // `OutboxHandler`/`OutboxPublisher`/…) lebt vollständig in `io`, der Adapter bindet nur den
+    // Slice↔io-Vertrag `application_kernel` (ADR-0011, Entscheidung D). Diese Regel — in Issue 0020
+    // bewusst zurückgestellt, solange `obfuskierung` noch auf seiner eigenen Consume-Bridge lief —
+    // greift jetzt.
+    let crates = workspace_crates();
+    let violations: Vec<String> = crates
+        .iter()
+        .filter(|item| item.name.ends_with("_adapter"))
+        .flat_map(|item| {
+            item.internal_deps()
+                .filter(|dep| *dep == "shared_kernel")
+                .map(move |_| {
+                    format!(
+                        "`{}` bindet `shared_kernel` — ein `_adapter` ist outbox-frei und bindet nur `application_kernel`",
+                        item.name
+                    )
+                })
+        })
+        .collect();
+    assert_no_violations(&violations, "kein `_adapter` bindet `shared_kernel`");
+}
+
+#[test]
 fn application_kernel_binden_nur_adapter_und_io() {
     // Nach dem Kernel-Flip (ADR-0011, Entscheidung D) ist `application_kernel` der
     // `io`-sichtbare Slice↔`io`-Vertrag: ihn binden **`_adapter` und `io`**, nie `_domain`/
@@ -202,37 +228,30 @@ fn kein_crate_haengt_am_domain_eines_fremden_slice() {
     );
 }
 
-/// Neben dem eigenen `_adapter` darf eine Blackbox-Spec zusätzlich das **io-facing**
-/// `shared_kernel` referenzieren: die Outbox-Seams (`OutboxMessage`/`OutboxError`/…) sind
-/// der öffentliche Vertrag, gegen den eine Pipeline-Stufe end-to-end spezifiziert wird —
-/// so muss der Adapter diese Kernel-Typen nicht re-exportieren (genau eine öffentliche
-/// Adapter-Fläche). Eine Lockerung, **nicht** das (bewusst nicht gehärtete) adapter→adapter.
-const SPEC_ZUSATZ_DEPS: &[&str] = &["shared_kernel"];
-
 #[test]
 fn specs_haengen_nur_am_eigenen_adapter() {
+    // Seit beide Slices auf **Handler-Ebene** über den `application_kernel`-Vertrag spezifizieren und
+    // gegen den **nackten Domänen-Fehler** (vom Adapter re-exportiert) assertieren (ADR-0011, Issues
+    // 0020/0021), bindet **keine** Spec mehr `shared_kernel`: die frühere io-facing-Lockerung ist
+    // entfallen — eine Blackbox-Spec hängt genau am eigenen `_adapter`, sonst nichts.
     let crates = workspace_crates();
     let violations: Vec<String> = crates
         .iter()
         .filter_map(|item| slice_of(&item.name, "_specs").map(|slice| (item, slice)))
         .flat_map(|(item, slice)| {
             let erwartet = format!("{slice}_adapter");
-            item.deps.iter().filter_map(move |dep| {
-                if dep.name == erwartet || SPEC_ZUSATZ_DEPS.contains(&dep.name.as_str()) {
-                    None
-                } else {
-                    Some(format!(
-                        "`{}` hängt an `{}`, erlaubt ist nur `{erwartet}` (plus io-facing `shared_kernel`)",
-                        item.name, dep.name
-                    ))
-                }
-            })
+            item.deps
+                .iter()
+                .filter(move |dep| dep.name != erwartet)
+                .map(move |dep| {
+                    format!(
+                        "`{}` hängt an `{}`, erlaubt ist nur `{}_adapter`",
+                        item.name, dep.name, slice
+                    )
+                })
         })
         .collect();
-    assert_no_violations(
-        &violations,
-        "_specs hängt nur am eigenen `_adapter` (plus io-facing `shared_kernel`)",
-    );
+    assert_no_violations(&violations, "_specs hängt nur am eigenen `_adapter`");
 }
 
 /// Die internen Crates, die `io` **neben** den Slice-Adaptern binden darf: die beiden Kernel.
