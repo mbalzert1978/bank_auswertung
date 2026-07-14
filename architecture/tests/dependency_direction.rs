@@ -161,16 +161,19 @@ fn adapter_binden_kein_shared_kernel() {
         .filter(|item| item.name.ends_with("_adapter"))
         .flat_map(|item| {
             item.internal_deps()
-                .filter(|dep| *dep == "shared_kernel")
+                .filter(|dep| *dep == SHARED_KERNEL)
                 .map(move |_| {
                     format!(
-                        "`{}` bindet `shared_kernel` — ein `_adapter` ist outbox-frei; die Outbox-Mechanik lebt in `io`",
-                        item.name
+                        "`{}` bindet `{SHARED_KERNEL}` — ein `_adapter` ist outbox-frei; die Outbox-Mechanik lebt in `io`",
+                        item.name,
                     )
                 })
         })
         .collect();
-    assert_no_violations(&violations, "kein `_adapter` bindet `shared_kernel`");
+    assert_no_violations(
+        &violations,
+        &format!("kein `_adapter` bindet `{SHARED_KERNEL}`"),
+    );
 }
 
 #[test]
@@ -185,19 +188,19 @@ fn application_kernel_binden_nur_adapter_und_io() {
         .filter(|item| item.name != "architecture")
         .flat_map(|item| {
             item.internal_deps()
-                .filter(|dep| *dep == "application_kernel")
+                .filter(|dep| *dep == APPLICATION_KERNEL)
                 .filter(move |_| !item.name.ends_with("_adapter") && item.name != "io")
                 .map(move |_| {
                     format!(
-                        "`{}` hängt an `application_kernel` — den Slice↔io-Vertrag binden nur ein `_adapter` und `io`, nie `_domain`/`_specs`",
-                        item.name
+                        "`{}` hängt an `{APPLICATION_KERNEL}` — den Slice↔io-Vertrag binden nur ein `_adapter` und `io`, nie `_domain`/`_specs`",
+                        item.name,
                     )
                 })
         })
         .collect();
     assert_no_violations(
         &violations,
-        "`application_kernel` binden nur `_adapter` und `io`",
+        &format!("`{APPLICATION_KERNEL}` binden nur `_adapter` und `io`"),
     );
 }
 
@@ -273,7 +276,7 @@ fn specs_haengen_nur_am_eigenen_adapter() {
 /// Die internen Crates, die `io` **neben** den Slice-Adaptern binden darf: die beiden Kernel.
 /// `application_kernel` ist der Slice↔`io`-Vertrag (`OutboxConsumer<H: Handler>`), `shared_kernel`
 /// die io-private Outbox-Mechanik — beide sind Geschwister, `io` bindet sie (ADR-0011).
-const IO_ZUSATZ_DEPS: &[&str] = &["application_kernel", "shared_kernel"];
+const IO_ZUSATZ_DEPS: &[&str] = &[APPLICATION_KERNEL, SHARED_KERNEL];
 
 #[test]
 fn io_haengt_nur_an_adaptern_und_kerneln_nie_an_domaenen() {
