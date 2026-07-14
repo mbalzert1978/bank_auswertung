@@ -114,21 +114,36 @@ fn domaenen_crates_sind_dependency_frei() {
     assert_no_violations(&violations, "_domain ist blind (keine Deps)");
 }
 
-#[test]
-fn shared_kernel_ist_interface_only() {
+const SHARED_KERNEL: &str = "shared_kernel";
+const APPLICATION_KERNEL: &str = "application_kernel";
+
+fn assert_interface_only(crate_name: &str) {
     let crates = workspace_crates();
     let violations: Vec<String> = crates
         .iter()
-        .filter(|item| item.name == "shared_kernel")
+        .filter(|item| item.name == crate_name)
         .filter(|item| !item.deps.is_empty())
         .map(|item| {
             format!(
-                "`shared_kernel` bindet {} — muss interface-only bleiben",
+                "`{crate_name}` bindet {} — muss interface-only bleiben",
                 item.dep_names()
             )
         })
         .collect();
-    assert_no_violations(&violations, "shared_kernel ist interface-only (keine Deps)");
+    assert_no_violations(
+        &violations,
+        &format!("{crate_name} ist interface-only (keine Deps)"),
+    );
+}
+
+#[test]
+fn shared_kernel_ist_interface_only() {
+    assert_interface_only(SHARED_KERNEL);
+}
+
+#[test]
+fn application_kernel_ist_interface_only() {
+    assert_interface_only(APPLICATION_KERNEL);
 }
 
 #[test]
