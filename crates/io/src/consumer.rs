@@ -1,5 +1,7 @@
 use application_kernel::CommandDecoder;
-use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
+use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage, OutboxPublisher, UnitOfWork};
+
+use crate::PublishingPort;
 
 /// Was **eine Nachricht** in **einer** Arbeitseinheit tut: eine
 /// [`TransactionalHandler`]-Implementierung öffnet die Unit-of-Work, baut den Slice-Handler
@@ -93,6 +95,35 @@ impl<T: TransactionalHandler> OutboxHandler for OutboxConsumer<T> {
                 TransactionError::Commit(reason) => OutboxError::Retry { reason },
             })
     }
+}
+
+/// Der **Commit-Rand** eines transaktionalen Slice-Laufs, **einmal** benannt statt je Slice
+/// dupliziert (ADR-0011, Entscheidung A): öffnet den [`PublishingPort`] über der Unit, lässt den
+/// Aufrufer den Slice-Handler **aus der Unit** bauen und laufen (`run`), und committet die Unit
+/// **genau einmal** bei Erfolg. Ein Handler-Fehler ist terminal → [`TransactionError::Handler`]; nur
+/// der Commit erzeugt [`TransactionError::Commit`] (der io-interne Retry-Ursprung).
+///
+/// Weil `run` den Handler baut **und** fährt, verlässt der Handler (mit seinen Borrows auf Unit und
+/// Publisher) den Aufruf nie — eine gestagete Store-/Publish-Schreibung committet mit der Unit oder
+/// gar nicht. Jede Slice-Verdrahtung ([`einlesen`](crate::einlesen)/[`obfuskierung`](crate::obfuskierung))
+/// reicht nur ihren einen `XHandler::new(…).handle(command)`-Ausdruck als `run` herein; die
+/// Begin-/Commit-Ordnung und das Fehler-Mapping leben hier.
+pub(crate) fn run_in_unit<U, E>(
+    unit: U,
+    run: impl FnOnce(&U, &PublishingPort<'_, U>) -> Result<(), E>,
+) -> Result<(), TransactionError<E>>
+where
+    U: UnitOfWork + OutboxPublisher,
+{
+    // Der innere Block gibt die Borrows auf die Unit (Store + Publisher) wieder frei, bevor `commit`
+    // sie verbraucht.
+    let outcome = {
+        let publishing = PublishingPort::new(&unit);
+        run(&unit, &publishing)
+    };
+    outcome.map_err(TransactionError::Handler)?;
+    unit.commit()
+        .map_err(|error| TransactionError::Commit(error.to_string()))
 }
 
 #[cfg(test)]

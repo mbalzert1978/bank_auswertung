@@ -21,7 +21,7 @@ use obfuskierung_adapter::{
 };
 use shared_kernel::{OutboxPublisher, UnitOfWork};
 
-use crate::{OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler};
+use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 
 /// Der `message_type`, unter dem der Dispatcher den `obfuskierung`-Consumer auflöst (der konsumierte
 /// Auslöser, `Ingested`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
@@ -60,24 +60,13 @@ impl<F: UnitFactory> TransactionalHandler for ObfuskierungTransactionalHandler<'
     type Error = HandleError;
 
     fn handle(&self, command: ObfuscateCommand) -> Result<(), TransactionError<HandleError>> {
-        let unit = self.units.begin();
-        // Store- und Publish-Ports **sind** die Unit: was der Handler staged, landet in genau der
-        // Unit, die unten committet. Der innere Block gibt die Borrows auf die Unit wieder frei,
-        // bevor `commit` sie verbraucht. Quelle/Obfuskator liegen außerhalb (idempotentes Lesen).
-        let outcome = {
-            let publishing = PublishingPort::new(&unit);
-            let handler = ObfuscatingHandler::new(
-                self.seed,
-                self.source,
-                self.obfuscator,
-                &unit,
-                &publishing,
-            );
-            handler.handle(command)
-        };
-        outcome.map_err(TransactionError::Handler)?;
-        unit.commit()
-            .map_err(|error| TransactionError::Commit(error.to_string()))
+        // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
+        // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
+        // Unit; Quelle/Obfuskator liegen außerhalb (idempotentes Lesen).
+        run_in_unit(self.units.begin(), |unit, publishing| {
+            ObfuscatingHandler::new(self.seed, self.source, self.obfuscator, unit, publishing)
+                .handle(command)
+        })
     }
 }
 

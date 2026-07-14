@@ -27,7 +27,8 @@ impl IngestedRow {
     /// **Hier erzwingt der Adapter die Präsenz** der Pflichtfelder (Auftraggeberkonto, Währung,
     /// Richtung, Datum): fehlt/ist eines leer, wird es zu `Err(MissingMandatoryField)` mit **nur**
     /// dem Feldnamen — ein terminaler Ausgang, den die [`SourceBridge`](crate::bridges::SourceBridge)
-    /// von „nicht vorhanden" trennt (vorhanden-aber-ungültig → Dead-Letter statt Retry).
+    /// von „nicht vorhanden" (`Absent`) unterscheidet: **beide** terminal, je eigener redigierter
+    /// Grund (opake ID vs. statischer Feldname).
     pub(crate) fn to_booking(
         &self,
         id: BookingId,

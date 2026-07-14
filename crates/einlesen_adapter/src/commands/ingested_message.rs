@@ -1,8 +1,9 @@
 use application_kernel::{Command, PublishCommand};
 
-/// Der Dispatch-Key des ausgehenden Commands — die **eine** Quelle, auf die der Outbox-Prozessor
-/// des nachgelagerten `obfuskieren`-Slice seine Consume-Bridge auflöst. Das Domänen-Aggregat
-/// `LineAggregate` (in `einlesen_domain`) trägt keinen Dispatch-Key; er lebt hier auf dem DTO.
+/// Der Dispatch-Key des ausgehenden Commands — die **eine** Quelle, auf die `io`s generische
+/// `OutboxConsumer` (über den Dispatcher, `message_type`-Auflösung) den nachgelagerten
+/// `obfuskieren`-Slice auflöst. Das Domänen-Aggregat `LineAggregate` (in `einlesen_domain`) trägt
+/// keinen Dispatch-Key; er lebt hier auf dem DTO.
 pub(crate) const MESSAGE_TYPE: &str = "Ingested";
 
 /// Das ausgehende **Publish-Command** der „Eingelesen"-Nachricht: ein reiner **Zeiger** auf die

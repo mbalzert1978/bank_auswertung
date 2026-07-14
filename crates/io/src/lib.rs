@@ -38,6 +38,7 @@ mod publishing;
 pub mod einlesen;
 pub mod obfuskierung;
 
+pub(crate) use consumer::run_in_unit;
 pub use consumer::{OutboxConsumer, TransactionError, TransactionalHandler};
 pub use dispatcher::Dispatcher;
 pub use publishing::PublishingPort;

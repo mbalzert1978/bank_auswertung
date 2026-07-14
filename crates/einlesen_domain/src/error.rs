@@ -1,8 +1,8 @@
 use std::fmt;
 
 /// Warum eine Rohzeile nicht zu einem gültigen `LineAggregate` wird. Jeder Fall ist
-/// **terminal** — die Daten sind kaputt, ein erneuter Versuch hilft nicht; die
-/// Consume-Bridge mappt ihn später auf ein Dead-Letter, nicht auf Retry (nur echte
+/// **terminal** — die Daten sind kaputt, ein erneuter Versuch hilft nicht; `io`s generische
+/// `OutboxConsumer` mappt ihn später auf ein Dead-Letter, nicht auf Retry (nur echte
 /// Herkunfts-/IO-Fehler sind retryable, und die entstehen außerhalb der Domäne).
 ///
 /// **Nur Dekodier-Fehler.** Die *Präsenz* eines Pflichtfelds prüft die Domäne nicht mehr —
