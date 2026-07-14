@@ -1,14 +1,23 @@
 //! Black-Box-Spezifikation des Obfuskierungs-Slice — ausschließlich über die public API des
-//! Adapters (Fluent-`ObfuscationTestApi` + DTOs + die `shared_kernel`-Outbox-Ergebnisform), nie
-//! über Interna. Der Slice konsumiert einen `Ingested`-**Zeiger** (nur die ID), **liest** das rohe
-//! Aggregat per ID aus dem einlesen-Speicher, obfuskiert seed-basiert, legt die **ganze** obfuskierte
-//! Buchung in der `obfuskiert`-Tabelle ab und publiziert **nur** die ID als Zeiger.
+//! Adapters (Fluent-`ObfuscationTestApi` + DTOs + der re-exportierte Domänen-`HandleError`), nie über
+//! Interna. Seit dem Kernel-Flip ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
+//! spezifiziert der Spec auf **Handler-Ebene** über den `application_kernel`-Vertrag: `run` fährt die
+//! **echte** Kette (`ObfuscateCommandDecoder` → `ObfuscatingHandler`) gegen öffentliche Fakes und gibt
+//! den **nackten Domänen-`HandleError`** zurück — **keine** `OutboxError`-Asserts mehr (die
+//! Outbox-Mechanik prüft der io-Integrationstest).
+//!
+//! Der Slice konsumiert einen `Ingested`-**Zeiger** (nur die ID), **liest** das rohe Aggregat per ID
+//! aus dem einlesen-Speicher, obfuskiert seed-basiert, legt die **ganze** obfuskierte Buchung in der
+//! `obfuskiert`-Tabelle ab und publiziert **nur** die ID als Zeiger. Ein terminaler Fehler
+//! (absent = gebrochenes Invariant, oder ein fehlendes Pflichtfeld) lässt den Handler mit dem
+//! `HandleError` aussteigen; nichts wird abgelegt/publiziert.
 //!
 //! Erwartete Ergebnisse formuliert die Spec als **DTO** (Token-Felder über die `expected_*`-Helfer
 //! der TestApi) und lässt sie die **TestApi validieren** (`assert_stored`/`assert_published`).
 
-use obfuskierung_adapter::{IngestedRow, ObfuscatedBooking, ObfuscationTestApi, Recipient};
-use shared_kernel::OutboxError;
+use obfuskierung_adapter::{
+    HandleError, IngestedRow, ObfuscatedBooking, ObfuscationTestApi, Recipient,
+};
 
 const SEED: u64 = 42;
 const EIGENE_IBAN: &str = "DE20123456780000001111";
@@ -171,32 +180,35 @@ fn freitext_wird_getrimmt_durch_den_obfuskierten_text_engpass() {
     api.assert_stored(erwartete_buchung(&api, "buchung-1"));
 }
 
-// --- Unbekannte ID: transient, nichts emittiert --------------------------------
+// --- Absente ID: terminales gebrochenes Invariant, nichts emittiert -------------
 
 #[test]
-fn unbekannte_id_wird_transient_zurückgestellt_ohne_etwas_zu_emittieren() {
+fn absente_id_wird_terminal_dead_lettert_ohne_etwas_zu_emittieren() {
     let api = ObfuscationTestApi::new().with_seed(SEED); // kein Aggregat arrangiert
 
     let ergebnis = api.run("fehlt-noch");
 
-    // Zur ID liegt (noch) kein Aggregat vor → erneute Zustellung (die einlesen-Schreibung kann
-    // nachhängen); der Grund trägt die opake ID (kein Rohwert).
-    assert_eq!(
-        ergebnis,
-        Err(OutboxError::Retry {
-            reason: "referenced booking not found in source: fehlt-noch".to_string(),
-        })
+    // Zur ID liegt keine Zeile vor — ein **gebrochenes Invariant** (terminal): `einlesen` committet
+    // Zeile+Nachricht atomar und der Broker stellt erst danach zu, also müsste die Zeile liegen.
+    // Der Handler steigt mit dem nackten `SourceMissing` aus; `io` dead-lettert ihn uniform. Der
+    // redigierte Grund trägt nur die opake ID (kein Rohwert).
+    assert!(
+        matches!(&ergebnis, Err(HandleError::SourceMissing(_))),
+        "erwartet terminales gebrochenes Invariant: {ergebnis:?}"
+    );
+    assert!(
+        matches!(&ergebnis, Err(error) if error.to_string() == "referenced booking not found in source: fehlt-noch"),
+        "der Grund muss die opake ID redigiert tragen: {ergebnis:?}"
     );
     api.assert_nothing_emitted();
 }
 
-// --- Vorhanden, aber Pflichtfeld leer: terminaler Dead-Letter (kein Poison-Retry) ---
+// --- Vorhanden, aber Pflichtfeld leer: terminaler Dead-Letter (redigiert) ---------
 
 #[test]
 fn vorhandene_zeile_mit_leerem_pflichtfeld_wird_terminal_dead_lettert() {
-    // Die Zeile liegt im Speicher (also **nicht** „abwesend"), aber ein Pflichtfeld (Währung) ist
-    // leer — das kann kein erneutes Zustellen heilen. Muss terminal dead-lettern (`Warning`), nicht
-    // endlos zurückgestellt werden (Poison-Message).
+    // Die Zeile liegt im Speicher, aber ein Pflichtfeld (Währung) ist leer — terminal, redigiert
+    // (nur der statische Feldname, nie ein Rohwert).
     let mut zeile = gültige_zeile();
     zeile.currency = String::new();
     let api = ObfuscationTestApi::new()
@@ -209,9 +221,7 @@ fn vorhandene_zeile_mit_leerem_pflichtfeld_wird_terminal_dead_lettert() {
     // Name); nichts wird abgelegt oder publiziert.
     assert_eq!(
         ergebnis,
-        Err(OutboxError::Warning {
-            reason: "mandatory field missing in source booking: currency".to_string(),
-        })
+        Err(HandleError::MalformedSource { field: "currency" })
     );
     api.assert_nothing_emitted();
 }

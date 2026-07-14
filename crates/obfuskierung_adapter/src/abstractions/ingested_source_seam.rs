@@ -4,7 +4,8 @@ use crate::dto::IngestedRow;
 /// einer Aggregat-ID. **io erfüllt ihn** (liest die einlesen-Roh-Tabelle) — roh-typisiert, ohne
 /// Domänen-Kenntnis. Die [`SourceBridge`](crate::bridges::SourceBridge) mappt den von der Domäne
 /// verlangten Port `obfuskierung_domain::RawBookingSource` darauf (Zeile → Domänen-Aggregat).
-/// `None`, wenn zur ID (noch) keine Zeile vorliegt.
+/// `None`, wenn zur ID keine Zeile vorliegt — für den Slice ein gebrochenes Invariant (terminal),
+/// nicht Transienz.
 pub trait IngestedSourceSeam {
     /// Liest die rohe einlesen-Zeile zur ID (`None` = nicht vorhanden).
     fn read(&self, id: &str) -> Option<IngestedRow>;

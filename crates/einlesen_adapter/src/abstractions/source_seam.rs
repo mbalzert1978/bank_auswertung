@@ -10,8 +10,9 @@ use crate::dto::RawRecord;
 ///
 /// Ein Fehlschlag der Beschaffung ist **nie Abwesenheit**, sondern ein terminaler Fehler —
 /// darum ein `Result`, kein überladenes `Option::None` (die `Option`-Form des
-/// `IngestedSourceSeam` im Obfuskierungs-Slice kodiert dort echtes „(noch) nicht da", einen
-/// transienten Normal-Ausgang; diesen Ausgang gibt es hier nicht). `Ok(vec![])` = leerer
+/// `IngestedSourceSeam` im Obfuskierungs-Slice kodiert eine fehlende Zeile, die dort ein
+/// gebrochenes Invariant ist — ebenfalls terminal, aber ein anderer Ausgang als der hiesige
+/// Beschaffungs-Fehlschlag). `Ok(vec![])` = leerer
 /// Batch (gültig, es passiert nichts). Seit [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
 /// **öffentlich** (wie `StoreSeam`), damit `io` ihn erfüllt.
 pub trait SourceSeam {

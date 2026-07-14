@@ -6,8 +6,10 @@ use crate::abstractions::IngestedSourceSeam;
 /// ihn auf den öffentlichen [`IngestedSourceSeam`] (den io erfüllt). „außen → innen": der Seam
 /// liefert die rohe [`IngestedRow`](crate::dto::IngestedRow), die Bridge deutet sie in das
 /// Domänen-Aggregat. Sie **trennt die drei Ausgänge im Typ** ([`BookingLookup`]): der Seam liefert
-/// keine Zeile → `Absent` (transient); die Zeile ist da, aber ein Pflichtfeld fehlt → `Malformed`
-/// mit redigiertem Feldnamen (terminal); sonst `Found`. Vorbild: `CalendarBridge` des Einlese-Slice.
+/// keine Zeile → `Absent` (gebrochenes Invariant, terminal — der Broker stellt erst nach `einlesen`s
+/// atomarem Commit zu, die Zeile muss also liegen); die Zeile ist da, aber ein Pflichtfeld fehlt →
+/// `Malformed` mit redigiertem Feldnamen (terminal); sonst `Found`. Vorbild: `CalendarBridge` des
+/// Einlese-Slice.
 pub(crate) struct SourceBridge<'a> {
     pub(crate) seam: &'a dyn IngestedSourceSeam,
 }

@@ -16,7 +16,7 @@ use einlesen_adapter::{
 };
 use shared_kernel::{OutboxPublisher, UnitOfWork};
 
-use crate::{OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler};
+use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 
 /// Der `message_type`, unter dem der Dispatcher den `einlesen`-Consumer auflöst (der konsumierte
 /// Auslöser). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am Slice-Eingang.
@@ -52,19 +52,13 @@ impl<F: UnitFactory> TransactionalHandler for EinlesenTransactionalHandler<'_, F
     type Error = ReadError;
 
     fn handle(&self, command: ReadCommand) -> Result<(), TransactionError<ReadError>> {
-        let unit = self.units.begin();
-        // Store- und Publish-Ports **sind** die Unit: was der Handler staged, landet in genau der
-        // Unit, die unten committet. Der innere Block gibt die Borrows auf die Unit wieder frei,
-        // bevor `commit` sie verbraucht.
-        let outcome = {
-            let publishing = PublishingPort::new(&unit);
-            let handler =
-                ReadingHandler::new(self.source, self.calendar, self.money, &unit, &publishing);
-            handler.handle(command)
-        };
-        outcome.map_err(TransactionError::Handler)?;
-        unit.commit()
-            .map_err(|error| TransactionError::Commit(error.to_string()))
+        // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
+        // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
+        // Unit — was der Handler staged, committet mit ihr oder gar nicht.
+        run_in_unit(self.units.begin(), |unit, publishing| {
+            ReadingHandler::new(self.source, self.calendar, self.money, unit, publishing)
+                .handle(command)
+        })
     }
 }
 

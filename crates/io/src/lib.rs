@@ -23,7 +23,8 @@
 //!   Ein erster nutzlast-tragender Slice erweitert den Outbox-Vertrag um einen Content-/serde-
 //!   Seam — dann ist es kein reiner Zeiger mehr.
 //! - [`Dispatcher`] löst eine Nachricht per `message_type` auf ihren Consumer auf.
-//! - [`einlesen`] verdrahtet den `einlesen`-Handler + -Decoder in einen [`OutboxConsumer`].
+//! - [`einlesen`] und [`obfuskierung`] verdrahten je den Slice-Handler + -Decoder in einen
+//!   [`OutboxConsumer`] — dieselbe generische Maschinerie, zwei Slices.
 //!
 //! **Bewusst draußen (Build-Order Schritt 5):** der echte SQLite-/`sqlx`-Teil (Broker/Stores,
 //! CSV-/Datei-Beschaffung). Die Seams (`SourceSeam`/`StoreSeam`/…, `OutboxPublisher`,
@@ -35,7 +36,9 @@ mod dispatcher;
 mod publishing;
 
 pub mod einlesen;
+pub mod obfuskierung;
 
+pub(crate) use consumer::run_in_unit;
 pub use consumer::{OutboxConsumer, TransactionError, TransactionalHandler};
 pub use dispatcher::Dispatcher;
 pub use publishing::PublishingPort;

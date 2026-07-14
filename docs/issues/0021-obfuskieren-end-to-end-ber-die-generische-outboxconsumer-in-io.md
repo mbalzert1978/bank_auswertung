@@ -137,6 +137,16 @@ Outbox-Mechanik und sichert die Datenschutz-Grenze
 - [ ] Volle Suite grün: `cargo build`/`test`/`clippy --all-targets`/`fmt --check` +
   `cargo test -p architecture`.
 
+## Umsetzungsnotiz
+
+Bei der Umsetzung wurde die **Ergebnis-Variante umbenannt**: `HandleError::NotYetAvailable`
+→ **`HandleError::SourceMissing`** (`obfuskierung_domain`). Die Variante **bleibt** als eigener
+Ergebnis-Fall im Typ erhalten (die Quelle muss eine fehlende Zeile melden können, wie in den
+Acceptance Criteria verlangt) — nur der Bezeichner wurde korrigiert: `NotYetAvailable` implizierte
+Transienz/Wiedervorlage, was der neuen **terminalen** Deutung („absent = gebrochenes Invariant")
+widerspricht. Die AC-Texte oben nennen noch den alten Namen; maßgeblich ist der Code. `Display`
+(„referenced booking not found in source: {id}") und die opake `BookingId`-Redaktion sind unverändert.
+
 ## Blocked by
 
 None - can start immediately. [0020](0020-einlesen-end-to-end-ber-die-generische-outboxconsumer-in-io-kernel-flip.md)
