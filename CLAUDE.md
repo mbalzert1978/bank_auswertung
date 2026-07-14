@@ -78,7 +78,7 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   **type**: `RawLine`'s mandatory fields are non-`Option` (ADR-0005: illegal states
   unconstructible, not "checked"). **Presence enforcement is the `_adapter` (ACL)**,
   not the domain and not `io` — since [Issue 0018](docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
-  **behind the source seam in the `SourceBridge`**: `RawRecord::to_raw_line` is fallible;
+  **behind the source seam in the `SourceBridge`**: `RawLine::try_from(&RawRecord)` is fallible;
   a missing/empty mandatory cell maps to the **redacted** domain
   `SourceError::MissingMandatoryField` (static field name only, never a raw value) and
   dead-letters the whole batch, before the handler interprets a single line. The domain does not
