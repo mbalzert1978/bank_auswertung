@@ -18,7 +18,10 @@
 //!   Commit); die Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`].
 //! - [`PublishingPort`] macht den **letzten Outbox-Hop**: es bindet
 //!   `application_kernel::Publisher` an `shared_kernel::OutboxPublisher`
-//!   (`PublishCommand → OutboxCommand`).
+//!   (`PublishCommand → OutboxCommand`). **Heute pointer-only:** ein Kommando trägt nur
+//!   `message_type` + `partition_key` (Tabelle = Wahrheit, Message = Zeiger), kein `content`.
+//!   Ein erster nutzlast-tragender Slice erweitert den Outbox-Vertrag um einen Content-/serde-
+//!   Seam — dann ist es kein reiner Zeiger mehr.
 //! - [`Dispatcher`] löst eine Nachricht per `message_type` auf ihren Consumer auf.
 //! - [`einlesen`] verdrahtet den `einlesen`-Handler + -Decoder in einen [`OutboxConsumer`].
 //!

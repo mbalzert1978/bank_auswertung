@@ -52,6 +52,9 @@ impl Handler for ReadingHandler<'_> {
     type Error = ReadError;
 
     fn handle(&self, _command: ReadCommand) -> Result<(), ReadError> {
+        // `ReadCommand` ist ein **feldloser** Auslöser (Issue 0018): bewusst verworfen, die
+        // Quelle/Konfiguration beschafft der Handler über den Quell-Seam. Trägt das Kommando je
+        // ein Feld, muss es hier statt der leeren `RunConfiguration` einfließen.
         ReadHandler::new(
             &self.source,
             &self.calendar,

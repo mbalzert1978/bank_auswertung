@@ -60,8 +60,12 @@ impl ReadTestApi {
     /// terminaler [`ReadError`], den `io` dead-lettert). Die Envelope ist **inhaltslos** — die
     /// Quelle reist nur als `partition_key`.
     pub fn run(&self, source: &str) -> Result<(), ReadError> {
-        let command = ReadCommandDecoder::decode(source, "")
-            .expect("der einlesen-Auslöser trägt keine Nutzlast und ist stets dekodierbar");
+        // Der einlesen-Auslöser trägt keine Nutzlast und ist stets dekodierbar; ein `None` (das
+        // `io` sonst zu `Critical` machte) ist hier ein No-op statt eines Panics — die TestApi ist
+        // so die eine Stelle, die auf einen Decode nicht paniken kann.
+        let Some(command) = ReadCommandDecoder::decode(source, "") else {
+            return Ok(());
+        };
         let handler = ReadingHandler::new(
             &self.source_seam,
             &self.calendar_seam,

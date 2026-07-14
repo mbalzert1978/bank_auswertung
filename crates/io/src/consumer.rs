@@ -32,6 +32,12 @@ pub enum TransactionError<E> {
     Handler(E),
     /// Der **Commit** ist gescheitert → io-interner Retry (nie aus einem Handler-Fehler). Trägt
     /// den bereits stringifizierten Grund (der Commit-Fehlertyp lebt nicht über diese Grenze).
+    ///
+    /// **Redaktions-Pflicht (wenn der echte `io`-Commit fällt):** dieser Grund wird nach
+    /// erschöpften Versuchen als Dead-Letter-Grund persistiert. Wie die io-Diagnose des Quell-
+    /// Seams beschreibt er **Transaktions-Mechanik** (Broker/DB), **nie** einen Roh-Zeilenwert —
+    /// die reale `UnitOfWork::Error`-`Display` muss das einhalten (heute ist der Commit des
+    /// Slice-Fakes `Infallible`, der Pfad also latent).
     Commit(String),
 }
 
