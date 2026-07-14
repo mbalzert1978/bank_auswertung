@@ -135,10 +135,11 @@ fn shared_kernel_ist_interface_only() {
 fn adapter_binden_kein_shared_kernel() {
     // Nach der Migration des zweiten Slice (Issue 0021) ist **kein** `<slice>_adapter` mehr
     // outbox-koppelnd: die Outbox-Mechanik (`shared_kernel`: `OutboxMessage`/`OutboxError`/
-    // `OutboxHandler`/`OutboxPublisher`/…) lebt vollständig in `io`, der Adapter bindet nur den
-    // Slice↔io-Vertrag `application_kernel` (ADR-0011, Entscheidung D). Diese Regel — in Issue 0020
-    // bewusst zurückgestellt, solange `obfuskierung` noch auf seiner eigenen Consume-Bridge lief —
-    // greift jetzt.
+    // `OutboxHandler`/`OutboxPublisher`/…) lebt vollständig in `io`. Diese Regel verbietet objektiv
+    // **nur** die Kante `_adapter → shared_kernel` (ADR-0011, Entscheidung D); die übrigen Deps eines
+    // Adapters (sein `_domain`, der Slice↔io-Vertrag `application_kernel`, sanktionierte Crates) regeln
+    // andere Tests. In Issue 0020 bewusst zurückgestellt, solange `obfuskierung` noch auf seiner
+    // eigenen Consume-Bridge lief — greift jetzt.
     let crates = workspace_crates();
     let violations: Vec<String> = crates
         .iter()
@@ -148,7 +149,7 @@ fn adapter_binden_kein_shared_kernel() {
                 .filter(|dep| *dep == "shared_kernel")
                 .map(move |_| {
                     format!(
-                        "`{}` bindet `shared_kernel` — ein `_adapter` ist outbox-frei und bindet nur `application_kernel`",
+                        "`{}` bindet `shared_kernel` — ein `_adapter` ist outbox-frei; die Outbox-Mechanik lebt in `io`",
                         item.name
                     )
                 })
