@@ -6,12 +6,13 @@
 //! (das prüft der `einlesen`-Spec). Alle Seams sind Fakes; der echte SQLite-/`sqlx`-Teil bleibt
 //! draußen (Build-Order Schritt 5).
 //!
-//! **Atomarität als Fake — typ-erzwungen:** die Arbeitseinheit ([`FakeUnit`]) **ist** der gestagete
-//! Speicher (`StoreSeam`) **und** die Outbox (`OutboxPublisher`); der `einlesen`-Handler wird von
-//! `io` **aus ihr** gebaut. Sie hält die gestagete Arbeit in eigenen `pending`-Puffern und flusht sie
-//! beim Commit in den geteilten `committed`-Sink; wird sie ohne Commit fallengelassen (Handler-
-//! Fehler), verwirft das Fallenlassen der Unit ihre `pending`-Arbeit (Rollback ohne Sonderfall). So
-//! kann eine gestagete Schreibung die committete Transaktion nicht verlassen.
+//! **Atomarität als Fake:** die Arbeitseinheit (`FakeUnit`) **ist** der gestagete Speicher
+//! (`StoreSeam`) **und** die Outbox (`OutboxPublisher`); der `einlesen`-Handler wird von `io` **aus
+//! ihr** gebaut, sodass Staging und Commit dieselbe Unit teilen. Sie hält die gestagete Arbeit in
+//! eigenen `pending`-Puffern und flusht sie beim Commit in den geteilten `committed`-Sink; wird sie
+//! ohne Commit fallengelassen (Handler-Fehler), verwirft das Fallenlassen der Unit ihre
+//! `pending`-Arbeit (Rollback ohne Sonderfall) — eine gestagete Schreibung committet also mit der
+//! Nachricht oder gar nicht.
 //!
 //! Die Seam-Fakes (`FakeSource`/`FakeCalendar`/`FakeMoney`) sind **bewusst minimale Stubs** für die
 //! zwei Fixtures — kein Nachbau des echten Dekodierens (das prüft der `einlesen`-Spec hinter den
@@ -26,7 +27,7 @@ use einlesen_adapter::{
     SourceUnavailable, StoreSeam,
 };
 use io::Dispatcher;
-use io::einlesen::Transactions;
+use io::einlesen::UnitFactory;
 use shared_kernel::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 
 // --- Seam-Fakes (minimale Stubs für die Fixtures) ---------------------------------------
@@ -124,7 +125,7 @@ impl FakeDb {
     }
 }
 
-impl Transactions for FakeDb {
+impl UnitFactory for FakeDb {
     type Unit = FakeUnit;
 
     fn begin(&self) -> FakeUnit {
@@ -218,7 +219,12 @@ fn ein_envelope_wird_end_to_end_verarbeitet_und_atomar_committet() {
     let consumer = io::einlesen::consumer(&source, &FakeCalendar, &FakeMoney, db.clone());
 
     let mut dispatcher = Dispatcher::new();
-    dispatcher.register(io::einlesen::CONSUMED_MESSAGE_TYPE, Box::new(consumer));
+    assert!(
+        dispatcher
+            .register(io::einlesen::CONSUMED_MESSAGE_TYPE, Box::new(consumer))
+            .is_none(),
+        "frische Registrierung darf keinen Consumer verdrängen"
+    );
 
     let ergebnis = dispatcher.dispatch(read_transactions_envelope());
 
@@ -245,7 +251,12 @@ fn ein_terminaler_fehler_wird_redigiert_dead_lettered() {
     let consumer = io::einlesen::consumer(&source, &FakeCalendar, &FakeMoney, db.clone());
 
     let mut dispatcher = Dispatcher::new();
-    dispatcher.register(io::einlesen::CONSUMED_MESSAGE_TYPE, Box::new(consumer));
+    assert!(
+        dispatcher
+            .register(io::einlesen::CONSUMED_MESSAGE_TYPE, Box::new(consumer))
+            .is_none(),
+        "frische Registrierung darf keinen Consumer verdrängen"
+    );
 
     let ergebnis = dispatcher.dispatch(read_transactions_envelope());
 

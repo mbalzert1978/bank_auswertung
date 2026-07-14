@@ -10,11 +10,12 @@
 //! - [`OutboxConsumer`] ist der **eine** `shared_kernel::OutboxHandler` über **jeden**
 //!   [`TransactionalHandler`]: er extrahiert die Envelope, ruft den slice-gelieferten
 //!   `CommandDecoder` (Shape Y — nur nackte Strings) und dispatcht das Kommando an den
-//!   `TransactionalHandler`, der **eine** [`UnitOfWork`](shared_kernel::UnitOfWork) öffnet, den
-//!   Slice-Handler **aus ihr** baut (Store/Publish = die Unit, die committet — Atomarität
-//!   typ-erzwungen) und committet. Jeder Handler-Fehler ist **terminal** → Dead-Letter über das
-//!   **`Display`** des Fehlers (nie `Debug`); `OutboxError` wird nur hier gebaut, Retry entsteht
-//!   ausschließlich io-intern.
+//!   `TransactionalHandler`, der **eine** `UnitOfWork` öffnet, den Slice-Handler **aus ihr** baut
+//!   (Store und Publish sind dieselbe committende Unit — eine gestagete Schreibung committet mit
+//!   der Nachricht oder gar nicht) und committet. Jeder Handler-Fehler ist **terminal** →
+//!   Dead-Letter über das **`Display`** des Fehlers (nie `Debug`). Den `OutboxError` der
+//!   Nachrichtenverarbeitung baut der Consumer (Retry entsteht ausschließlich io-intern beim
+//!   Commit); die Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`].
 //! - [`PublishingPort`] macht den **letzten Outbox-Hop**: es bindet
 //!   `application_kernel::Publisher` an `shared_kernel::OutboxPublisher`
 //!   (`PublishCommand → OutboxCommand`).
@@ -23,8 +24,8 @@
 //!
 //! **Bewusst draußen (Build-Order Schritt 5):** der echte SQLite-/`sqlx`-Teil (Broker/Stores,
 //! CSV-/Datei-Beschaffung). Die Seams (`SourceSeam`/`StoreSeam`/…, `OutboxPublisher`,
-//! [`UnitOfWorkFactory`]) erfüllt heute der Integrationstest mit Fakes; die Maschinerie hier ist
-//! davon unabhängig und bleibt bei der echten io-Anbindung unverändert.
+//! [`einlesen::UnitFactory`]) erfüllt heute der Integrationstest mit Fakes; die Maschinerie hier
+//! ist davon unabhängig und bleibt bei der echten io-Anbindung unverändert.
 
 mod consumer;
 mod dispatcher;

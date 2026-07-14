@@ -1,20 +1,22 @@
-use std::marker::PhantomData;
-
 use application_kernel::CommandDecoder;
 use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
 
 /// Was **eine Nachricht** in **einer** Arbeitseinheit tut: eine
 /// [`TransactionalHandler`]-Implementierung öffnet die Unit-of-Work, baut den Slice-Handler
-/// **aus ihr** (sodass eine gestagete Store-/Publish-Schreibung nur in genau die Unit landen
-/// kann, die committet), dispatcht das Kommando und committet **atomar**, wenn der Handler
-/// gelingt. Weil Handler und Unit **zusammen je Aufruf** entstehen und den Aufruf nie verlassen,
-/// ist der Zustand „gestaged außerhalb der committeten Transaktion" **unkonstruierbar** — genau
-/// die Härtung, die das Outbox-Pattern braucht (ADR-0011, Entscheidung A; die Verortung der
-/// Unit-of-Work in `io` bleibt, nur die Bindung an die Ports wird typ-erzwungen). Der echte
-/// `sqlx`-`io` backt sie mit **einer** `sqlx`-Transaktion, der Test mit einer In-Memory-Unit.
+/// **aus ihr** (Store-/Publish-Ports = die Unit selbst), dispatcht das Kommando und committet
+/// **atomar**, wenn der Handler gelingt. Weil Handler und Unit **zusammen je Aufruf** entstehen und
+/// den Aufruf nie verlassen, committet eine gestagete Store-/Publish-Schreibung **mit** der Unit
+/// oder gar nicht — die Atomarität des Outbox-Patterns (ADR-0011, Entscheidung A; `io` besitzt die
+/// Unit-of-Work). Der echte `sqlx`-`io` backt sie mit **einer** `sqlx`-Transaktion, der Test mit
+/// einer In-Memory-Unit.
+///
+/// Der [`Decoder`](TransactionalHandler::Decoder) (Shape Y, ACL) gehört zum Slice-Handler: er baut
+/// das Kommando aus den nackten Envelope-Strings, ohne dass der Slice einen Outbox-Typ nennt.
 pub trait TransactionalHandler {
     /// Das interne Kommando, das dieser Handler verarbeitet.
     type Command;
+    /// Der slice-gelieferte Envelope-Decoder (Shape Y) für dieses Kommando.
+    type Decoder: CommandDecoder<Command = Self::Command>;
     /// Der **nackte Domänen-Fehler** des Slice (redigierte `Display`, die `io` als Dead-Letter-
     /// Grund spiegelt).
     type Error: std::error::Error;
@@ -35,61 +37,47 @@ pub enum TransactionError<E> {
 
 /// Der **eine** generische Outbox-Consumer ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
 /// Entscheidung A/B): er implementiert `shared_kernel::OutboxHandler` über **jeden**
-/// [`TransactionalHandler`] `T` und dessen slice-gelieferten [`CommandDecoder`] `D`. Statt je
-/// Slice eine Consume-Bridge lebt die Verdrahtung Envelope → Kommando → Disposition **einmal**
-/// hier.
+/// [`TransactionalHandler`] `T`. Statt je Slice eine Consume-Bridge lebt die Verdrahtung
+/// Envelope → Kommando → Disposition **einmal** hier.
 ///
-/// **Ablauf je Nachricht:** die Envelope extrahieren und dem [`CommandDecoder`] nur die nackten
-/// Strings `partition_key`/`content` reichen (Shape Y — der Slice nennt keinen Outbox-Typ) → das
-/// Kommando an den [`TransactionalHandler`] geben, der die Arbeitseinheit öffnet, den Handler aus
-/// ihr baut, dispatcht und **einmal** committet.
+/// **Ablauf je Nachricht:** die Envelope extrahieren und dem slice-eigenen
+/// [`CommandDecoder`](TransactionalHandler::Decoder) nur die nackten Strings
+/// `partition_key`/`content` reichen (Shape Y — der Slice nennt keinen Outbox-Typ) → das Kommando
+/// an den [`TransactionalHandler`] geben, der die Arbeitseinheit öffnet, den Handler aus ihr baut,
+/// dispatcht und **einmal** committet.
 ///
-/// **Fehler-Taktik (io-intern, ADR-0011 Entscheidung B):** `OutboxError` wird **nur** hier
-/// gebaut. Leerer/ungültiger Inhalt (Decoder `None`) → `Critical` (Envelope-/Dispatch-Ebene). Ein
-/// Handler-Fehler ist **terminal** → `Warning` über das **`Display`** des Fehlers (nie `Debug`) —
-/// den redigierten Meldungssatz besitzt allein der Slice-Fehler, `io` spiegelt ihn. Ein Commit-
-/// Fehler → `Retry` (io-interner Broker-/Commit-Retry) — der **einzige** Retry-Ursprung, nie ein
-/// Handler-Fehler.
-pub struct OutboxConsumer<T, D> {
+/// **Fehler-Taktik (io-intern, ADR-0011 Entscheidung B):** der `OutboxError` der
+/// **Nachrichtenverarbeitung** entsteht hier — leerer/ungültiger Inhalt (Decoder `None`) →
+/// `Critical` (Envelope-/Dispatch-Ebene); ein Handler-Fehler ist **terminal** → `Warning` über das
+/// **`Display`** des Fehlers (nie `Debug`), dessen redigierten Meldungssatz allein der Slice
+/// besitzt; ein Commit-Fehler → `Retry`, der **einzige** io-interne Retry-Ursprung. (Die
+/// Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`](crate::Dispatcher), wenn kein
+/// Consumer zum `message_type` passt.) Die attempt-basierte Eskalation Retry → Dead-Letter nach
+/// erschöpften Versuchen gehört dem Broker (`OutboxMessage::attempt`, Build-Order Schritt 5).
+pub struct OutboxConsumer<T> {
     transaction: T,
-    decoder: PhantomData<fn() -> D>,
 }
 
-impl<T, D> OutboxConsumer<T, D>
-where
-    T: TransactionalHandler,
-    D: CommandDecoder<Command = T::Command>,
-{
-    /// Verdrahtet den Consumer über einem konkreten [`TransactionalHandler`]. Der Decoder `D` ist
-    /// zustandslos (assoziierte Funktion, Shape Y) und lebt nur im Typ.
+impl<T: TransactionalHandler> OutboxConsumer<T> {
+    /// Verdrahtet den Consumer über einem konkreten [`TransactionalHandler`].
     pub fn new(transaction: T) -> Self {
-        Self {
-            transaction,
-            decoder: PhantomData,
-        }
+        Self { transaction }
     }
 }
 
-impl<T, D> OutboxHandler for OutboxConsumer<T, D>
-where
-    T: TransactionalHandler,
-    D: CommandDecoder<Command = T::Command>,
-{
+impl<T: TransactionalHandler> OutboxHandler for OutboxConsumer<T> {
     fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
-        let command = D::decode(&message.partition_key, &message.content).ok_or_else(|| {
-            OutboxError::Critical {
-                message: format!(
-                    "Outbox-Nachricht {} trägt leeren oder ungültigen Inhalt.",
-                    message.id
-                ),
-                source: message.message_type,
-            }
-        })?;
+        let command =
+            T::Decoder::decode(&message.partition_key, &message.content).ok_or_else(|| {
+                OutboxError::Critical {
+                    message: format!(
+                        "Outbox-Nachricht {} trägt leeren oder ungültigen Inhalt.",
+                        message.id
+                    ),
+                    source: message.message_type,
+                }
+            })?;
 
-        // Terminal → Warning (Display, redigiert); Commit-Fehler → Retry (einziger io-interner
-        // Retry-Ursprung). Die attempt-basierte Eskalation Retry → Dead-Letter nach erschöpften
-        // Versuchen gehört dem Broker (`OutboxMessage::attempt`, Build-Order Schritt 5), nicht dem
-        // Consumer.
         self.transaction
             .handle(command)
             .map_err(|error| match error {
@@ -104,6 +92,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::fmt;
+    use std::marker::PhantomData;
 
     use super::*;
 
@@ -120,18 +109,6 @@ mod tests {
         }
     }
     impl std::error::Error for DomainError {}
-
-    /// Ein [`TransactionalHandler`], dessen Disposition der Test vorgibt.
-    struct FakeTransaction {
-        outcome: fn() -> Result<(), TransactionError<DomainError>>,
-    }
-    impl TransactionalHandler for FakeTransaction {
-        type Command = Cmd;
-        type Error = DomainError;
-        fn handle(&self, _command: Cmd) -> Result<(), TransactionError<DomainError>> {
-            (self.outcome)()
-        }
-    }
 
     /// Liefert stets ein Kommando (nicht-leerer/gültiger Inhalt).
     struct SomeDecoder;
@@ -151,10 +128,27 @@ mod tests {
         }
     }
 
+    /// Ein [`TransactionalHandler`], dessen Decoder-Typ und Disposition der Test vorgibt.
+    struct FakeTransaction<D> {
+        outcome: fn() -> Result<(), TransactionError<DomainError>>,
+        decoder: PhantomData<fn() -> D>,
+    }
+    impl<D: CommandDecoder<Command = Cmd>> TransactionalHandler for FakeTransaction<D> {
+        type Command = Cmd;
+        type Decoder = D;
+        type Error = DomainError;
+        fn handle(&self, _command: Cmd) -> Result<(), TransactionError<DomainError>> {
+            (self.outcome)()
+        }
+    }
+
     fn consumer<D: CommandDecoder<Command = Cmd>>(
         outcome: fn() -> Result<(), TransactionError<DomainError>>,
-    ) -> OutboxConsumer<FakeTransaction, D> {
-        OutboxConsumer::new(FakeTransaction { outcome })
+    ) -> OutboxConsumer<FakeTransaction<D>> {
+        OutboxConsumer::new(FakeTransaction {
+            outcome,
+            decoder: PhantomData,
+        })
     }
 
     fn nachricht(message_type: &str) -> OutboxMessage {

@@ -22,10 +22,17 @@ impl<'a> Dispatcher<'a> {
         Self::default()
     }
 
-    /// Registriert den Consumer für einen `message_type`. Ein bereits registrierter Eintrag wird
-    /// ersetzt (eine Quelle je Dispatch-Key).
-    pub fn register(&mut self, message_type: &str, consumer: Box<dyn OutboxHandler + 'a>) {
-        self.consumers.insert(message_type.to_string(), consumer);
+    /// Registriert den Consumer für einen `message_type` und gibt einen **verdrängten** Consumer
+    /// zurück, falls der Key schon belegt war (`Some` ⇒ Doppel-Registrierung — ein Verdrahtungs-
+    /// fehler, der so **nicht** stillschweigend verschluckt wird; im Normalfall `None`, eine Quelle
+    /// je Dispatch-Key).
+    #[must_use = "ein zurückgegebener Consumer signalisiert eine doppelte Registrierung"]
+    pub fn register(
+        &mut self,
+        message_type: &str,
+        consumer: Box<dyn OutboxHandler + 'a>,
+    ) -> Option<Box<dyn OutboxHandler + 'a>> {
+        self.consumers.insert(message_type.to_string(), consumer)
     }
 
     /// Löst die Nachricht per `message_type` auf und übergibt sie ihrem Consumer. Ohne passenden

@@ -1,12 +1,11 @@
-//! Verdrahtung des `einlesen`-Slice in die generische Consumer-Maschinerie: [`EinlesenTransaction`]
-//! ist der [`TransactionalHandler`](crate::TransactionalHandler) des Slice — es öffnet je Nachricht
-//! **eine** Arbeitseinheit, baut den [`ReadingHandler`](einlesen_adapter::ReadingHandler) **aus ihr**
-//! (Store-/Publish-Ports = die Unit selbst) und committet atomar. [`consumer`] steckt es mit dem
-//! [`ReadCommandDecoder`](einlesen_adapter::ReadCommandDecoder) zu einem
-//! [`OutboxConsumer`](crate::OutboxConsumer) zusammen; registriert wird der beim
-//! [`Dispatcher`](crate::Dispatcher) unter [`CONSUMED_MESSAGE_TYPE`] (message_type-Auflösung).
+//! Verdrahtung des `einlesen`-Slice in die generische Consumer-Maschinerie:
+//! `EinlesenTransactionalHandler` ist der [`TransactionalHandler`] des Slice — es öffnet je
+//! Nachricht **eine** Arbeitseinheit, baut den `ReadingHandler` **aus ihr** (Store-/Publish-Ports =
+//! die Unit selbst) und committet atomar. [`consumer`] steckt es zu einem [`OutboxConsumer`]
+//! zusammen; registriert wird der beim [`Dispatcher`](crate::Dispatcher) unter
+//! [`CONSUMED_MESSAGE_TYPE`] (message_type-Auflösung).
 //!
-//! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle ([`Transactions`])
+//! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle ([`UnitFactory`])
 //! reicht der Aufrufer herein — heute der Integrationstest mit Fakes, später die realen io-Adapter
 //! (Build-Order Schritt 5: eine `sqlx`-Transaktion pro Nachricht).
 
@@ -25,11 +24,10 @@ pub const CONSUMED_MESSAGE_TYPE: &str = einlesen_adapter::CONSUMED_MESSAGE_TYPE;
 
 /// Die **Unit-Quelle** von `einlesen`: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
 /// **zugleich** der gestagete Speicher (`StoreSeam`) **und** die Outbox (`OutboxPublisher`) ist und
-/// beides atomar committet (`UnitOfWork`). Weil Store und Publish **dieselbe** Unit sind, die
-/// committet, kann eine gestagete Schreibung die committete Transaktion nicht verlassen — das ist die
-/// typ-erzwungene Bindung, die das Outbox-Pattern verlangt. Der echte io backt eine Unit mit **einer**
-/// `sqlx`-Transaktion; der Test mit einer In-Memory-Unit.
-pub trait Transactions {
+/// beides atomar committet (`UnitOfWork`). Weil dieselbe Unit staged **und** committet, committet
+/// eine gestagete Schreibung mit der Nachricht oder gar nicht. Der echte io backt eine Unit mit
+/// **einer** `sqlx`-Transaktion; der Test mit einer In-Memory-Unit.
+pub trait UnitFactory {
     /// Die Arbeitseinheit: gestageter Speicher + Outbox in einem, atomar committbar.
     type Unit: UnitOfWork + StoreSeam + OutboxPublisher;
 
@@ -38,21 +36,23 @@ pub trait Transactions {
 }
 
 /// Der [`TransactionalHandler`] von `einlesen`: hält die message-unabhängigen Seams und die
-/// [`Transactions`]-Unit-Quelle; je `handle` öffnet er eine Unit, baut den Slice-Handler **aus ihr**
-/// und committet atomar, wenn der Handler gelingt.
-pub struct EinlesenTransaction<'a, X: Transactions> {
+/// [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den `ReadingHandler` **aus ihr** (Store =
+/// die Unit, Publish über die Unit) und committet atomar, wenn der Handler gelingt. Weil beide Ports
+/// dieselbe committende Unit sind, kann eine gestagete Schreibung die Transaktion nicht überleben.
+pub struct EinlesenTransactionalHandler<'a, F: UnitFactory> {
     source: &'a dyn SourceSeam,
     calendar: &'a dyn CalendarSeam,
     money: &'a dyn MoneySeam,
-    transactions: X,
+    units: F,
 }
 
-impl<X: Transactions> TransactionalHandler for EinlesenTransaction<'_, X> {
+impl<F: UnitFactory> TransactionalHandler for EinlesenTransactionalHandler<'_, F> {
     type Command = ReadCommand;
+    type Decoder = ReadCommandDecoder;
     type Error = ReadError;
 
     fn handle(&self, command: ReadCommand) -> Result<(), TransactionError<ReadError>> {
-        let unit = self.transactions.begin();
+        let unit = self.units.begin();
         // Store- und Publish-Ports **sind** die Unit: was der Handler staged, landet in genau der
         // Unit, die unten committet. Der innere Block gibt die Borrows auf die Unit wieder frei,
         // bevor `commit` sie verbraucht.
@@ -68,17 +68,17 @@ impl<X: Transactions> TransactionalHandler for EinlesenTransaction<'_, X> {
     }
 }
 
-/// Steckt `einlesen`s [`TransactionalHandler`] + -Decoder zu einem [`OutboxConsumer`] zusammen.
-pub fn consumer<'a, X: Transactions>(
+/// Steckt `einlesen`s [`TransactionalHandler`] zu einem [`OutboxConsumer`] zusammen.
+pub fn consumer<'a, F: UnitFactory>(
     source: &'a dyn SourceSeam,
     calendar: &'a dyn CalendarSeam,
     money: &'a dyn MoneySeam,
-    transactions: X,
-) -> OutboxConsumer<EinlesenTransaction<'a, X>, ReadCommandDecoder> {
-    OutboxConsumer::new(EinlesenTransaction {
+    units: F,
+) -> OutboxConsumer<EinlesenTransactionalHandler<'a, F>> {
+    OutboxConsumer::new(EinlesenTransactionalHandler {
         source,
         calendar,
         money,
-        transactions,
+        units,
     })
 }
