@@ -38,8 +38,10 @@ pub enum TransactionError<E> {
     /// **Redaktions-Pflicht (wenn der echte `io`-Commit fällt):** dieser Grund wird nach
     /// erschöpften Versuchen als Dead-Letter-Grund persistiert. Wie die io-Diagnose des Quell-
     /// Seams beschreibt er **Transaktions-Mechanik** (Broker/DB), **nie** einen Roh-Zeilenwert —
-    /// die reale `UnitOfWork::Error`-`Display` muss das einhalten (heute ist der Commit des
-    /// Slice-Fakes `Infallible`, der Pfad also latent).
+    /// die reale `UnitOfWork::Error`-`Display` muss das einhalten. Der `obfuskierung`-Integrationstest
+    /// fährt diesen Pfad bereits (sein Fake-Commit scheitert mit einer reinen Transaktions-Diagnose
+    /// „broker weg" und wird als einziger Retry-Fall gespiegelt); einlesens Fake-Commit ist noch
+    /// `Infallible`.
     Commit(String),
 }
 
