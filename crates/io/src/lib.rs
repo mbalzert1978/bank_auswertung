@@ -1,8 +1,8 @@
 //! `io` — die **Infrastruktur** des modularen Monolithen: hier lebt die Outbox-Mechanik, die
 //! die Slices seit [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
 //! **nicht** mehr kennen. `io` hält die Outbox-Seams
-//! (`OutboxMessage`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/`UnitOfWork`) selbst als
-//! **io-privates Modul** [`outbox`] und bindet den Slice↔`io`-Vertrag `application_kernel`
+//! (`OutboxMessage`/`OutboxCommand`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/`UnitOfWork`)
+//! selbst als **io-privates Modul** [`outbox`] und bindet den Slice↔`io`-Vertrag `application_kernel`
 //! (`Handler`/`CommandDecoder`/`Publisher`/…) sowie die Slice-Adapter, die es verdrahtet.
 //!
 //! **Die generische Consumer-Maschinerie ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):**

@@ -45,7 +45,7 @@ pub enum TransactionError<E> {
     Commit(String),
 }
 
-/// Der **eine** generische Outbox-Consumer ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
+/// Der **eine** generische Outbox-Consumer ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
 /// Entscheidung A/B): er implementiert [`OutboxHandler`](super::outbox::OutboxHandler) über **jeden**
 /// [`TransactionalHandler`] `T`. Statt je Slice eine Consume-Bridge lebt die Verdrahtung
 /// Envelope → Kommando → Disposition **einmal** hier.
