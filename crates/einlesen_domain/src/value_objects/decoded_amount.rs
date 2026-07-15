@@ -23,12 +23,12 @@ impl DecodedAmount {
     }
 
     #[must_use]
-    pub fn cent(&self) -> u64 {
+    pub(crate) fn cent(&self) -> u64 {
         self.cent
     }
 
     #[must_use]
-    pub fn sign(&self) -> Sign {
+    pub(crate) fn sign(&self) -> Sign {
         self.sign
     }
 }

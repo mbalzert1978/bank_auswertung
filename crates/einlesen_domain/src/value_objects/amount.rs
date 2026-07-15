@@ -12,7 +12,7 @@ pub enum Currency {
 impl Currency {
     /// Deutet einen Währungscode (`EUR`, case-insensitiv). Ein unbekannter Code wird
     /// abgewiesen, statt still falsch weiterzurechnen.
-    pub fn from_code(raw: &NonEmptyString) -> Result<Self, LineError> {
+    pub(crate) fn from_code(raw: &NonEmptyString) -> Result<Self, LineError> {
         if raw.as_str().eq_ignore_ascii_case("EUR") {
             Ok(Self::Euro)
         } else {
@@ -41,7 +41,7 @@ impl Amount {
     /// `None` verlassen (im Aggregat `AmountInvalid`); hier gibt es nichts mehr
     /// abzuweisen. So lebt das Vorzeichen allein in der Richtung (ADR-0005).
     #[must_use]
-    pub fn with_direction(decoded: DecodedAmount, currency: Currency) -> (Self, Direction) {
+    pub(crate) fn with_direction(decoded: DecodedAmount, currency: Currency) -> (Self, Direction) {
         let direction = Direction::from_sign(decoded.sign());
         (
             Self {
