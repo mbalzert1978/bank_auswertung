@@ -17,14 +17,17 @@ impl DecodedAmount {
     /// Bündelt die dekodierten Bestandteile. Der `Money`-Port (io/Fake) ruft dies nach
     /// dem Dekodieren; ein nicht dekodierbares Feld ergibt gar kein VO (`None` am Port),
     /// nie einen halben Betrag.
+    #[must_use]
     pub fn new(cent: u64, sign: Sign) -> Self {
         Self { cent, sign }
     }
 
+    #[must_use]
     pub fn cent(&self) -> u64 {
         self.cent
     }
 
+    #[must_use]
     pub fn sign(&self) -> Sign {
         self.sign
     }

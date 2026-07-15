@@ -13,6 +13,6 @@ pub(crate) struct RepositoryBridge<'a> {
 
 impl ObfuscatedRepository for RepositoryBridge<'_> {
     fn save(&self, booking: &DomainBooking) {
-        self.seam.save(&ObfuscatedBooking::from_domain(booking));
+        self.seam.save(&ObfuscatedBooking::from(booking));
     }
 }

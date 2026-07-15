@@ -9,12 +9,13 @@ use super::NonEmptyString;
 pub struct BookingText(NonEmptyString);
 
 impl From<NonEmptyString> for BookingText {
-    fn from(wert: NonEmptyString) -> Self {
-        Self(wert)
+    fn from(value: NonEmptyString) -> Self {
+        Self(value)
     }
 }
 
 impl BookingText {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }

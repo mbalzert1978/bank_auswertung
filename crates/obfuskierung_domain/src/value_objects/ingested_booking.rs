@@ -21,6 +21,7 @@ pub struct IngestedBooking {
 impl IngestedBooking {
     /// Baut das rohe Aggregat aus seinen Teilen — die Source-Bridge setzt es aus der gelesenen
     /// einlesen-Zeile zusammen.
+    #[must_use]
     pub fn new(id: BookingId, counterparty: RawCounterparty, pass_through: PassThrough) -> Self {
         Self {
             id,
@@ -32,6 +33,7 @@ impl IngestedBooking {
     /// **Obfuskiert** das Aggregat seed-basiert über den [`Obfuscator`]-Port: die Gegenpartei wird
     /// zu Token gedeutet (inkl. Fail-safe Firma/Person), Betrag/Datum &c. reisen unverändert mit,
     /// und der Seed wird ins Ergebnis mitpersistiert (reproduzierbar). Identität bleibt erhalten.
+    #[must_use]
     pub fn obfuscate(self, seed: Seed, obfuscator: &dyn Obfuscator) -> ObfuscatedBooking {
         ObfuscatedBooking::new(
             self.id,

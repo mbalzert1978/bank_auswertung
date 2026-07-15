@@ -101,4 +101,26 @@ impl fmt::Display for ReadError {
     }
 }
 
-impl std::error::Error for ReadError {}
+impl std::error::Error for ReadError {
+    /// Legt die gewrappte Ursache offen — repariert die Fehlerkette. Nur der innere Fehler
+    /// wird sichtbar, dessen `Display` bereits redigiert ist (Feldname statt Rohwert); kein
+    /// neuer Leak-Pfad.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ReadError::Source(error) => Some(error),
+            ReadError::Line(error) => Some(error),
+        }
+    }
+}
+
+impl From<SourceError> for ReadError {
+    fn from(error: SourceError) -> Self {
+        ReadError::Source(error)
+    }
+}
+
+impl From<LineError> for ReadError {
+    fn from(error: LineError) -> Self {
+        ReadError::Line(error)
+    }
+}

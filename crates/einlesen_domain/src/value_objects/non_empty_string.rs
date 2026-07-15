@@ -9,6 +9,7 @@ pub struct NonEmptyString(String);
 
 impl NonEmptyString {
     /// Baut den Kern: getrimmt; leer oder nur Whitespace → `None`.
+    #[must_use]
     pub fn new(raw: &str) -> Option<Self> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -18,6 +19,7 @@ impl NonEmptyString {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

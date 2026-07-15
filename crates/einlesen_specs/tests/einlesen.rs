@@ -102,9 +102,8 @@ fn erwartete_zeile() -> Line {
 fn eine_gültige_zeile_wird_zu_einem_eingelesen_command() {
     let api = ReadTestApi::new().with_line(gültiger_rohsatz());
 
-    let ergebnis = api.run(QUELLE);
+    api.run(QUELLE).expect("gültige Zeile");
 
-    assert_eq!(ergebnis, Ok(()));
     // Genau **ein** „Eingelesen"-Command, und sein Zeiger deckt sich mit dem Speicher-Schlüssel
     // (Tabelle = Wahrheit, Message = Pointer): der Spec vergleicht die beiden Datenrückgaben der
     // TestApi, ohne die intern vergebene Aggregat-ID als Literal zu benennen.
@@ -116,17 +115,15 @@ fn eine_gültige_zeile_wird_zu_einem_eingelesen_command() {
 
 #[test]
 fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
-    let mut erste = gültiger_rohsatz();
-    erste.recipient_name = feld("EDEKA");
-    let mut zweite = gültiger_rohsatz();
-    zweite.recipient_name = feld("REWE");
-    let mut dritte = gültiger_rohsatz();
-    dritte.recipient_name = feld("ALDI");
-
-    let api = ReadTestApi::new()
-        .with_line(erste)
-        .with_line(zweite)
-        .with_line(dritte);
+    // Drei Zeilen, die sich nur im belanglosen Empfängernamen unterscheiden — deklarativ als
+    // `fold` über die Namen gebaut, statt jede Zeile einzeln zu mutieren.
+    let api = ["EDEKA", "REWE", "ALDI"]
+        .into_iter()
+        .fold(ReadTestApi::new(), |api, name| {
+            let mut rohsatz = gültiger_rohsatz();
+            rohsatz.recipient_name = feld(name);
+            api.with_line(rohsatz)
+        });
 
     api.run(QUELLE).expect("gültige Zeilen");
 
@@ -134,20 +131,13 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
     // Schlüssel abgelegte Roh-Zeile (Tabelle = Wahrheit, Message = Pointer). Weil die Speicher-
     // Schlüssel je Zeile verschieden sind, belegt die Deckung zugleich, dass die drei Zeiger
     // paarweise verschieden sind — ohne dass der Spec an die interne Fake-Nummerierung koppelt.
-    assert_eq!(
-        api.published_message_types(),
-        vec!["Ingested", "Ingested", "Ingested"]
-    );
+    assert_eq!(api.published_message_types(), vec!["Ingested"; 3]);
     assert_eq!(api.stored_ids(), api.published_partition_keys());
     // Aggregat **und** Ereignis werden atomar gestaged (ADR-0008): je gültiger Zeile liegt ihr
     // Auftragskonto am Speicher-Seam — in Lesereihenfolge, nicht nur der Fan-out stromabwärts.
     assert_eq!(
         api.stored_ordering_accounts(),
-        vec![
-            "DE89370400440532013000",
-            "DE89370400440532013000",
-            "DE89370400440532013000"
-        ]
+        vec!["DE89370400440532013000"; 3]
     );
 }
 

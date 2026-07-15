@@ -35,6 +35,6 @@ mod unit_of_work;
 pub use outbox_command::OutboxCommand;
 pub use outbox_error::OutboxError;
 pub use outbox_handler::OutboxHandler;
-pub use outbox_message::{OutboxMessage, outbox_payload};
+pub use outbox_message::OutboxMessage;
 pub use outbox_publisher::OutboxPublisher;
 pub use unit_of_work::UnitOfWork;

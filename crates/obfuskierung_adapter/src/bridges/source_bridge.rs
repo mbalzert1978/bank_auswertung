@@ -18,7 +18,7 @@ impl RawBookingSource for SourceBridge<'_> {
     fn read(&self, id: &BookingId) -> BookingLookup {
         match self.seam.read(id.as_str()) {
             None => BookingLookup::Absent,
-            Some(row) => match row.to_booking(id.clone()) {
+            Some(row) => match row.to_booking(id) {
                 Ok(booking) => BookingLookup::Found(Box::new(booking)),
                 Err(missing) => BookingLookup::Malformed {
                     field: missing.field(),

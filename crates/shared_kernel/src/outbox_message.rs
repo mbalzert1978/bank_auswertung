@@ -6,8 +6,8 @@
 /// der Ereigniszeitpunkt. **Reines Transport-DTO** — Persistenz-Statusspalten
 /// (verarbeitet-Zeitpunkt, Fehler) leben auf der Storage-Zeile, nicht hier.
 ///
-/// `content` folgt der einen JSON-Konvention (s. [`outbox_payload`]); der
-/// Kernel serialisiert selbst **nicht** (serde-frei) — das tun `io` (Publisher)
+/// `content` folgt der einen JSON-Konvention (s. [`content`](OutboxMessage::content));
+/// der Kernel serialisiert selbst **nicht** (serde-frei) — das tun `io` (Publisher)
 /// und die Consume-Bridge (Deserialisierung) mit derselben Konvention.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboxMessage {
@@ -26,7 +26,18 @@ pub struct OutboxMessage {
     /// den `obfuskieren` im einlesen-Speicher auflöst) reist **hier**, nicht in
     /// [`id`](OutboxMessage::id) (das die Message-UUID trägt).
     pub partition_key: String,
-    /// Serialisierte Nutzlast (JSON-Text nach [`outbox_payload`]-Konvention).
+    /// Serialisierte Nutzlast (JSON-Text nach der hier beschriebenen Konvention).
+    ///
+    #[doc = "**Die eine JSON-Konvention für Outbox-Nutzlasten** — **nur Dokumentation, keine"]
+    #[doc = "serde-Impl im Kernel** (der `shared_kernel` bleibt dependency-frei)."]
+    #[doc = ""]
+    #[doc = "`io` (der `OutboxPublisher`) serialisiert den Kommando-Inhalt mit dieser"]
+    #[doc = "Konvention, und **jede** Consume-Bridge deserialisiert ihren Request mit"]
+    #[doc = "derselben — so rundläuft die Wire-Form ohne Casing-Drift. Konvention:"]
+    #[doc = "**camelCase**-Feldnamen, **case-insensitiv** beim Lesen (Entsprechung zu"]
+    #[doc = "`JsonSerializerDefaults.Web` der C#-Referenz `Outbox/Adapter/OutboxPayload.cs`)."]
+    #[doc = "Eine Quelle — Serialisierung, Deserialisierung und die Test-Seams können nicht"]
+    #[doc = "auf drei unabhängig gewählte Konventionen auseinanderdriften."]
     pub content: String,
     /// Zeitpunkt des auslösenden Ereignisses als **Unix-Zeit** (Millisekunden seit
     /// Epoch, UTC). Bewusst ein `i64` statt `SystemTime`: als SQLite-`INTEGER`
@@ -36,15 +47,3 @@ pub struct OutboxMessage {
     /// Bisherige Zustellversuche (für Retry/Dead-Letter-Entscheidungen).
     pub attempt: u32,
 }
-
-/// Die eine JSON-Konvention für Outbox-Nutzlasten — **nur Dokumentation, keine
-/// serde-Impl im Kernel** (der `shared_kernel` bleibt dependency-frei).
-///
-/// `io` (der `OutboxPublisher`) serialisiert den Kommando-Inhalt mit dieser
-/// Konvention, und **jede** Consume-Bridge deserialisiert ihren Request mit
-/// derselben — so rundläuft die Wire-Form ohne Casing-Drift. Konvention:
-/// **camelCase**-Feldnamen, **case-insensitiv** beim Lesen (Entsprechung zu
-/// `JsonSerializerDefaults.Web` der C#-Referenz `Outbox/Adapter/OutboxPayload.cs`).
-/// Eine Quelle — Serialisierung, Deserialisierung und die Test-Seams können nicht
-/// auf drei unabhängig gewählte Konventionen auseinanderdriften.
-pub mod outbox_payload {}

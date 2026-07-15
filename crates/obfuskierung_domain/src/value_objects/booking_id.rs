@@ -9,13 +9,28 @@ pub struct BookingId(String);
 
 impl BookingId {
     /// Baut die ID aus ihrem Rohwert (der Adapter reicht die Envelope-ID herein). Bewusst **opak**
-    /// (kein `NonEmptyString`): die Nicht-Leere garantiert die Herkunft (io/Outbox-Envelope vergeben
-    /// die ID, nie leer) — ein eigener Validierungspfad hier wäre reibungsvolle Zeremonie ohne
-    /// Gewinn, denn der Slice deutet die ID nie, er reicht sie als Zeiger durch.
+    /// (kein `NonEmptyString`, keine fehlbare Signatur): der Slice deutet die ID nie, er reicht sie
+    /// als Zeiger durch. Die **Nicht-Leere** ist dennoch im Typ abgesichert: die ID vergibt die
+    /// Herkunft (io/Outbox-Envelope, nie leer), eine leere ID ist ein **unmöglicher** Zustand — ein
+    /// Herkunfts-Invariantenbruch. Genau darum fällt der Guard **hart** um (`panic`) statt einen
+    /// `Result`-Pfad für einen nie eintretenden Fall aufzuspannen. (Spiegelt
+    /// [`IngestionId::new`](../../../einlesen_domain/src/value_objects/ingestion_id.rs).)
+    ///
+    /// # Panics
+    /// Wenn der Rohwert leer ist — die Herkunft (io/Outbox-Envelope) hat die Garantie (nie-leere ID)
+    /// gebrochen.
+    #[must_use]
     pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+        let value = value.into();
+        assert!(
+            !value.is_empty(),
+            "BookingId: leere ID — die Herkunft (io/Outbox-Envelope) garantiert eine nie-leere \
+             Identität, ein Leerwert ist ein Invariantenbruch"
+        );
+        Self(value)
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

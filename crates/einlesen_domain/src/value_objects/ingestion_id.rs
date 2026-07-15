@@ -20,6 +20,7 @@ impl IngestionId {
     ///
     /// # Panics
     /// Wenn der Rohwert leer ist — der Speicher hat die Herkunfts-Garantie (nie-leere ID) gebrochen.
+    #[must_use]
     pub fn new(value: impl Into<String>) -> Self {
         let value = value.into();
         assert!(
@@ -30,6 +31,7 @@ impl IngestionId {
         Self(value)
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -44,7 +46,7 @@ mod tests {
     fn leere_id_faellt_hart_um() {
         // Der Speicher garantiert eine nie-leere Identität — ein Leerwert ist ein
         // Invariantenbruch, kein deutbarer Eingang: der Guard fällt hart um.
-        IngestionId::new("");
+        let _id = IngestionId::new("");
     }
 
     #[test]

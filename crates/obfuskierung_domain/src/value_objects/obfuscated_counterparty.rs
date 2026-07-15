@@ -23,6 +23,7 @@ impl ObfuscatedCounterparty {
     /// an dem die **Fail-safe-Deutung** Firma/Person fällt (siehe [`Recipient`]). Konten
     /// (Auftraggeber **und** Gegenkonto) werden getokenisiert, der Freitext läuft durch den
     /// Engpass; die Gläubiger-ID bleibt als Anker Klartext.
+    #[must_use]
     pub fn obfuscate(raw: RawCounterparty, seed: Seed, obfuscator: &dyn Obfuscator) -> Self {
         let token = |plaintext: &NonEmptyString| {
             AccountToken::from_replacement(obfuscator.obfuscate(seed, plaintext))
@@ -54,22 +55,27 @@ impl ObfuscatedCounterparty {
         }
     }
 
+    #[must_use]
     pub fn ordering_account(&self) -> &AccountToken {
         &self.ordering_account
     }
 
+    #[must_use]
     pub fn counter_account(&self) -> Option<&AccountToken> {
         self.counter_account.as_ref()
     }
 
+    #[must_use]
     pub fn recipient(&self) -> &Recipient {
         &self.recipient
     }
 
+    #[must_use]
     pub fn purpose(&self) -> Option<&ObfuscatedText> {
         self.purpose.as_ref()
     }
 
+    #[must_use]
     pub fn booking_text(&self) -> Option<&ObfuscatedText> {
         self.booking_text.as_ref()
     }

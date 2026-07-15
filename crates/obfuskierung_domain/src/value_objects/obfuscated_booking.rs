@@ -16,6 +16,7 @@ pub struct ObfuscatedBooking {
 }
 
 impl ObfuscatedBooking {
+    #[must_use]
     pub(crate) fn new(
         id: BookingId,
         counterparty: ObfuscatedCounterparty,
@@ -30,18 +31,22 @@ impl ObfuscatedBooking {
         }
     }
 
+    #[must_use]
     pub fn id(&self) -> &BookingId {
         &self.id
     }
 
+    #[must_use]
     pub fn counterparty(&self) -> &ObfuscatedCounterparty {
         &self.counterparty
     }
 
+    #[must_use]
     pub fn pass_through(&self) -> &PassThrough {
         &self.pass_through
     }
 
+    #[must_use]
     pub fn seed(&self) -> Seed {
         self.seed
     }

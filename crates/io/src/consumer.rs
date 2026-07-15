@@ -88,14 +88,23 @@ impl<T: TransactionalHandler> OutboxHandler for OutboxConsumer<T> {
                 }
             })?;
 
-        self.transaction
-            .handle(command)
-            .map_err(|error| match error {
-                TransactionError::Handler(error) => OutboxError::Warning {
-                    reason: error.to_string(),
-                },
-                TransactionError::Commit(reason) => OutboxError::Retry { reason },
-            })
+        self.transaction.handle(command).map_err(OutboxError::from)
+    }
+}
+
+/// Übersetzt die Disposition eines transaktionalen Versuchs in den `OutboxError` der
+/// Nachrichtenverarbeitung (io-intern, ADR-0011 Entscheidung B): ein Handler-Fehler ist
+/// **terminal** → `Warning` über das **`Display`** des nackten Domänen-Fehlers (nie `Debug`),
+/// dessen redigierten Meldungssatz allein der Slice besitzt; ein Commit-Fehler → `Retry`, der
+/// **einzige** io-interne Retry-Ursprung.
+impl<E: std::fmt::Display> From<TransactionError<E>> for OutboxError {
+    fn from(error: TransactionError<E>) -> Self {
+        match error {
+            TransactionError::Handler(error) => OutboxError::Warning {
+                reason: error.to_string(),
+            },
+            TransactionError::Commit(reason) => OutboxError::Retry { reason },
+        }
     }
 }
 

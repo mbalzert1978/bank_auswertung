@@ -14,10 +14,7 @@ impl MoneySeam for FakeMoneySeam {
             .strip_prefix('-')
             .map(|rest| (Sign::Negative, rest))
             .or_else(|| raw.strip_prefix('+').map(|rest| (Sign::Positive, rest)))?;
-        let (euro, cent) = match digits.split_once(',') {
-            Some((euro, cent)) => (euro, cent),
-            None => (digits, ""),
-        };
+        let (euro, cent) = digits.split_once(',').unwrap_or((digits, ""));
         let euro: u64 = euro.replace('.', "").parse().ok()?;
         let cent: u64 = if cent.is_empty() {
             0

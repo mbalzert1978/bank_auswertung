@@ -12,11 +12,13 @@ pub struct Seed(u64);
 
 impl Seed {
     /// Baut den Seed aus seinem Rohwert (der Adapter reicht ihn aus dem `SeedSeam`).
+    #[must_use]
     pub fn new(value: u64) -> Self {
         Self(value)
     }
 
     /// Der Rohwert — der Obfuscator-Port keyt seine deterministische Vergabe damit.
+    #[must_use]
     pub fn value(self) -> u64 {
         self.0
     }

@@ -16,4 +16,8 @@ impl ObfuscateBooking {
     pub fn id(&self) -> &BookingId {
         &self.id
     }
+
+    pub fn into_id(self) -> BookingId {
+        self.id
+    }
 }

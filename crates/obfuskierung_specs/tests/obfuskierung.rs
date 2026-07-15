@@ -41,6 +41,14 @@ fn gültige_zeile() -> IngestedRow {
     }
 }
 
+/// Ein Lauf-Setup mit gesetztem Seed und einer einzelnen unter „buchung-1" arrangierten Zeile —
+/// die sonst wörtlich wiederholte Arrange-Kette der Ein-Zeilen-Szenarien, spec-lokal gebündelt.
+fn api_mit_zeile(zeile: IngestedRow) -> ObfuscationTestApi {
+    ObfuscationTestApi::new()
+        .with_seed(SEED)
+        .with_ingested("buchung-1", zeile)
+}
+
 /// Die erwartete obfuskierte Buchung zur [`gültige_zeile`] — die Token-Felder über die
 /// deterministischen `expected_*`-Helfer der TestApi, alles andere Pass-Through/ID/Seed.
 fn erwartete_buchung(api: &ObfuscationTestApi, id: &str) -> ObfuscatedBooking {
@@ -74,9 +82,7 @@ fn einzige_buchung(api: &ObfuscationTestApi) -> ObfuscatedBooking {
 
 #[test]
 fn zeile_wird_per_id_gelesen_obfuskiert_abgelegt_und_die_id_als_zeiger_publiziert() {
-    let api = ObfuscationTestApi::new()
-        .with_seed(SEED)
-        .with_ingested("buchung-1", gültige_zeile());
+    let api = api_mit_zeile(gültige_zeile());
 
     let ergebnis = api.run("buchung-1");
 
@@ -102,10 +108,7 @@ fn gleicher_klartext_und_seed_ergibt_dasselbe_konto_token() {
     let erste = bookings.next().expect("erste Buchung");
     let zweite = bookings.next().expect("zweite Buchung");
     // Dieselbe IBAN + derselbe Seed → dasselbe Konto-Token (laufstabil, zustandslos).
-    assert_eq!(
-        erste.ordering_account.as_str(),
-        zweite.ordering_account.as_str()
-    );
+    assert_eq!(erste.ordering_account, zweite.ordering_account);
 }
 
 // --- Fail-safe Firma vs. Privatperson (CONTEXT.md 113–116) ---------------------
@@ -114,21 +117,20 @@ fn gleicher_klartext_und_seed_ergibt_dasselbe_konto_token() {
 fn ohne_gläubiger_id_wird_der_empfänger_zur_pseudonymisierten_person() {
     // Die Person-Variante mit ihrem Pseudonym prüft `assert_stored` (Happy Path) bereits. Hier
     // zusätzlich die Redaktions-Invariante: der Klarname taucht im Token **nicht** auf.
-    let api = ObfuscationTestApi::new()
-        .with_seed(SEED)
-        .with_ingested("buchung-1", gültige_zeile()); // creditor_id: None
+    let api = api_mit_zeile(gültige_zeile()); // creditor_id: None
     api.run("buchung-1").expect("gültige Zeile");
 
     let buchung = einzige_buchung(&api);
-    assert!(
-        matches!(&buchung.recipient, Recipient::Person { .. }),
-        "erwartete eine pseudonymisierte Person, war {:?}",
-        buchung.recipient
-    );
-    if let Recipient::Person { pseudonym } = &buchung.recipient {
-        assert!(!pseudonym.as_str().contains("Erika"));
-        assert!(!pseudonym.as_str().contains("Mustermann"));
-    }
+    // Ein Match statt zweier: die Variante binden (sonst laut scheitern), dann am gebundenen
+    // Pseudonym die Redaktion prüfen — keine klammheimlich stille `if let`-Extraktion.
+    let Recipient::Person { pseudonym } = &buchung.recipient else {
+        panic!(
+            "erwartete eine pseudonymisierte Person, war {:?}",
+            buchung.recipient
+        );
+    };
+    assert!(!pseudonym.as_str().contains("Erika"));
+    assert!(!pseudonym.as_str().contains("Mustermann"));
 }
 
 #[test]
@@ -136,9 +138,7 @@ fn mit_gläubiger_id_bleibt_der_firmenname_klartext_und_die_id_anker() {
     let mut zeile = gültige_zeile();
     zeile.recipient_name = Some("Stromanbieter AG".to_string());
     zeile.creditor_id = Some("DE00ZZZ00000000123".to_string());
-    let api = ObfuscationTestApi::new()
-        .with_seed(SEED)
-        .with_ingested("buchung-1", zeile);
+    let api = api_mit_zeile(zeile);
     api.run("buchung-1").expect("gültige Zeile");
 
     // Firma → Name bleibt Klartext (Kategorie-Signal), Gläubiger-ID bleibt Anker.
@@ -155,9 +155,7 @@ fn ohne_empfänger_und_ohne_gläubiger_id_gibt_es_keine_gegenpartei() {
     let mut zeile = gültige_zeile();
     zeile.recipient_name = None;
     zeile.creditor_id = None;
-    let api = ObfuscationTestApi::new()
-        .with_seed(SEED)
-        .with_ingested("buchung-1", zeile);
+    let api = api_mit_zeile(zeile);
     api.run("buchung-1").expect("gültige Zeile");
 
     let mut erwartet = erwartete_buchung(&api, "buchung-1");
@@ -171,9 +169,7 @@ fn ohne_empfänger_und_ohne_gläubiger_id_gibt_es_keine_gegenpartei() {
 fn freitext_wird_getrimmt_durch_den_obfuskierten_text_engpass() {
     let mut zeile = gültige_zeile();
     zeile.purpose = Some("  Miete Juli  ".to_string());
-    let api = ObfuscationTestApi::new()
-        .with_seed(SEED)
-        .with_ingested("buchung-1", zeile);
+    let api = api_mit_zeile(zeile);
     api.run("buchung-1").expect("gültige Zeile");
 
     // Getrimmt, inhaltlich erhalten (Scrubbing vertagt) — `expected_text` trimmt gleichermaßen.
@@ -192,13 +188,16 @@ fn absente_id_wird_terminal_dead_lettert_ohne_etwas_zu_emittieren() {
     // Zeile+Nachricht atomar und der Broker stellt erst danach zu, also müsste die Zeile liegen.
     // Der Handler steigt mit dem nackten `SourceMissing` aus; `io` dead-lettert ihn uniform. Der
     // redigierte Grund trägt nur die opake ID (kein Rohwert).
+    // Ein Match statt zweier: den Fehler EINMAL auspacken, dann Variante und Wortlaut am
+    // gebundenen Wert prüfen — der Grund trägt nur die opake ID redigiert (kein Rohwert).
+    let fehler = ergebnis.expect_err("erwartet terminales gebrochenes Invariant");
     assert!(
-        matches!(&ergebnis, Err(HandleError::SourceMissing(_))),
-        "erwartet terminales gebrochenes Invariant: {ergebnis:?}"
+        matches!(fehler, HandleError::SourceMissing(_)),
+        "erwartet terminales gebrochenes Invariant: {fehler:?}"
     );
-    assert!(
-        matches!(&ergebnis, Err(error) if error.to_string() == "referenced booking not found in source: fehlt-noch"),
-        "der Grund muss die opake ID redigiert tragen: {ergebnis:?}"
+    assert_eq!(
+        fehler.to_string(),
+        "referenced booking not found in source: fehlt-noch"
     );
     api.assert_nothing_emitted();
 }
@@ -211,9 +210,7 @@ fn vorhandene_zeile_mit_leerem_pflichtfeld_wird_terminal_dead_lettert() {
     // (nur der statische Feldname, nie ein Rohwert).
     let mut zeile = gültige_zeile();
     zeile.currency = String::new();
-    let api = ObfuscationTestApi::new()
-        .with_seed(SEED)
-        .with_ingested("buchung-1", zeile);
+    let api = api_mit_zeile(zeile);
 
     let ergebnis = api.run("buchung-1");
 

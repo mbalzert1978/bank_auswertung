@@ -12,6 +12,15 @@ pub enum Direction {
     Outgoing,
 }
 
+impl From<einlesen_domain::Direction> for Direction {
+    fn from(direction: einlesen_domain::Direction) -> Self {
+        match direction {
+            einlesen_domain::Direction::Incoming => Direction::Incoming,
+            einlesen_domain::Direction::Outgoing => Direction::Outgoing,
+        }
+    }
+}
+
 /// Die Währung eines Betrags — **adapter-eigen** (kein Re-Export von
 /// `einlesen_domain::Currency`): derselbe Summentyp wie die Domäne (heute nur `Euro`), aber
 /// ein eigener Typ, weil `Line` die Adapter-Grenze überquert und keine Domänen-Interna
@@ -20,6 +29,14 @@ pub enum Direction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Currency {
     Euro,
+}
+
+impl From<einlesen_domain::Currency> for Currency {
+    fn from(currency: einlesen_domain::Currency) -> Self {
+        match currency {
+            einlesen_domain::Currency::Euro => Currency::Euro,
+        }
+    }
 }
 
 /// Das ausgehende DTO des Slice — die **eine** Datensicht, die `einlesen` nach außen gibt: die
@@ -49,10 +66,10 @@ pub struct Line {
     pub booking_text: Option<String>,
 }
 
-impl Line {
+impl From<&LineAggregate> for Line {
     /// Projiziert das validierte Aggregat auf das DTO — die einzige Stelle, an der ein
     /// `LineAggregate` zu einer `Line` wird (der Handler ruft sie je gültiger Zeile).
-    pub(crate) fn from_aggregate(aggregate: &LineAggregate) -> Self {
+    fn from(aggregate: &LineAggregate) -> Self {
         let recipient = aggregate.recipient();
         let booking_day = aggregate.date().booking_day();
         let value_date = aggregate.date().value_date();
@@ -62,13 +79,8 @@ impl Line {
                 .counter_account()
                 .map(|iban| iban.as_str().to_string()),
             amount_cent: aggregate.amount().cent(),
-            currency: match aggregate.amount().currency() {
-                einlesen_domain::Currency::Euro => Currency::Euro,
-            },
-            direction: match aggregate.direction() {
-                einlesen_domain::Direction::Incoming => Direction::Incoming,
-                einlesen_domain::Direction::Outgoing => Direction::Outgoing,
-            },
+            currency: aggregate.amount().currency().into(),
+            direction: aggregate.direction().into(),
             recipient_name: recipient.name().map(|name| name.as_str().to_string()),
             creditor_id: recipient.creditor_id().map(|id| id.as_str().to_string()),
             booking_day: CalendarDay {
