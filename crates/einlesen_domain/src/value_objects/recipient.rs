@@ -68,7 +68,7 @@ impl Recipient {
     /// optional: ein fehlender Name (`None`) heißt eine Buchung ohne Gegenpartei (Gebühr),
     /// kein Fehler; eine fehlende Gläubiger-ID ebenso wenig.
     #[must_use]
-    pub fn from_parts(name: Option<RecipientName>, creditor_id: Option<CreditorId>) -> Self {
+    pub(crate) fn from_parts(name: Option<RecipientName>, creditor_id: Option<CreditorId>) -> Self {
         Self { name, creditor_id }
     }
 

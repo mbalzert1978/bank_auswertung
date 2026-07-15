@@ -28,7 +28,7 @@ impl LineAggregate {
     /// `Money`-Port, Datum aus Buchungstag + Valuta über den Kalender, Auftragskonto,
     /// Empfänger), dann die optionalen (Gegenkonto, Verwendungszweck, Buchungstext).
     /// Jeder Fehler ist terminal.
-    pub fn from_raw_line(
+    pub(crate) fn from_raw_line(
         line: RawLine,
         calendar: &dyn Calendar,
         money: &dyn Money,

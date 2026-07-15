@@ -52,7 +52,7 @@ impl Date {
     /// Bündelt Buchungstag und Valuta zum Datum der Buchung. Beide sind bereits gültige
     /// Kalendertage — hier gibt es nichts mehr abzuweisen.
     #[must_use]
-    pub fn from_days(booking_day: CalendarDay, value_date: CalendarDay) -> Self {
+    pub(crate) fn from_days(booking_day: CalendarDay, value_date: CalendarDay) -> Self {
         Self {
             booking_day,
             value_date,

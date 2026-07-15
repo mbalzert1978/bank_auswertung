@@ -9,15 +9,15 @@ use einlesen_adapter::{CalendarDay, Currency, Direction, Line, RawRecord};
 /// Die Quelle eines Einlese-Laufs — seit Issue 0018 reiner Routing-Kontext: sie reist nur
 /// noch als `partition_key` des Envelopes (die Payload ist feldlos), der Batch kommt über
 /// den Quell-Seam.
-pub const QUELLE: &str = "auszug-juni";
+pub(crate) const QUELLE: &str = "auszug-juni";
 
-pub fn feld(wert: &str) -> Option<String> {
+pub(crate) fn feld(wert: &str) -> Option<String> {
     Some(wert.to_string())
 }
 
 /// Ein vollständig gültiger Rohsatz — spec-lokale Fixture; Feld-Overrides passieren direkt
 /// (die Felder sind `pub`, kein Fluent-Bauer nötig).
-pub fn gültiger_rohsatz() -> RawRecord {
+pub(crate) fn gültiger_rohsatz() -> RawRecord {
     RawRecord {
         ordering_account: feld("DE89370400440532013000"),
         booking_day: feld("13.06.2024"),
@@ -35,7 +35,7 @@ pub fn gültiger_rohsatz() -> RawRecord {
 /// Die erwartete Projektion des [`gültiger_rohsatz`] auf das ausgehende `Line`-DTO — spec-lokale
 /// Fixture, damit die Feld-Treue-Specs eine **ganze** `Line` vergleichen (`assert_eq!`), statt
 /// Feld für Feld zu assertieren. Die `Line`-Felder sind `pub`, ein Struct-Literal genügt.
-pub fn erwartete_zeile() -> Line {
+pub(crate) fn erwartete_zeile() -> Line {
     Line {
         ordering_account: "DE89370400440532013000".to_string(),
         counter_account: Some("DE11520513735120710131".to_string()),
