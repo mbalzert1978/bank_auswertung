@@ -1,7 +1,7 @@
 ---
 id: "0026"
 title: API-Guideline-Derives, must_use, Namen und Kosmetik
-status: open
+status: closed
 ---
 
 # API-Guideline-Derives, must_use, Namen und Kosmetik

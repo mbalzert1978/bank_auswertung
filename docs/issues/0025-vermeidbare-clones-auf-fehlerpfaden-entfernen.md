@@ -1,7 +1,7 @@
 ---
 id: "0025"
 title: Vermeidbare Clones auf Fehlerpfaden entfernen
-status: open
+status: closed
 ---
 
 # Vermeidbare Clones auf Fehlerpfaden entfernen

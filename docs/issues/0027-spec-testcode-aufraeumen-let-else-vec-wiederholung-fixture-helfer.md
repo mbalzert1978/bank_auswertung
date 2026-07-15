@@ -1,7 +1,7 @@
 ---
 id: "0027"
 title: Spec-Testcode aufräumen (let-else, vec-Wiederholung, Fixture-Helfer)
-status: open
+status: closed
 ---
 
 # Spec-Testcode aufräumen (let-else, vec-Wiederholung, Fixture-Helfer)

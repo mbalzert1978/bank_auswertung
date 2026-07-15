@@ -1,7 +1,7 @@
 ---
 id: "0024"
 title: DTO↔Domäne-Mapping auf From/TryFrom umstellen (TryFrom wenn fallibel, sonst From)
-status: open
+status: closed
 ---
 
 # DTO↔Domäne-Mapping auf From/TryFrom umstellen (TryFrom wenn fallibel, sonst From)

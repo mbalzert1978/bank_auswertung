@@ -1,6 +1,6 @@
 # Issue-Fortschritt
 
-Stand: 2026-07-03
+Stand: 2026-07-15
 
 ## Neu (offen) — event-getriebene Pipeline (ADR-0008)
 
@@ -20,6 +20,27 @@ Vertagt (Zielbild ADR-0008, bewusst noch kein Issue): `auswerten`-Consumer,
 
 ## Erledigt
 
+- [x] **[0023-error-ketten-vervollstaendigen-source-an-wrapper-errors.md](0023-error-ketten-vervollstaendigen-source-an-wrapper-errors.md)** (2026-07-15, PR #19)
+  Error-Ketten vervollständigt: `ReadError::source()` reicht die innere Ursache je Variante
+  weiter, `From<SourceError>`/`From<LineError>` lassen den Handler `?` nutzen; `HandleError`
+  als Blatt-Error bestätigt (leeres `impl` korrekt). Redaktions-Invariante gewahrt.
+- [x] **[0024-dto-domaene-mapping-auf-from-tryfrom-umstellen-tryfrom-wenn-fallibel-sonst-from.md](0024-dto-domaene-mapping-auf-from-tryfrom-umstellen-tryfrom-wenn-fallibel-sonst-from.md)** (2026-07-15, PR #19)
+  Ein-eingabige DTO↔Domäne-Mappings auf die Standard-Konversions-Traits gehoben
+  (fallibel → `TryFrom`, sonst `From`): `RawLine::try_from(&RawRecord)`, Summentyp-/
+  Projektions-Mappings, obfuskierung-Egress-DTOs, `TransactionError → OutboxError`.
+  `IngestedRow::to_booking` (mehr-eingabig) bleibt benannte Methode.
+- [x] **[0025-vermeidbare-clones-auf-fehlerpfaden-entfernen.md](0025-vermeidbare-clones-auf-fehlerpfaden-entfernen.md)** (2026-07-15, PR #19)
+  Vermeidbare Clones auf Fehlerpfaden entfernt: `SourceBridge` nimmt die `BookingId`
+  borrowend (klont nur im `Ok`-Zweig), `ObfuscateBooking::into_id` eliminiert den Klon
+  im Absent-Arm. Verhalten unverändert.
+- [x] **[0026-api-guideline-derives-must-use-namen-und-kosmetik.md](0026-api-guideline-derives-must-use-namen-und-kosmetik.md)** (2026-07-15, PR #19)
+  API-Guideline-Cleanup: `Debug` an `BookingLookup`, `#[must_use]` an konsumierenden
+  TestApi-Buildern und VO-Konstruktoren/Gettern, Parameter `wert → value`,
+  `split_once`-Kombinator, Deref weg, leeres `pub mod` → `#[doc]`.
+- [x] **[0027-spec-testcode-aufraeumen-let-else-vec-wiederholung-fixture-helfer.md](0027-spec-testcode-aufraeumen-let-else-vec-wiederholung-fixture-helfer.md)** (2026-07-15, PR #19)
+  Spec-Testcode idiomatischer: Doppel-Match → `let … else { panic!() }`, `vec![x; n]`,
+  `fold` über Namensvarianten, spec-lokaler Fixture-Helfer, `.expect(…)`-Angleichung.
+  Black-Box über die Fluent-TestApi unverändert.
 - [x] **[0014-shared-kernel-outbox-vertraege.md](0014-shared-kernel-outbox-vertraege.md)** (2026-07-03)
   `shared_kernel` um die Outbox-Verträge erweitert; in der Gestalt verfeinert durch
   [ADR-0009](../adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md)

@@ -1,7 +1,7 @@
 ---
 id: "0023"
 title: Error-Ketten vervollständigen — source() an Wrapper-Errors
-status: open
+status: closed
 ---
 
 # Error-Ketten vervollständigen — source() an Wrapper-Errors
