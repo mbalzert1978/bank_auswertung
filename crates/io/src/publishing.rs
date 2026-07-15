@@ -28,8 +28,14 @@ impl<O: OutboxPublisher, C: PublishCommand> Publisher<C> for PublishingPort<'_, 
 }
 
 impl<O: OutboxPublisher> PublishSeam for PublishingPort<'_, O> {
-    /// Reicht `einlesen`s „Eingelesen"-Kommando in die Outbox durch; das reale Einreihen ist io-
-    /// Mechanik, die hier heute nicht scheitert (`Ok`).
+    /// Reicht `einlesen`s „Eingelesen"-Kommando in die Outbox durch. Der [`PublishSeam`]-Vertrag
+    /// ist **bewusst fehlbar** — ein Transport, der beim Einreihen scheitern kann, mappt seinen
+    /// Fehler auf [`PublishUnavailable`] (→ `SinkError::PublishFailed`), ohne dass der Slice sich
+    /// ändert. **Der heutige Transport scheitert hier nicht:** das Einreihen *staged* nur in die
+    /// offene Arbeitseinheit (`OutboxPublisher::publish`, infallibel) — die eigentliche, fehlbare
+    /// Schreibung passiert erst am **Commit-Rand** (`UnitOfWork::commit`, siehe `run_in_unit`), wo
+    /// ein Fehlschlag io-intern als Commit-/Retry-Fall erscheint, nicht als terminaler
+    /// Publish-Fehler. Darum heute `Ok(())`.
     fn publish(&self, message: IngestedMessage) -> Result<(), PublishUnavailable> {
         self.outbox.publish(OutboxHop { command: message });
         Ok(())
