@@ -1,5 +1,16 @@
 # Event-getriebene Pipeline aus Slices mit Outbox — jeder Schritt ein Consumer
 
+> **Status: maßgeblich, in Teilen verfeinert — durch
+> [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Slice-Mechanik-Verortung)
+> und [ADR-0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (durchweg-
+> terminale Fehler-Taktik + uniformes ID-Handoff).**
+> Die **Pipeline-Garantien** (atomar, at-least-once, wiederaufsetzbar; Datenschutz-Grenze
+> an `obfuskieren`) bleiben **maßgeblich**. Was 0012 an der Fehler-Taktik (durchweg terminal,
+> **kein** Dead-Letter/Retry im Slice) und am ID-Handoff (die von der Ablage **neu vergebene**
+> ID ist der publizierte Zeiger; Aggregate referenzieren Fremd-Entitäten **nur per ID**)
+> korrigiert/präzisiert, steht **kanonisch** im Abschnitt „Was dieses ADR supersedet /
+> verfeinert" von [ADR-0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md).
+
 Die Auswertung ist eine **Pipeline**; jeder Schritt ist ein **eigener Slice**, per
 **Outbox** vom vorigen getriggert. Dieses ADR macht das zur tragenden Architektur und
 **verfeinert/supersedet** dazu Aussagen von [ADR-0001](0001-hexagonale-architektur.md),

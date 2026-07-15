@@ -1,5 +1,17 @@
 # Der Vertical Slice ist eine reine Pipeline — die Outbox-Mechanik lebt in `io`
 
+> **Status: maßgeblich (entschiedener Plan), in Teilen superseded — durch
+> [ADR-0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md).**
+> **Entscheidung B** unten („jeder Handler-Fehler ist terminal → **Dead-Letter**"; `io`
+> klassifiziert `Warning`/`Retry`/`Critical`; attempt-basierte Eskalation Retry → Dead-Letter)
+> beruht auf einem **Missverständnis** und wird durch **„durchweg terminal, kein Dead-Letter,
+> kein Retry im Slice"** ersetzt; ebenso schreibt 0012 das **uniforme ID-Handoff** fest (die
+> von der Ablage **neu vergebene** ID ist der publizierte Zeiger; Aggregate referenzieren
+> Fremd-Entitäten **nur per ID**). Entscheidung **A/C/D** (Slice = reine Pipeline;
+> Outbox-Mechanik + Kernel-Flip in `io`) bleiben **maßgeblich**. Kanonisch im Abschnitt „Was
+> dieses ADR supersedet / verfeinert" von
+> [ADR-0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md).
+
 Dieses ADR **verfeinert** [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
 (§ „Der Adapter ist die Anpassung an die Außenwelt", „Der Handler arbeitet auf
 Domänen-Typen") und **verfeinert/supersedet in Teilen**
