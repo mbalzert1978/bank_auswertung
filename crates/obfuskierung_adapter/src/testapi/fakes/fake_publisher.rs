@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use application_kernel::{PublishCommand, Publisher};
 
-use crate::commands::ObfuscatedMessage;
+use crate::models::ObfuscatedMessage;
 
 /// Beobachtet veröffentlichte Kommandos an der `application_kernel::Publisher`-Grenze getrennt nach
 /// Dispatch-Key (`ObfuscatedMessage::MESSAGE_TYPE`, hier `Obfuscated`) und `partition_key()` (hier die

@@ -5,7 +5,7 @@
 /// Dezimalkomma, Nachkommastellen, Gruppierung, Erkennen/Abstreifen des führenden
 /// Vorzeichens) liegen bei der Implementierung (io, deferred). Vorbild `ISftpPuller` der
 /// C#-Referenz: ein öffentlicher, roh-typisierter Seam, den nur IO erfüllt — die
-/// [`MoneyBridge`](crate::bridges::MoneyBridge) mappt ihn auf den internen Domänen-Port
+/// [`MoneyBridge`](crate::adapter::MoneyBridge) mappt ihn auf den internen Domänen-Port
 /// `einlesen_domain::Money`, den der Handler verlangt.
 pub trait MoneySeam {
     /// Dekodiert das rohe Betragsfeld zu seinen Bestandteilen, oder `None`, wenn es kein

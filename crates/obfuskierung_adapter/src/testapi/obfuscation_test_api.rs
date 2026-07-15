@@ -5,10 +5,10 @@ use obfuskierung_domain::{
 };
 
 use super::fakes::{FakeIngestedSource, FakeObfuscatedStore, FakeObfuscator, FakePublisher};
-use crate::bridges::ObfuscatorBridge;
-use crate::commands::ObfuscateCommandDecoder;
-use crate::dto::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, Pseudonym};
+use crate::adapter::ObfuscatorBridge;
 use crate::handler::ObfuscatingHandler;
+use crate::models::ObfuscateCommandDecoder;
+use crate::models::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, Pseudonym};
 
 /// Fluent-TestApi des Obfuskierungs-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
 /// [ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)): die

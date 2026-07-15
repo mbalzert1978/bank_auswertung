@@ -1,11 +1,11 @@
-use crate::dto::Line;
+use crate::models::Line;
 
 /// Der öffentliche, mechanische **Speicher-Seam**: legt eine bereits auf die primitive Wire-Form
 /// abgeflachte [`Line`] ab und **vergibt dabei die Identität** der Zeile — er gibt die zugeteilte
 /// ID (Textform) zurück (io: `INSERT … RETURNING id`). **Kein Domänentyp** — io (sqlx) erfüllt ihn
 /// ohne Domänen-Kenntnis; Format/Transaktion liegen bei der Implementierung. Er ist **fehlbar** und
 /// **terminal**: ein misslungener Zugriff ist ein [`StoreUnavailable`]. Die
-/// [`StoreBridge`](crate::bridges::StoreBridge) mappt ihn auf den internen Domänen-Port
+/// [`StoreBridge`](crate::adapter::StoreBridge) mappt ihn auf den internen Domänen-Port
 /// `einlesen_domain::Store`, indem sie das Aggregat auf die `Line` abflacht (ACL, „innen → außen")
 /// und die zurückgegebene ID in die `IngestionId` bzw. den Fehler in den Domänen-Fehler hüllt.
 pub trait StoreSeam {

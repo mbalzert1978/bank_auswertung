@@ -1,0 +1,41 @@
+use crate::entities::ObfuscatedBooking;
+use crate::ports::Obfuscator;
+use crate::value_objects::{BookingId, ObfuscatedCounterparty, PassThrough, RawCounterparty, Seed};
+
+/// Das **rohe** Aggregat einer Buchung, wie der Handler es per ID aus dem einlesen-Speicher **lädt**
+/// (der Lese-Port [`RawBookingSource`](crate::RawBookingSource) liefert es). Es trägt die zu
+/// obfuskierende Gegenpartei, die durchzureichenden Felder und seine [`BookingId`] — die Quell-ID, die
+/// als Fremdschlüssel in das obfuskierte Aggregat wandert.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IngestedBooking {
+    id: BookingId,
+    counterparty: RawCounterparty,
+    pass_through: PassThrough,
+}
+
+impl IngestedBooking {
+    /// Baut das rohe Aggregat aus seinen Teilen — die Source-Bridge setzt es aus der gelesenen
+    /// einlesen-Zeile zusammen.
+    #[must_use]
+    pub fn new(id: BookingId, counterparty: RawCounterparty, pass_through: PassThrough) -> Self {
+        Self {
+            id,
+            counterparty,
+            pass_through,
+        }
+    }
+
+    /// **Obfuskiert** das Aggregat seed-basiert über den [`Obfuscator`]-Port: die Gegenpartei wird
+    /// zu Token gedeutet (inkl. Fail-safe Firma/Person), Betrag/Datum &c. reisen unverändert mit,
+    /// und der Seed wird ins Ergebnis mitpersistiert (reproduzierbar). Die Quell-ID reist als
+    /// Fremdschlüssel mit; die neue Identität vergibt die Persistenz beim Ablegen.
+    #[must_use]
+    pub fn obfuscate(self, seed: Seed, obfuscator: &dyn Obfuscator) -> ObfuscatedBooking {
+        ObfuscatedBooking::new(
+            self.id,
+            ObfuscatedCounterparty::obfuscate(self.counterparty, seed, obfuscator),
+            self.pass_through,
+            seed,
+        )
+    }
+}

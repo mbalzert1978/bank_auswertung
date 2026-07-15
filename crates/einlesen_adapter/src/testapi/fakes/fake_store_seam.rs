@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use crate::abstractions::{StoreSeam, StoreUnavailable};
-use crate::dto::Line;
+use crate::models::Line;
 
 /// Beobachtet die **abgelegten** Zeilen an der Speicher-Grenze: hält je `store` das **ganze**
 /// [`Line`]-DTO **samt der vergebenen ID** fest, sodass ein Spec sowohl die projizierten Felder

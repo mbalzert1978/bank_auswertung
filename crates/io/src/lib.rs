@@ -31,14 +31,12 @@
 //! [`einlesen::UnitFactory`]) erfüllt heute der Integrationstest mit Fakes; die Maschinerie hier
 //! ist davon unabhängig und bleibt bei der echten io-Anbindung unverändert.
 
-mod consumer;
-mod dispatcher;
-mod publishing;
+mod common;
 
 pub mod einlesen;
 pub mod obfuskierung;
 
-pub(crate) use consumer::run_in_unit;
-pub use consumer::{OutboxConsumer, TransactionError, TransactionalHandler};
-pub use dispatcher::Dispatcher;
-pub use publishing::PublishingPort;
+pub(crate) use common::run_in_unit;
+pub use common::{
+    Dispatcher, OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler,
+};

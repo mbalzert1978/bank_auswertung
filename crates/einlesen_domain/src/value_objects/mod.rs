@@ -11,6 +11,7 @@ mod iban;
 mod ingestion_id;
 mod non_empty_string;
 mod purpose;
+mod raw_line;
 mod recipient;
 
 pub use amount::{Amount, Currency};
@@ -22,4 +23,5 @@ pub use iban::Iban;
 pub use ingestion_id::IngestionId;
 pub use non_empty_string::NonEmptyString;
 pub use purpose::Purpose;
+pub use raw_line::RawLine;
 pub use recipient::{CreditorId, Recipient, RecipientName};

@@ -2,8 +2,8 @@ use application_kernel::Handler;
 use einlesen_domain::{ReadError, ReadHandler, ReadTransactions, RunConfiguration};
 
 use crate::abstractions::{CalendarSeam, MoneySeam, PublishSeam, SourceSeam, StoreSeam};
-use crate::bridges::{CalendarBridge, IngestedPublisher, MoneyBridge, SourceBridge, StoreBridge};
-use crate::commands::ReadCommand;
+use crate::adapter::{CalendarBridge, IngestedPublisher, MoneyBridge, SourceBridge, StoreBridge};
+use crate::models::ReadCommand;
 
 /// Der **`application_kernel::Handler` des Slice**: die reine `Command → Domäne → Response`-Pipeline,
 /// über die `io`s generische `OutboxConsumer` den Slice fährt (ADR-0011, Entscheidung A). Er bündelt

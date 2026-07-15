@@ -1,5 +1,5 @@
 use crate::abstractions::{SourceSeam, SourceUnavailable};
-use crate::dto::RawRecord;
+use crate::models::RawRecord;
 
 /// Fake des Quell-Seams: hält die arrangierten Roh-Zeilen (oder eine arrangierte
 /// Ausfall-Diagnose) und spielt so die vertagte io-Beschaffung (CSV-Datei) für die Specs.
