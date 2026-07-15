@@ -15,12 +15,27 @@ Guidance for Claude Code (claude.ai/code) working in this repo.
 >
 > **[ADR-0011](docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)** verfeinert
 > 0008/0009 als **entschiedener Plan (noch nicht gebaut):** der Slice wird eine reine
-> `Command → Domäne → Response`-Pipeline; Consumer-Rolle, Retry/Dead-Letter-Taktik,
+> `Command → Domäne → Response`-Pipeline; Consumer-Rolle, Fehler-Taktik,
 > `UnitOfWork` und Envelope-Kenntnis wandern vollständig nach `io` (generische
 > `OutboxConsumer<H: Handler>`). Der Kernel-Schnitt aus 0009 **flippt**: `application_kernel`
 > wird der `io`-sichtbare Slice↔`io`-Vertrag, `shared_kernel` komplett `io`-privat, der
-> `<slice>_adapter` bindet nur noch `application_kernel`. Der Code unten beschreibt den
-> **gebauten** Stand **vor** diesem Umbau.
+> `<slice>_adapter` bindet nur noch `application_kernel`. **Dieser 0011-Umbau** (Outbox-
+> Mechanik + Kernel-Flip nach `io`) ist **noch nicht gebaut** — der Code unten beschreibt den
+> Stand **davor** (der `io`-Consumer klassifiziert heute noch `Warning`/`Retry`/`Critical`).
+> Das **0012-Slice-Muster** dagegen **ist gebaut**: `einlesen`/`obfuskierung` sind durchweg
+> terminal mit fehlbarem read/store/publish und uniformem ID-Handoff (Issues 0028/0029,
+> gemerged).
+>
+> **[ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)**
+> korrigiert die Fehler-Taktik: die Pipeline ist **durchweg terminal** — **kein**
+> Dead-Letter, **kein** Retry im Slice (die frühere „`io` klassifiziert
+> Warning/Retry/Critical"-Erzählung war ein Missverständnis; wie `io` einen terminalen
+> Fehlschlag surfacet, ist vertagt). **Alle drei** I/O-Schritte jedes Slice — lesen, ablegen,
+> publizieren — sind **fehlbar**; der Slice gibt seinen **nackten, redigierten** terminalen
+> Domänen-Fehler zurück. Das **ID-Handoff ist uniform**: jeder Slice liest den Vorgänger per
+> ID, schreibt in seine **eigene** neue Tabelle (die Persistenz vergibt die ID) und
+> publiziert **diese neue** ID als Zeiger; Aggregate referenzieren Fremd-Entitäten **nur per
+> ID**. `einlesen` ist der Kopf (Datei hinter dem Seam, per Auslöser getriggert).
 
 ## What this is
 
@@ -32,9 +47,12 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 
 - [README.md](README.md) — source of truth for scope and architecture.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — eleven ADRs (0008/0009 governing the pipeline/kernel — refined
+- [docs/adr/](docs/adr/) — twelve ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011**, the decided-but-not-yet-built plan to decouple each slice from the Outbox
-  mechanics and flip the kernel cut; 0010 governing seed-based pseudonym stability; 0001–0007
+  mechanics and flip the kernel cut, and by **0012**, which fixes the pipeline to
+  **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
+  and pins the **uniform ID handoff** (DB-assigned new ID as the published pointer, foreign
+  entities referenced by ID only); 0010 governing seed-based pseudonym stability; 0001–0007
   each carry a superseded banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
@@ -81,7 +99,7 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   **behind the source seam in the `SourceBridge`**: `RawLine::try_from(&RawRecord)` is fallible;
   a missing/empty mandatory cell maps to the **redacted** domain
   `SourceError::MissingMandatoryField` (static field name only, never a raw value) and
-  dead-letters the whole batch, before the handler interprets a single line. The domain does not
+  fails the whole batch terminally, before the handler interprets a single line. The domain does not
   validate format either: the `Calendar`/`Money` ports (behind the adapter's
   `CalendarSeam`/`MoneySeam`, `io`-fulfilled later) decode German date/number, and an
   *undecodable* present value returns `None`, which the aggregate maps to a terminal
@@ -101,8 +119,11 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   the envelope `partition_key`): the handler **fetches** the batch through the
   domain-required data-source port (`RawLineSource`, fallible + terminal), which the
   `SourceBridge` binds to the `SourceSeam` (fake now, `io` later). Fans out **one
-  `Ingested` message per valid line**; a terminal error (fetch/presence/decode) bubbles
-  to `OutboxError::Warning` so `io` dead-letters.
+  `Ingested` message per valid line**; read, store and publish are each **fallible +
+  terminal**, and a terminal error (fetch/presence/decode, or a failing store/publish)
+  surfaces as the slice's **naked, redacted terminal domain error** — the pipeline is
+  **durchweg terminal** (no dead-letter/retry in the slice; how `io` surfaces a terminal
+  failure is deferred, [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
 - **`obfuskierung`** — second pipeline step and the **privacy boundary**: a consumer that
   reads the raw aggregate **by ID** from the `einlesen` store (`RawBookingSource`) and
   obfuscates it **seed-based** — a deterministic `KONTO_x`/`PERSON_x` token from
@@ -111,10 +132,15 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). The slice binds **no
   `serde`**; `_adapter` exposes the `IngestedRow` inbound DTO and the `ObfuscatedBooking`
   egress projection carrying the `assert_not_impl_any!` no-`Serialize` guard, plus a Fluent
-  TestApi with in-memory fakes. Consumes `Ingested` (envelope = ID pointer), writes the
-  `obfuskiert` table + one `Obfuskiert` message; a present row with a missing mandatory
-  field terminal-dead-letters (redacted field name), an absent row retries. Persistent seed
-  management deferred.
+  TestApi with in-memory fakes. Consumes `Ingested` (envelope = ID pointer); read, store and
+  publish are each **fallible + terminal** (a straight `?`-chain). It reads the raw booking
+  by ID, obfuscates, writes the `obfuskiert` table — **the store assigns the new ID** — and
+  publishes **that new ID** (the `Obfuscated` message) as the pointer to `auswerten`; the obfuscated aggregate
+  references the source booking **by ID only** (foreign key), never as an embedded raw
+  object. A missing mandatory field or an unreadable/absent source row is a **terminal,
+  redacted** failure (static field name / opaque ID, never a raw value) — **no retry in the
+  slice** ([ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
+  Persistent seed management deferred.
 
 (An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
 `Gegenkonto::Eigen|Fremd` resolution into the future **`auswerten`** slice, done **on
@@ -262,12 +288,12 @@ Two rules govern *what* to test — the codebase's test culture:
   test format-mechanics for rejection** (sign-less amount, unreadable date, broken
   payload); that tests `io`/kernel, not the slice. **Presence enforcement is the
   `_adapter` (ACL)** — the domain demands presence in the type (mandatory field
-  non-`Option`), the adapter's inbound mapping rejects a missing one and dead-letters the
-  batch. That is **observable slice behaviour, so specs *do* test it** (a missing
-  mandatory field → redacted, batch-atomic dead-letter). A **domain decode decision**
+  non-`Option`), the adapter's inbound mapping rejects a missing one and **fails the batch
+  terminally**. That is **observable slice behaviour, so specs *do* test it** (a missing
+  mandatory field → redacted, batch-atomic terminal failure). A **domain decode decision**
   (`Currency::from_code`: is this a currency the domain knows?) is likewise slice
   behaviour and testable. And a genuine **domain invariant** triggered by bad input stays
-  (e.g. "the terminal dead-letter reason never mirrors a raw value" — redaction). What
+  (e.g. "the terminal failure reason never mirrors a raw value" — redaction). What
   stays out of the specs is only pure `io`-crate mechanics (reading a file, real
   decoding).
 - **Test behaviour, not implementation.** Behaviour runs **through the Fluent `*TestApi`**:
@@ -283,7 +309,7 @@ Concretely: **`*_specs` are pure black-box** over the slice's one public adapter
 (Fluent `*TestApi` + DTOs + the `shared_kernel` Outbox result shape), never internals, no
 DTO-constructor tests in the spec. They test real behaviour — happy path (line → command
 + staged aggregate), fan-out, redaction, and the **rejections that are slice behaviour**
-(a missing mandatory field → batch-atomic dead-letter; an unknown currency) — but **not**
+(a missing mandatory field → batch-atomic terminal failure; an unknown currency) — but **not**
 rejection of pure `io` format-mechanics (unreadable date, sign-less amount). A wrapper VO
 with guaranteed-valid input (`From<NonEmptyString>` only) and a logicless port/fake get
 **no** test (pure noise).
