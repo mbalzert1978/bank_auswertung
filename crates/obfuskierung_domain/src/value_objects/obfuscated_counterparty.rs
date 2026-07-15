@@ -24,7 +24,7 @@ impl ObfuscatedCounterparty {
     /// (Auftraggeber **und** Gegenkonto) werden getokenisiert, der Freitext läuft durch den
     /// Engpass; die Gläubiger-ID bleibt als Anker Klartext.
     #[must_use]
-    pub fn obfuscate(raw: RawCounterparty, seed: Seed, obfuscator: &dyn Obfuscator) -> Self {
+    pub(crate) fn obfuscate(raw: RawCounterparty, seed: Seed, obfuscator: &dyn Obfuscator) -> Self {
         let token = |plaintext: &NonEmptyString| {
             AccountToken::from_replacement(obfuscator.obfuscate(seed, plaintext))
         };

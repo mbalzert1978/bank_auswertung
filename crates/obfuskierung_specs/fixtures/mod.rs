@@ -6,13 +6,13 @@
 
 use obfuskierung_adapter::{IngestedRow, ObfuscatedBooking, ObfuscationTestApi, Recipient};
 
-pub const SEED: u64 = 42;
+pub(crate) const SEED: u64 = 42;
 const EIGENE_IBAN: &str = "DE20123456780000001111";
 const GEGEN_IBAN: &str = "DE93123456780000002222";
 
 /// Eine vollständige, gültige einlesen-Zeile (Ausgabe an einen Privatpersonen-Empfänger ohne
 /// Gläubiger-ID), wie sie im einlesen-Speicher liegt — die Fixtures leben in der Spec.
-pub fn gültige_zeile() -> IngestedRow {
+pub(crate) fn gültige_zeile() -> IngestedRow {
     IngestedRow {
         ordering_account: EIGENE_IBAN.to_string(),
         counter_account: Some(GEGEN_IBAN.to_string()),
@@ -30,7 +30,7 @@ pub fn gültige_zeile() -> IngestedRow {
 
 /// Ein Lauf-Setup mit gesetztem Seed und einer einzelnen unter „buchung-1" arrangierten Zeile —
 /// die sonst wörtlich wiederholte Arrange-Kette der Ein-Zeilen-Szenarien, spec-lokal gebündelt.
-pub fn api_mit_zeile(zeile: IngestedRow) -> ObfuscationTestApi {
+pub(crate) fn api_mit_zeile(zeile: IngestedRow) -> ObfuscationTestApi {
     ObfuscationTestApi::new()
         .with_seed(SEED)
         .with_ingested("buchung-1", zeile)
@@ -38,7 +38,7 @@ pub fn api_mit_zeile(zeile: IngestedRow) -> ObfuscationTestApi {
 
 /// Die erwartete obfuskierte Buchung zur [`gültige_zeile`] — die Token-Felder über die
 /// deterministischen `expected_*`-Helfer der TestApi, alles andere Pass-Through/Quell-ID/Seed.
-pub fn erwartete_buchung(api: &ObfuscationTestApi, source_id: &str) -> ObfuscatedBooking {
+pub(crate) fn erwartete_buchung(api: &ObfuscationTestApi, source_id: &str) -> ObfuscatedBooking {
     ObfuscatedBooking {
         source_id: source_id.to_string(),
         ordering_account: api.expected_account(EIGENE_IBAN),
@@ -58,7 +58,7 @@ pub fn erwartete_buchung(api: &ObfuscationTestApi, source_id: &str) -> Obfuscate
 }
 
 /// Die **eine** obfuskierte Buchung eines Laufs — indexfreier Zugriff für Eigenschafts-Prüfungen.
-pub fn einzige_buchung(api: &ObfuscationTestApi) -> ObfuscatedBooking {
+pub(crate) fn einzige_buchung(api: &ObfuscationTestApi) -> ObfuscatedBooking {
     let mut bookings = api.stored_bookings().into_iter();
     let buchung = bookings.next().expect("genau eine abgelegte Buchung");
     assert!(bookings.next().is_none(), "es darf nur eine Buchung geben");
