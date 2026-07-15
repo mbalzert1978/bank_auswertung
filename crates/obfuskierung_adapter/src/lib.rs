@@ -18,7 +18,7 @@
 //!
 //! **Schichtung:** der domänen-interne [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler)
 //! hängt **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
-//! `BookingPublisher`); die Port-Bridges (Modul [`bridges`]) mappen die öffentlichen, mechanischen
+//! `BookingPublisher`); die Port-Bridges (Modul [`adapter`]) mappen die öffentlichen, mechanischen
 //! Abstractions ([`IngestedSourceSeam`]/[`ObfuscatorSeam`]/[`ObfuscatedStoreSeam`], die io erfüllt)
 //! darauf. Der Ausgang (Publisher-Bridge) zielt auf `application_kernel::Publisher`; den letzten
 //! Outbox-Hop macht `io`. Betrag/Datum &c. reist als Pass-Through verbatim mit.
@@ -38,18 +38,17 @@
 //! **Compile-Fehler**.
 
 mod abstractions;
-mod bridges;
-mod commands;
-mod dto;
+mod adapter;
 mod handler;
+mod models;
 mod testapi;
 
 pub use abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, StoreUnavailable};
-pub use commands::{
-    CONSUMED_MESSAGE_TYPE, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedMessage,
-};
-pub use dto::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, Pseudonym, Recipient};
 pub use handler::ObfuscatingHandler;
+pub use models::{
+    AccountId, CONSUMED_MESSAGE_TYPE, IngestedRow, ObfuscateCommand, ObfuscateCommandDecoder,
+    ObfuscatedBooking, ObfuscatedMessage, ObfuscatedText, Pseudonym, Recipient,
+};
 pub use testapi::ObfuscationTestApi;
 
 /// Der **nackte Domänen-Fehler** des Slice, re-exportiert: der [`ObfuscatingHandler`] gibt ihn 1:1

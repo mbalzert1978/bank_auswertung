@@ -17,18 +17,19 @@
 //! Datenschutz: Die Domäne bindet **kein** serde; der compilergeprüfte „kein Serialize"-Guard sitzt
 //! am Rand, auf dem Egress-DTO `ObfuscatedBooking` des Adapters.
 
-mod commands;
+mod entities;
 mod error;
 mod handler;
+mod models;
 mod ports;
 mod value_objects;
 
-pub use commands::ObfuscateBooking;
+pub use entities::{IngestedBooking, ObfuscatedBooking};
 pub use error::SourceError;
 pub use handler::ObfuscationHandler;
+pub use models::ObfuscateBooking;
 pub use ports::{BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource};
 pub use value_objects::{
-    AccountToken, BookingId, CreditorId, IngestedBooking, NonEmptyString, ObfuscatedBooking,
-    ObfuscatedCounterparty, ObfuscatedText, PassThrough, Pseudonym, RawCounterparty, Recipient,
-    Replacement, Seed,
+    AccountToken, BookingId, CreditorId, NonEmptyString, ObfuscatedCounterparty, ObfuscatedText,
+    PassThrough, Pseudonym, RawCounterparty, Recipient, Replacement, Seed,
 };

@@ -1,7 +1,7 @@
 //! Die öffentlichen, mechanischen Seams, die **IO** erfüllt: roh-typisiert, ohne
 //! Domänen-Kenntnis. Der Handler kennt sie **nicht** — er hängt nur an den internen
 //! Domänen-Ports (`einlesen_domain`); die Port-Bridges (z. B.
-//! [`crate::bridges::CalendarBridge`]) mappen zwischen beiden Welten.
+//! [`crate::adapter::CalendarBridge`]) mappen zwischen beiden Welten.
 
 mod calendar_seam;
 mod money_seam;

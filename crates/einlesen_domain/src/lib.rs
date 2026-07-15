@@ -20,24 +20,24 @@
 //! **in-process** über den Quell-Seam des Adapters in die Domäne (und liegen lokal in
 //! der Roh-Tabelle) — kein Egress.
 //!
-//! **Aufbau:** die Wert-Objekte liegen in `value_objects/`, die von der Domäne
-//! verlangten Ports in `ports/`, das Kommando samt Nutzlast in `commands/`, das
-//! Zeilen-Aggregat in `aggregate/`; `lib.rs` zieht die öffentlichen Typen auf
-//! Modulebene, sodass Konsumenten `einlesen_domain::Amount` schreiben, nicht
-//! `einlesen_domain::value_objects::Amount`.
+//! **Aufbau:** die Wert-Objekte (inkl. der rohen `RawLine`) liegen in `value_objects/`, die
+//! von der Domäne verlangten Ports in `ports/`, das Auslöser-Kommando samt Konfiguration in
+//! `models/`, das Zeilen-Aggregat (eine per ID auffindbare Entity) in `entities/`; `lib.rs`
+//! zieht die öffentlichen Typen auf Modulebene, sodass Konsumenten `einlesen_domain::Amount`
+//! schreiben, nicht `einlesen_domain::value_objects::Amount`.
 
-mod aggregate;
-mod commands;
+mod entities;
 mod error;
 mod handler;
+mod models;
 mod ports;
 mod value_objects;
 
-pub use aggregate::LineAggregate;
-pub use commands::{RawLine, ReadTransactions, RunConfiguration};
+pub use entities::LineAggregate;
 pub use error::{LineError, ReadError, SinkError, SourceError};
 pub use handler::ReadHandler;
+pub use models::{ReadTransactions, RunConfiguration};
 pub use ports::{Calendar, EventSink, Money, RawLineSource, Store};
 pub use value_objects::{
-    CalendarDay, Currency, DecodedAmount, Direction, IngestionId, NonEmptyString, Sign,
+    CalendarDay, Currency, DecodedAmount, Direction, IngestionId, NonEmptyString, RawLine, Sign,
 };

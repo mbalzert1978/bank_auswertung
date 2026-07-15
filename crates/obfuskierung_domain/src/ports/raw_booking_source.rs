@@ -1,5 +1,6 @@
+use crate::entities::IngestedBooking;
 use crate::error::SourceError;
-use crate::value_objects::{BookingId, IngestedBooking};
+use crate::value_objects::BookingId;
 
 /// Der von der Domäne **verlangte** Lese-Port, über den der Handler das rohe Aggregat einer Buchung
 /// **per ID** aus dem einlesen-Speicher (Roh-Tabelle) holt. **io erfüllt ihn** (liest die Zeile und

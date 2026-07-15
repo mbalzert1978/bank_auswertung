@@ -1,6 +1,6 @@
 //! Die öffentlichen, mechanischen Seams, die **io** erfüllt: roh-typisiert, ohne Domänen-Kenntnis.
 //! Der Handler kennt sie nicht — er hängt nur an den verlangten Domänen-Ports; die Port-Bridges
-//! (Modul [`crate::bridges`]) mappen dazwischen. Der Seed reist als Konstruktor-Wert (kein
+//! (Modul [`crate::adapter`]) mappen dazwischen. Der Seed reist als Konstruktor-Wert (kein
 //! Runtime-Seam) — io liest ihn aus der Config und baut die Bridges damit.
 
 mod ingested_source_seam;

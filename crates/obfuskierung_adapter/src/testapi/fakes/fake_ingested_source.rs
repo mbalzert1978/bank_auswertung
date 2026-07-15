@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::abstractions::IngestedSourceSeam;
-use crate::dto::IngestedRow;
+use crate::models::IngestedRow;
 
 /// Fake des einlesen-Lese-Seams: hält die arrangierten Roh-Zeilen je ID im Speicher und spielt so
 /// den vertagten einlesen-Speicher (Roh-Tabelle) für die Specs. `read` liefert die Zeile zur ID

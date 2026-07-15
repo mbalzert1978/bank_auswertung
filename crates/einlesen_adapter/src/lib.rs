@@ -15,7 +15,7 @@
 //!
 //! **Schichtung (die eine Aufgabe dieses Layers):** der interne `ReadHandler` hängt
 //! **ausschließlich** an den von `einlesen_domain` verlangten Ports (`RawLineSource`, `Calendar`,
-//! `Money`, `Store`, `EventSink`). **Darüber** mappen Port-Bridges (Modul [`bridges`]) die
+//! `Money`, `Store`, `EventSink`). **Darüber** mappen Port-Bridges (Modul [`adapter`]) die
 //! öffentlichen, mechanischen Abstractions (Modul [`abstractions`], die io erfüllt) auf genau
 //! diese internen Domänen-Ports. Alle drei I/O-Schritte (Beschaffung, Ablage, Veröffentlichung)
 //! sind fehlbar und terminal.
@@ -38,19 +38,20 @@
 //! Zeiger. Der `Serialize`-Guard wandert auf die Egress-DTOs (auswerten/report).
 
 mod abstractions;
-mod bridges;
-mod commands;
-mod dto;
+mod adapter;
 mod handler;
+mod models;
 mod testapi;
 
 pub use abstractions::{
     CalendarDay, CalendarSeam, DecodedAmount, MoneySeam, PublishSeam, PublishUnavailable, Sign,
     SourceSeam, SourceUnavailable, StoreSeam, StoreUnavailable,
 };
-pub use commands::{CONSUMED_MESSAGE_TYPE, IngestedMessage, ReadCommand, ReadCommandDecoder};
-pub use dto::{Currency, Direction, Line, RawRecord};
 pub use handler::ReadingHandler;
+pub use models::{
+    CONSUMED_MESSAGE_TYPE, Currency, Direction, IngestedMessage, Line, RawRecord, ReadCommand,
+    ReadCommandDecoder,
+};
 pub use testapi::ReadTestApi;
 
 /// Der **nackte Domänen-Fehler** des Slice, re-exportiert (ADR-0011, Entscheidung B): der

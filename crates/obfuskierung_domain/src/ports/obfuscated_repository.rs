@@ -1,5 +1,6 @@
+use crate::entities::ObfuscatedBooking;
 use crate::error::SourceError;
-use crate::value_objects::{BookingId, ObfuscatedBooking};
+use crate::value_objects::BookingId;
 
 /// Der von der Domäne **verlangte** Ablage-Port: legt (staged) das obfuskierte Aggregat in die
 /// `obfuskiert`-Tabelle und gibt die dabei **neu vergebene** [`BookingId`] zurück — die Persistenz

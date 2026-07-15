@@ -1,11 +1,11 @@
-use crate::dto::RawRecord;
+use crate::models::RawRecord;
 
 /// Der öffentliche **Quell-Seam** — der in
 /// [ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md) dokumentierte
 /// „source seam": beschafft den rohen Batch der Quelle. **io erfüllt ihn** (CSV-CAMT-v8 ist
 /// **eine** Eingabeform dahinter; XML-camt/MT940 später = weitere io-Adapter, kein neuer
 /// Slice) — roh-typisiert, ohne Domänen-Kenntnis, spricht extern das [`RawRecord`]-DTO. Die
-/// [`SourceBridge`](crate::bridges::SourceBridge) mappt den von der Domäne verlangten Port
+/// [`SourceBridge`](crate::adapter::SourceBridge) mappt den von der Domäne verlangten Port
 /// `einlesen_domain::RawLineSource` darauf (Records → Domänen-`RawLine`s, Präsenz-Prüfung).
 ///
 /// Ein Fehlschlag der Beschaffung ist **nie Abwesenheit**, sondern ein terminaler Fehler —

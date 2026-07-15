@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use crate::abstractions::{ObfuscatedStoreSeam, StoreUnavailable};
-use crate::dto::ObfuscatedBooking;
+use crate::models::ObfuscatedBooking;
 
 /// Fake der `obfuskiert`-Tabelle: hält die gestageten [`ObfuscatedBooking`]-DTOs im Speicher
 /// (persistiert nichts auf Platte) und spielt so die vertagte Persistenz für die Specs. Beobachtet

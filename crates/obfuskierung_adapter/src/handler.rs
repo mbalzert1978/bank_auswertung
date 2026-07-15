@@ -2,8 +2,8 @@ use application_kernel::{Handler, Publisher};
 use obfuskierung_domain::{BookingId, ObfuscateBooking, ObfuscationHandler, Seed, SourceError};
 
 use crate::abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam};
-use crate::bridges::{ObfuscatorBridge, PublisherBridge, RepositoryBridge, SourceBridge};
-use crate::commands::{ObfuscateCommand, ObfuscatedMessage};
+use crate::adapter::{ObfuscatorBridge, PublisherBridge, RepositoryBridge, SourceBridge};
+use crate::models::{ObfuscateCommand, ObfuscatedMessage};
 
 /// Der **`application_kernel::Handler` des Slice**: die reine `Command → Domäne → Response`-Pipeline,
 /// über die `io`s generische `OutboxConsumer` den Slice fährt (ADR-0011, Entscheidung A). Er bündelt

@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use application_kernel::PublishCommand;
 
 use crate::abstractions::{PublishSeam, PublishUnavailable};
-use crate::commands::IngestedMessage;
+use crate::models::IngestedMessage;
 
 /// Beobachtet veröffentlichte Kommandos am [`PublishSeam`] getrennt nach Dispatch-Key
 /// (`IngestedMessage::MESSAGE_TYPE`) und `partition_key()` — die zwei Datenrückgaben, die ein Spec
