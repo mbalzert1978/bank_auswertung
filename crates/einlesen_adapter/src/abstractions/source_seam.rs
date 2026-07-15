@@ -23,8 +23,7 @@ pub trait SourceSeam {
 
 /// Die Beschaffung ist **misslungen** — terminaler Seam-Fehler, der die **io-Diagnose**
 /// trägt: io speist den Text seines eigenen Fehler-Results ein (Pfad, OS-/Parse-Fehler),
-/// damit nachvollziehbar bleibt, was genau schieflief; der Text bleibt lokal (Dead-Letter),
-/// kein Egress.
+/// damit nachvollziehbar bleibt, was genau schieflief; der Text bleibt lokal, kein Egress.
 ///
 /// **Redaktions-Pflicht am Seam (Vertrag, nicht Konstruktion):** die Meldung beschreibt die
 /// **Beschaffungs-Mechanik** und zitiert **nie** Satz-/Feldinhalt — anders als der statische
@@ -38,7 +37,7 @@ pub struct SourceUnavailable {
 
 impl std::fmt::Display for SourceUnavailable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Nur die Diagnose selbst — den Dead-Letter-Meldungssatz besitzt allein die
+        // Nur die Diagnose selbst — den terminalen Meldungssatz besitzt allein die
         // Domänen-`Display` von `SourceError::Unavailable` (kein Satz-Duplikat über Crates).
         write!(f, "{}", self.message)
     }

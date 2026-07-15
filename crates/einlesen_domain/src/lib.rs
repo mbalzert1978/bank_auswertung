@@ -35,7 +35,7 @@ mod value_objects;
 
 pub use aggregate::LineAggregate;
 pub use commands::{RawLine, ReadTransactions, RunConfiguration};
-pub use error::{LineError, ReadError, SourceError};
+pub use error::{LineError, ReadError, SinkError, SourceError};
 pub use handler::ReadHandler;
 pub use ports::{Calendar, EventSink, Money, RawLineSource, Store};
 pub use value_objects::{

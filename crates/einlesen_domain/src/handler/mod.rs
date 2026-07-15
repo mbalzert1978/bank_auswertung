@@ -3,26 +3,21 @@ use crate::{LineAggregate, ReadError, ReadTransactions};
 
 /// Orchestriert das Einlesen — er **lebt in der Domäne** und hängt **nur** an den von ihr
 /// verlangten Ports (`RawLineSource`, `Calendar`, `Money`, `Store`, `EventSink`); die
-/// Verdrahtung an die Außenwelt (io/Fakes) besorgt der Adapter über Port-Bridges. Kein
-/// geteiltes `Handler`/`Command`-Interface (das C#-Mediator-/DI-Residuum trägt in Rust
-/// nichts): der Adapter hält den **konkreten** Handler und ruft `handle` direkt.
+/// Verdrahtung an die Außenwelt (io/Fakes) besorgt der Adapter über Port-Bridges.
 ///
-/// **Ablauf je Kommando:** erst den Batch über [`RawLineSource::fetch`] **beschaffen**
-/// (das Kommando ist seit
-/// [Issue 0018](../../../docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
-/// reiner Auslöser und reicht nur die Konfiguration durch), dann **alle** Zeilen zu
-/// Aggregaten deuten (`collect::<Result<Vec<_>,_>>()`), dann je Aggregat **staged**
-/// speichern — der [`Store`](crate::Store) vergibt dabei die
-/// [`IngestionId`](crate::IngestionId) — und **genau diese ID** als „Eingelesen"-Zeiger
-/// veröffentlichen (Tabelle = Wahrheit, Message = Pointer). Weil erst gebaut und dann
-/// gestaged wird, hinterlässt ein Fehler nichts Halbes.
+/// **Ablauf je Kommando:** erst den Batch über [`RawLineSource::fetch`] **beschaffen** (das
+/// Kommando ist reiner Auslöser und reicht nur die Konfiguration durch), dann **alle** Zeilen
+/// zu Aggregaten deuten (`collect::<Result<Vec<_>, _>>()`), dann je Aggregat **ablegen** — der
+/// [`Store`](crate::Store) vergibt dabei die [`IngestionId`](crate::IngestionId) — und **genau
+/// diese ID** als „Eingelesen"-Zeiger **veröffentlichen** (Tabelle = Wahrheit, Message =
+/// Pointer). Weil erst **alle** Aggregate gebaut und dann abgelegt werden, hinterlässt eine
+/// kaputte Zeile nichts Halbes: der Lauf steigt aus, bevor die erste Ablage passiert.
 ///
-/// **Fehler bubblen auf, transaktions-blind:** scheitert die Beschaffung
-/// ([`SourceError`](crate::SourceError)) oder eine beschaffte Zeile am Aggregat
-/// ([`LineError`](crate::LineError)), ist das **terminal**; der Handler steigt mit der
-/// Fehlersumme [`ReadError`] aus (der Adapter mappt sie auf `OutboxError::Warning`, io
-/// dead-lettert). Der Handler kennt **keine** Transaktion: `store`/`publish` stagen nur,
-/// den Commit der Arbeitseinheit (Aggregat **und** Ereignis atomar) besorgt io.
+/// **Alle drei I/O-Schritte sind fehlbar und terminal:** scheitert Beschaffung
+/// ([`SourceError`](crate::SourceError)), Deutung ([`LineError`](crate::LineError)) oder
+/// Ablage/Veröffentlichung ([`SinkError`](crate::SinkError)), steigt der Handler mit der
+/// Fehlersumme [`ReadError`] per `?` aus. Den atomaren Commit der Arbeitseinheit (Aggregat
+/// **und** Ereignis) besorgt io.
 pub struct ReadHandler<'a> {
     source: &'a dyn RawLineSource,
     calendar: &'a dyn Calendar,
@@ -48,9 +43,8 @@ impl<'a> ReadHandler<'a> {
         }
     }
 
-    /// Verarbeitet den Auslöser: beschaffen → deuten → (staged) speichern + veröffentlichen.
-    /// `Ok(())` = verarbeitet, `Err` = terminaler [`ReadError`] (bubblet über den Adapter
-    /// zur Outbox).
+    /// Verarbeitet den Auslöser: beschaffen → deuten → ablegen → veröffentlichen.
+    /// `Ok(())` = verarbeitet, `Err` = terminaler [`ReadError`].
     pub fn handle(&self, command: ReadTransactions) -> Result<(), ReadError> {
         self.source
             .fetch(&command.configuration)?
@@ -58,11 +52,11 @@ impl<'a> ReadHandler<'a> {
             .map(|line| LineAggregate::from_raw_line(line, self.calendar, self.money))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
-            .for_each(|aggregate| {
+            .try_for_each(|aggregate| -> Result<(), ReadError> {
                 // Der Speicher vergibt die ID beim Ablegen; genau sie reist als Zeiger weiter.
-                let id = self.store.store(&aggregate);
-                self.event_sink.publish(&id);
-            });
-        Ok(())
+                let id = self.store.store(&aggregate)?;
+                self.event_sink.publish(&id)?;
+                Ok(())
+            })
     }
 }

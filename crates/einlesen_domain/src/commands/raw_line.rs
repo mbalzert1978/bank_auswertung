@@ -6,7 +6,7 @@ use crate::value_objects::NonEmptyString;
 ///
 /// **Präsenz lebt im Typ** (ADR-0005: illegale Zustände unkonstruierbar, nicht „geprüft"):
 /// ein Pflichtfeld ist **non-`Option`** — dass es da ist, garantiert die Adapter-Abbildung
-/// (fehlt es dort, dead-lettert der ganze Batch, bevor eine `RawLine` überhaupt entsteht).
+/// (fehlt es dort, scheitert der ganze Batch terminal, bevor eine `RawLine` überhaupt entsteht).
 /// Ein genuin optionales Datenfeld bleibt `Option`. Der Datenquellen-Port
 /// [`RawLineSource`](crate::RawLineSource) liefert einen Batch davon (das Kommando ist
 /// reiner Auslöser); das [`LineAggregate`](crate::LineAggregate) deutet eine `RawLine`

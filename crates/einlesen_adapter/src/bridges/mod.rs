@@ -1,7 +1,7 @@
 //! Die Port-Bridges des Slice: sie mappen die öffentlichen, mechanischen Abstractions
 //! (Modul [`crate::abstractions`], die io erfüllt) auf genau die internen Domänen-Ports, an
 //! denen der interne `einlesen_domain::ReadHandler` hängt — nie umgekehrt. Dazu die
-//! Publisher-Bridge (Handler → `application_kernel::Publisher`) und die Quell-Bridge
+//! Publisher-Bridge (`EventSink` → Publish-Seam) und die Quell-Bridge
 //! (Beschaffung + Präsenz-Prüfung hinter dem Quell-Seam). Die frühere Consume-Bridge ist
 //! entfallen: die Consumer-Rolle lebt seit [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
 //! in `io`s generischer `OutboxConsumer`; der [`ReadingHandler`](crate::ReadingHandler)

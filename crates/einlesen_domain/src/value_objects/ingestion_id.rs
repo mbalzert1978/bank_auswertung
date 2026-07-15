@@ -14,9 +14,9 @@ impl IngestionId {
     /// Slice deutet die ID nie, er reicht sie durch — ein eigener Validierungspfad wäre reibungsvolle
     /// Zeremonie ohne Gewinn. Die **Nicht-Leere** ist dennoch im Typ abgesichert: die ID vergibt io
     /// (`INSERT … RETURNING id`), eine leere ID ist ein **unmöglicher** Zustand — ein Leerwert wäre
-    /// ein Herkunfts-Invariantenbruch (der Slice publizierte einen Leer-Zeiger, `obfuskieren` liefe
-    /// in eine Retry-Endlosschleife). Genau darum fällt der Guard **hart** um (`panic`) statt einen
-    /// `Result`-Pfad für einen nie eintretenden Fall aufzuspannen.
+    /// ein Herkunfts-Invariantenbruch (der Slice publizierte einen Leer-Zeiger). Genau darum fällt
+    /// der Guard **hart** um (`panic`) statt einen `Result`-Pfad für einen nie eintretenden Fall
+    /// aufzuspannen.
     ///
     /// # Panics
     /// Wenn der Rohwert leer ist — der Speicher hat die Herkunfts-Garantie (nie-leere ID) gebrochen.

@@ -45,7 +45,7 @@ impl RecipientName {
 /// **Warum der Name optional ist:** nicht jede Buchung hat eine Gegenpartei — eine
 /// Entgelt-/Gebührenzeile (z. B. `ENTGELTABSCHLUSS`, Zweck „Entgeltabrechnung siehe
 /// Anlage") bucht die Bank auf das eigene Konto **ohne Empfänger**. Ein Pflichtfeld würde
-/// genau solche Zeilen dead-lettern und damit ein Kern-Analyseziel (Gebühren-/
+/// genau solche Zeilen terminal scheitern lassen und damit ein Kern-Analyseziel (Gebühren-/
 /// Umbuchungskosten, CONTEXT.md) verfehlen. Fehlt der Name, bleibt er `None`.
 ///
 /// Die Einlese-Stufe **deutet nicht**, ob Firma oder Privatperson. Diese

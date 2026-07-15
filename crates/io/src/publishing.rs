@@ -1,11 +1,12 @@
 use application_kernel::{PublishCommand, Publisher};
+use einlesen_adapter::{IngestedMessage, PublishSeam, PublishUnavailable};
 use shared_kernel::{OutboxCommand, OutboxPublisher};
 
-/// Der **letzte Outbox-Hop** ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
-/// Entscheidung D): erfüllt den adapter-seitigen `application_kernel::Publisher` und reicht das
-/// veröffentlichte Kommando an den io-privaten `shared_kernel::OutboxPublisher` durch — die eine
-/// Stelle, an der `PublishCommand` (adapter-sichtbar) auf `OutboxCommand` (io-privat) trifft. Der
-/// Slice-Adapter zielt so auf `application_kernel::Publisher` und berührt die Outbox-Mechanik nie.
+/// Der **letzte Outbox-Hop**: reicht ein veröffentlichtes adapter-seitiges Kommando an den
+/// io-privaten `shared_kernel::OutboxPublisher` durch — die eine Stelle, an der `PublishCommand`
+/// (adapter-sichtbar) auf `OutboxCommand` (io-privat) trifft. Er erfüllt den Publish-Ausgang jedes
+/// Slice: `einlesen`s fehlbaren [`PublishSeam`] und (bis Issue 0028) obfuskierungs
+/// `application_kernel::Publisher`.
 ///
 /// Generisch über den konkreten `OutboxPublisher`, weil dessen `publish<T>` eine generische
 /// Methode ist (nicht objekt-sicher).
@@ -23,6 +24,15 @@ impl<'a, O: OutboxPublisher> PublishingPort<'a, O> {
 impl<O: OutboxPublisher, C: PublishCommand> Publisher<C> for PublishingPort<'_, O> {
     fn publish(&self, command: C) {
         self.outbox.publish(OutboxHop { command });
+    }
+}
+
+impl<O: OutboxPublisher> PublishSeam for PublishingPort<'_, O> {
+    /// Reicht `einlesen`s „Eingelesen"-Kommando in die Outbox durch; das reale Einreihen ist io-
+    /// Mechanik, die hier heute nicht scheitert (`Ok`).
+    fn publish(&self, message: IngestedMessage) -> Result<(), PublishUnavailable> {
+        self.outbox.publish(OutboxHop { command: message });
+        Ok(())
     }
 }
 
