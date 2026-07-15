@@ -16,8 +16,8 @@
 
 use application_kernel::Handler;
 use obfuskierung_adapter::{
-    HandleError, IngestedSourceSeam, ObfuscateCommand, ObfuscateCommandDecoder,
-    ObfuscatedStoreSeam, ObfuscatingHandler, ObfuscatorSeam,
+    IngestedSourceSeam, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedStoreSeam,
+    ObfuscatingHandler, ObfuscatorSeam, SourceError,
 };
 use shared_kernel::{OutboxPublisher, UnitOfWork};
 
@@ -45,7 +45,7 @@ pub trait UnitFactory {
 /// und Obfuskator) und den Seed sowie die [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den
 /// `ObfuscatingHandler` **aus ihr** (Store = die Unit, Publish über die Unit) und committet atomar,
 /// wenn der Handler gelingt. Weil beide committenden Ports dieselbe Unit sind, kann eine gestagete
-/// Schreibung die Transaktion nicht überleben. Der nackte [`HandleError`] ist **terminal** →
+/// Schreibung die Transaktion nicht überleben. Der nackte [`SourceError`] ist **terminal** →
 /// [`TransactionError::Handler`].
 pub struct ObfuskierungTransactionalHandler<'a, F: UnitFactory> {
     source: &'a dyn IngestedSourceSeam,
@@ -57,9 +57,9 @@ pub struct ObfuskierungTransactionalHandler<'a, F: UnitFactory> {
 impl<F: UnitFactory> TransactionalHandler for ObfuskierungTransactionalHandler<'_, F> {
     type Command = ObfuscateCommand;
     type Decoder = ObfuscateCommandDecoder;
-    type Error = HandleError;
+    type Error = SourceError;
 
-    fn handle(&self, command: ObfuscateCommand) -> Result<(), TransactionError<HandleError>> {
+    fn handle(&self, command: ObfuscateCommand) -> Result<(), TransactionError<SourceError>> {
         // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
         // Unit; Quelle/Obfuskator liegen außerhalb (idempotentes Lesen).

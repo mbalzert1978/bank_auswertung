@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 # Seit dem Kernel-Flip (ADR-0011) spezifiziert die Blackbox auf **Handler-Ebene** über den
-# `application_kernel`-Vertrag der TestApi und assertiert gegen den **nackten Domänen-`HandleError`**
+# `application_kernel`-Vertrag der TestApi und assertiert gegen den **nackten Domänen-`SourceError`**
 # (vom Adapter re-exportiert) — keine `shared_kernel`-Outbox-Typen mehr. Der Spec hängt damit nur
 # noch am eigenen Adapter.
 obfuskierung_adapter = { path = "../obfuskierung_adapter" }

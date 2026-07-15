@@ -87,10 +87,11 @@ impl From<&DomainRecipient> for Recipient {
 }
 
 /// Die **obfuskierte Buchung** — das Ausgangs-DTO des Slice, das der Adapter in die
-/// `obfuskiert`-Tabelle ablegt (die Wahrheit für stromabwärts; die Outbox-Nachricht trägt nur die
-/// [`id`](ObfuscatedBooking::id) als Zeiger). Sie setzt die obfuskierte Domänen-Sicht mit dem
-/// verbatim durchgereichten Pass-Through, dem [`seed`](ObfuscatedBooking::seed) (mitpersistiert →
-/// reproduzierbar) und der ID zusammen.
+/// `obfuskiert`-Tabelle ablegt (die Wahrheit für stromabwärts). Sie referenziert die Quell-Zeile
+/// **nur per** [`source_id`](ObfuscatedBooking::source_id) (Fremdschlüssel); ihre **eigene** Identität
+/// vergibt die Persistenz beim Ablegen (der Zeiger in der Outbox-Nachricht ist genau diese neue ID).
+/// Sie setzt die obfuskierte Domänen-Sicht mit dem verbatim durchgereichten Pass-Through und dem
+/// [`seed`](ObfuscatedBooking::seed) (mitpersistiert → reproduzierbar) zusammen.
 ///
 /// **Datenschutz-Grenze:** ab hier fließen nur Token — dieses DTO trägt **keine** rohe
 /// IBAN/Kontonummer und leitet bewusst **kein** `Serialize`/`Deserialize` ab (compilergeprüfter
@@ -98,7 +99,7 @@ impl From<&DomainRecipient> for Recipient {
 /// Zeilen-Wire-Form ab.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObfuscatedBooking {
-    pub id: String,
+    pub source_id: String,
     pub ordering_account: AccountId,
     pub counter_account: Option<AccountId>,
     pub amount_cent: u64,
@@ -114,13 +115,13 @@ pub struct ObfuscatedBooking {
 
 /// Projiziert das obfuskierte **Domänen-Aggregat** auf das DTO — die einzige Stelle, an der es
 /// die Adapter-Grenze überquert (die Repository-Bridge ruft sie vor dem Ablegen). Token,
-/// Empfänger, durchgereichte Felder, Seed und ID in einem Zug.
+/// Empfänger, durchgereichte Felder, Seed und die Quell-ID in einem Zug.
 impl From<&DomainBooking> for ObfuscatedBooking {
     fn from(booking: &DomainBooking) -> Self {
         let counterparty = booking.counterparty();
         let pass_through = booking.pass_through();
         Self {
-            id: booking.id().as_str().to_string(),
+            source_id: booking.source_id().as_str().to_string(),
             ordering_account: AccountId::from(counterparty.ordering_account()),
             counter_account: counterparty.counter_account().map(AccountId::from),
             amount_cent: pass_through.amount_cent,

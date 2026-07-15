@@ -26,9 +26,8 @@ impl IngestedRow {
     /// Deutet die rohe Zeile in das Domänen-Aggregat [`IngestedBooking`] (ACL, „außen → innen").
     /// **Hier erzwingt der Adapter die Präsenz** der Pflichtfelder (Auftraggeberkonto, Währung,
     /// Richtung, Datum): fehlt/ist eines leer, wird es zu `Err(MissingMandatoryField)` mit **nur**
-    /// dem Feldnamen — ein terminaler Ausgang, den die [`SourceBridge`](crate::bridges::SourceBridge)
-    /// von „nicht vorhanden" (`Absent`) unterscheidet: **beide** terminal, je eigener redigierter
-    /// Grund (opake ID vs. statischer Feldname).
+    /// dem Feldnamen — den die [`SourceBridge`](crate::bridges::SourceBridge) auf den terminalen
+    /// `SourceError::MissingMandatoryField` mappt (redigiert, statischer Feldname).
     pub(crate) fn to_booking(
         &self,
         id: &BookingId,
@@ -53,17 +52,17 @@ impl IngestedRow {
 }
 
 /// Ein Pflichtfeld fehlt (leer/nicht vorhanden) in der Roh-Zeile — **terminaler** Ausgang der
-/// „außen → innen"-Abbildung (die [`SourceBridge`](crate::bridges::SourceBridge) mappt ihn auf ein
-/// Dead-Letter). **Datenschutz (Redaktions-Invariante):** trägt **nur** den statischen Feldnamen,
-/// nie den Rohwert — auch `Debug` spiegelt so keinen Identifikator.
+/// „außen → innen"-Abbildung (die [`SourceBridge`](crate::bridges::SourceBridge) mappt ihn auf den
+/// terminalen `SourceError::MissingMandatoryField`). **Datenschutz (Redaktions-Invariante):** trägt
+/// **nur** den statischen Feldnamen, nie den Rohwert — auch `Debug` spiegelt so keinen Identifikator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MissingMandatoryField {
     field: &'static str,
 }
 
 impl MissingMandatoryField {
-    /// Der (statische, unsensible) Name des fehlenden Pflichtfelds — für den redigierten
-    /// Dead-Letter-Grund.
+    /// Der (statische, unsensible) Name des fehlenden Pflichtfelds — für den redigierten terminalen
+    /// Fehlergrund.
     pub(crate) fn field(&self) -> &'static str {
         self.field
     }
