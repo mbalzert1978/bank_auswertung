@@ -24,7 +24,7 @@ use std::rc::Rc;
 
 use einlesen_adapter::{
     CalendarDay, CalendarSeam, DecodedAmount, Line, MoneySeam, RawRecord, Sign, SourceSeam,
-    SourceUnavailable, StoreSeam,
+    SourceUnavailable, StoreSeam, StoreUnavailable,
 };
 use io::Dispatcher;
 use io::einlesen::UnitFactory;
@@ -147,7 +147,7 @@ struct FakeUnit {
 }
 
 impl StoreSeam for FakeUnit {
-    fn store(&self, line: &Line) -> String {
+    fn store(&self, line: &Line) -> Result<String, StoreUnavailable> {
         let id = self.next_id.get() + 1;
         self.next_id.set(id);
         let id = format!("ingested-{id}");
@@ -155,7 +155,7 @@ impl StoreSeam for FakeUnit {
             .borrow_mut()
             .lines
             .push((id.clone(), line.clone()));
-        id
+        Ok(id)
     }
 }
 

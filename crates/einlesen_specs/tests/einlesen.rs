@@ -10,11 +10,11 @@
 //! **Der maßgebliche Ablauf:** das Kommando ist reiner **Auslöser** (Issue 0018); den Batch
 //! (alle Rohzeilen) **beschafft** der Handler über den Datenquellen-Port, hinter dem der
 //! Quell-Seam liegt — `with_line` arrangiert die Zeilen darum **in der Quelle**, nicht in der
-//! Nachricht. Die Domäne deutet **pro Zeile** ein `LineAggregate` — scheitert die Beschaffung
-//! oder eine Zeile am Aggregat, ist das **terminal**: der Handler steigt mit dem `ReadError`
-//! aus (den `io` dead-lettert, der Slice dead-lettert nicht selbst). Die gültigen Aggregate
-//! werden erst **nach** vollständigem Durchlauf (`collect`) gestaged; den atomaren Commit
-//! besitzt `io`.
+//! Nachricht. Die Domäne deutet **pro Zeile** ein `LineAggregate` — scheitert die Beschaffung,
+//! eine Zeile am Aggregat oder die Ablage/Veröffentlichung, ist das **terminal**: der Handler
+//! steigt mit dem `ReadError` aus (der Slice gibt seinen nackten terminalen Fehler zurück). Die
+//! gültigen Aggregate werden erst **nach** vollständigem Durchlauf (`collect`) abgelegt; den
+//! atomaren Commit besitzt `io`.
 //!
 //! **Warum es KEIN gemischtes „einige verworfen, andere laufen durch"-Szenario gibt**
 //! (bewusst bestätigt, nicht getestet): Das ist kein konstruierbarer Zustand. Es ist
@@ -181,15 +181,15 @@ fn fehlende_optionalfelder_werden_als_none_gestaged() {
 
 // --- Redaktion: der terminale Fehlergrund spiegelt keinen Rohwert ------------------
 // Scheitert eine Zeile terminal, gibt der Handler seinen nackten `ReadError` zurück, dessen
-// `Display` io als Dead-Letter-Grund spiegelt. Hier zählt **das Verhalten der Domäne**, nicht die
-// io-seitige Format-/Vollständigkeitsprüfung (die die Domäne fordert, nicht selbst leistet):
-// der Grund darf den Rohwert nie spiegeln.
+// `Display` io spiegelt. Hier zählt **das Verhalten der Domäne**, nicht die io-seitige Format-/
+// Vollständigkeitsprüfung (die die Domäne fordert, nicht selbst leistet): der Grund darf den
+// Rohwert nie spiegeln.
 
 #[test]
 fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
     // Spaltenverschub: eine IBAN landet im Betragsfeld. Die `Display` des terminalen `ReadError`
-    // wird io als Dead-Letter-reason persistieren — sie darf den Rohwert nicht spiegeln. Die
-    // Redaktion ist Domänen-Invariante; hier prüfen wir, dass sie bis in die Fehlermeldung trägt.
+    // wird io als Fehlergrund persistieren — sie darf den Rohwert nicht spiegeln. Die Redaktion
+    // ist Domänen-Invariante; hier prüfen wir, dass sie bis in die Fehlermeldung trägt.
     let leck = "DE89370400440532013000";
     let mut rohsatz = gültiger_rohsatz();
     rohsatz.amount = feld(&format!("-{leck}"));
@@ -211,7 +211,7 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
 // redigiert (nur der Feldname).
 
 #[test]
-fn ein_fehlendes_pflichtfeld_lettert_den_ganzen_batch() {
+fn ein_fehlendes_pflichtfeld_scheitert_batch_atomar() {
     let gültige = gültiger_rohsatz();
     let mut ohne_betrag = gültiger_rohsatz();
     ohne_betrag.amount = None;
@@ -255,10 +255,10 @@ fn eine_gebührenzeile_ohne_empfänger_wird_ohne_namen_gestaged() {
 // Source-Bridge mappt den Seam-Fehler auf den domänen-typisierten `SourceError::Unavailable`.
 // Der Grund trägt die **durchgereichte io-Diagnose** (Nachvollziehbarkeit ist beobachtbares
 // Verhalten, kein Detail); die reale Lese-Mechanik dahinter bleibt untestiert (io-Sache).
-// Nichts wird gestaged, nichts publiziert.
+// Nichts wird abgelegt, nichts publiziert.
 
 #[test]
-fn eine_nicht_beschaffbare_quelle_lettert_ins_dead_letter() {
+fn eine_nicht_beschaffbare_quelle_scheitert_terminal() {
     let diagnose = "CSV-Datei nicht lesbar: auszug-juni.csv (permission denied)";
     let api = ReadTestApi::new().with_unavailable_source(diagnose);
 
@@ -268,7 +268,7 @@ fn eine_nicht_beschaffbare_quelle_lettert_ins_dead_letter() {
         matches!(&ergebnis, Err(error) if error.to_string().contains(diagnose)),
         "erwartet terminaler Fehler mit durchgereichter io-Diagnose: {ergebnis:?}"
     );
-    // Terminal und leer: nichts wird gestaged oder veröffentlicht.
+    // Terminal und leer: nichts wird abgelegt oder veröffentlicht.
     assert!(api.stored_lines().is_empty());
     assert!(api.published_message_types().is_empty());
 }
@@ -278,7 +278,7 @@ fn eine_nicht_beschaffbare_quelle_lettert_ins_dead_letter() {
 // kein Präsenz-/Format-Check: die Zelle ist da, aber nicht deutbar → terminaler `CurrencyUnknown`.
 
 #[test]
-fn eine_unbekannte_währung_lettert_ins_dead_letter() {
+fn eine_unbekannte_währung_scheitert_terminal() {
     let mut rohsatz = gültiger_rohsatz();
     rohsatz.currency = feld("XYZ");
     let api = ReadTestApi::new().with_line(rohsatz);
@@ -290,4 +290,45 @@ fn eine_unbekannte_währung_lettert_ins_dead_letter() {
         "erwartet terminaler Fehler bei unbekannter Währung: {ergebnis:?}"
     );
     assert!(api.stored_lines().is_empty());
+}
+
+// --- Ablage: eine gescheiterte Ablage scheitert terminal ---------------------------------
+// Die Ablage (io-Zugriff, der die Identität vergibt) ist fehlbar: scheitert sie, gibt der
+// Handler seinen nackten terminalen `ReadError` zurück; die durchgereichte io-Diagnose bleibt im
+// Grund. Weil die Veröffentlichung erst nach der Ablage kommt, reist nichts stromabwärts.
+
+#[test]
+fn eine_gescheiterte_ablage_scheitert_terminal() {
+    let diagnose = "SQLite: disk I/O error";
+    let api = ReadTestApi::new()
+        .with_line(gültiger_rohsatz())
+        .with_failing_store(diagnose);
+
+    let ergebnis = api.run(QUELLE);
+
+    assert!(
+        matches!(&ergebnis, Err(error) if error.to_string().contains(diagnose)),
+        "erwartet terminaler Fehler mit durchgereichter io-Diagnose: {ergebnis:?}"
+    );
+    // Die Ablage scheitert vor der Veröffentlichung: nichts wird publiziert.
+    assert!(api.published_message_types().is_empty());
+}
+
+// --- Veröffentlichung: eine gescheiterte Veröffentlichung scheitert terminal -------------
+// Auch das Einreihen des „Eingelesen"-Ereignisses ist fehlbar und terminal: der Handler steigt
+// mit seinem nackten `ReadError` aus, dessen Grund die durchgereichte io-Diagnose trägt.
+
+#[test]
+fn eine_gescheiterte_veröffentlichung_scheitert_terminal() {
+    let diagnose = "Outbox: enqueue failed";
+    let api = ReadTestApi::new()
+        .with_line(gültiger_rohsatz())
+        .with_failing_publish(diagnose);
+
+    let ergebnis = api.run(QUELLE);
+
+    assert!(
+        matches!(&ergebnis, Err(error) if error.to_string().contains(diagnose)),
+        "erwartet terminaler Fehler mit durchgereichter io-Diagnose: {ergebnis:?}"
+    );
 }

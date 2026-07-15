@@ -1,21 +1,22 @@
 use std::cell::RefCell;
 
-use crate::abstractions::StoreSeam;
+use crate::abstractions::{StoreSeam, StoreUnavailable};
 use crate::dto::Line;
 
-/// Beobachtet die **gestageten** Zeilen an der Speicher-Grenze: hält je `store` das **ganze**
+/// Beobachtet die **abgelegten** Zeilen an der Speicher-Grenze: hält je `store` das **ganze**
 /// [`Line`]-DTO **samt der vergebenen ID** fest, sodass ein Spec sowohl die projizierten Felder
 /// (Feld-Treue inkl. Währung und Optional-`none`) als auch belegen kann, dass die Roh-Zeile unter
 /// **genau der** ID liegt, die als Zeiger publiziert wird. Implementiert die öffentliche Abstraction
 /// [`StoreSeam`] (nicht den Domänen-Port direkt) — hinter dem echten Seam steckt später sqlx in io,
-/// das die ID `INSERT … RETURNING id` vergibt. Beobachtet wird das **Staging**; ein Commit findet
-/// hier bewusst nicht statt (io-Sache).
+/// das die ID `INSERT … RETURNING id` vergibt. Ein arrangierter Ausfall (`fail_with`) lässt `store`
+/// terminal scheitern.
 ///
-/// **Die vergebene ID** ist deterministisch (`ingested-1`, `ingested-2`, … in Staging-Reihenfolge) —
+/// **Die vergebene ID** ist deterministisch (`ingested-1`, `ingested-2`, … in Ablage-Reihenfolge) —
 /// so kann ein Spec die publizierten Zeiger und die Speicher-Schlüssel exakt gegeneinander prüfen.
 #[derive(Default)]
 pub(crate) struct FakeStoreSeam {
     rows: RefCell<Vec<(String, Line)>>,
+    unavailable: Option<String>,
 }
 
 impl FakeStoreSeam {
@@ -39,7 +40,7 @@ impl FakeStoreSeam {
             .collect()
     }
 
-    /// Die **vergebenen IDs**, unter denen die Zeilen abgelegt wurden, in Staging-Reihenfolge — ein
+    /// Die **vergebenen IDs**, unter denen die Zeilen abgelegt wurden, in Ablage-Reihenfolge — ein
     /// Spec prüft damit, dass die publizierten Zeiger genau auf die abgelegten Roh-Zeilen zeigen.
     pub(crate) fn stored_ids(&self) -> Vec<String> {
         self.rows
@@ -48,14 +49,24 @@ impl FakeStoreSeam {
             .map(|(id, _)| id.clone())
             .collect()
     }
+
+    /// Arrangiert den Fehlschlag der Ablage mit der gegebenen io-Diagnose.
+    pub(crate) fn fail_with(&mut self, message: &str) {
+        self.unavailable = Some(message.to_string());
+    }
 }
 
 impl StoreSeam for FakeStoreSeam {
-    fn store(&self, line: &Line) -> String {
+    fn store(&self, line: &Line) -> Result<String, StoreUnavailable> {
+        if let Some(message) = &self.unavailable {
+            return Err(StoreUnavailable {
+                message: message.clone(),
+            });
+        }
         let mut rows = self.rows.borrow_mut();
         // Deterministische, je abgelegter Zeile eindeutige ID (der Fake spielt `INSERT … RETURNING id`).
         let id = format!("ingested-{}", rows.len() + 1);
         rows.push((id.clone(), line.clone()));
-        id
+        Ok(id)
     }
 }

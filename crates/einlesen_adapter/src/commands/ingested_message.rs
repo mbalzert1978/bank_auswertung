@@ -16,7 +16,7 @@ pub(crate) const MESSAGE_TYPE: &str = "Ingested";
 /// `shared_kernel::OutboxCommand`** mehr (ADR-0011): den letzten Outbox-Hop macht `io`. **Kein
 /// `Serialize`**: die ID reist als `partition_key` der Outbox-Hülle, die abgeflachten Rohfelder
 /// werden nicht über die Message dupliziert. Der Typ ist **öffentlich, aber opak** (private Felder,
-/// crate-interner Konstruktor): der `ReadingHandler`-Vertrag nennt ihn als `Publisher`-Nutzlast,
+/// crate-interner Konstruktor): der [`PublishSeam`](crate::PublishSeam) nennt ihn als Nutzlast,
 /// gebaut wird er nur hier im Adapter.
 #[derive(Debug)]
 pub struct IngestedMessage {

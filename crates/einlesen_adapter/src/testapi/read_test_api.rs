@@ -12,14 +12,14 @@ use crate::handler::ReadingHandler;
 /// die **echte** Kette über den `application_kernel`-Vertrag — [`ReadCommandDecoder`] (Envelope-
 /// Strings → Kommando, Shape Y) → [`ReadingHandler`] (Quell-/Kalender-/Geld-/Speicher-/Publisher-
 /// Bridge + domänen-interner Handler) gegen öffentliche Fakes. **Keine Outbox-Mechanik mehr:** der
-/// Slice ist eine reine Pipeline; die `OutboxConsumer`/`UnitOfWork`/Dead-Letter-Taktik prüft der
+/// Slice ist eine reine Pipeline; die `OutboxConsumer`/`UnitOfWork`-Taktik prüft der
 /// io-Integrationstest, nicht dieser Spec.
 ///
 /// Die Nachricht ist nur der **Auslöser** — den Batch beschafft der Handler über den Quell-Seam.
 /// Beobachtet wird zweifach: die veröffentlichten „Eingelesen"-Commands (Fan-out) **und** die
-/// gestageten Aggregate am Speicher-Seam. `run` gibt den **nackten Domänen-[`ReadError`]** zurück
-/// (kein `OutboxError`): eine nicht beschaffbare Quelle oder eine ungültige Zeile lässt ihn
-/// **terminal** scheitern; nichts wird veröffentlicht/gestaged.
+/// abgelegten Aggregate am Speicher-Seam. `run` gibt den **nackten Domänen-[`ReadError`]** zurück
+/// (kein `OutboxError`): eine nicht beschaffbare Quelle, eine ungültige Zeile oder eine
+/// gescheiterte Ablage/Veröffentlichung lässt ihn **terminal** scheitern.
 pub struct ReadTestApi {
     source_seam: FakeSourceSeam,
     calendar_seam: FakeCalendarSeam,
@@ -58,14 +58,30 @@ impl ReadTestApi {
         self
     }
 
+    /// Arrangiert den **Fehlschlag der Ablage**: der Speicher-Seam scheitert terminal mit der
+    /// gegebenen io-Diagnose — `run` endet im terminalen Fehler, dessen Grund die Diagnose trägt.
+    #[must_use]
+    pub fn with_failing_store(mut self, message: &str) -> Self {
+        self.store_seam.fail_with(message);
+        self
+    }
+
+    /// Arrangiert den **Fehlschlag der Veröffentlichung**: der Publish-Seam scheitert terminal mit
+    /// der gegebenen io-Diagnose — `run` endet im terminalen Fehler, dessen Grund die Diagnose trägt.
+    #[must_use]
+    pub fn with_failing_publish(mut self, message: &str) -> Self {
+        self.publisher.fail_with(message);
+        self
+    }
+
     /// Fährt die echte Kette (Decoder → Handler) für einen `ReadTransactions`-Auslöser der
     /// gegebenen Quelle und gibt das Handler-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` =
-    /// terminaler [`ReadError`], den `io` dead-lettert). Die Envelope ist **inhaltslos** — die
-    /// Quelle reist nur als `partition_key`.
+    /// terminaler [`ReadError`]). Die Envelope ist **inhaltslos** — die Quelle reist nur als
+    /// `partition_key`.
     pub fn run(&self, source: &str) -> Result<(), ReadError> {
-        // Der einlesen-Auslöser trägt keine Nutzlast und ist stets dekodierbar; ein `None` (das
-        // `io` sonst zu `Critical` machte) ist hier ein No-op statt eines Panics — die TestApi ist
-        // so die eine Stelle, die auf einen Decode nicht paniken kann.
+        // Der einlesen-Auslöser trägt keine Nutzlast und ist stets dekodierbar; ein `None` ist
+        // hier ein No-op statt eines Panics — die TestApi ist so die eine Stelle, die auf einen
+        // Decode nicht paniken kann.
         let Some(command) = ReadCommandDecoder::decode(source, "") else {
             return Ok(());
         };
