@@ -27,7 +27,11 @@ impl fmt::Display for SourceError {
                 write!(f, "mandatory field missing in source booking: {field}")
             }
             SourceError::StorageUnavailable(id) => {
-                write!(f, "obfuscated booking could not be stored: {}", id.as_str())
+                write!(
+                    f,
+                    "could not store obfuscated booking for source booking: {}",
+                    id.as_str()
+                )
             }
         }
     }
