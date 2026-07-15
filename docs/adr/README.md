@@ -19,7 +19,7 @@ ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)).
 | [0008](0008-event-getriebene-pipeline-und-outbox.md) | Event-getriebene Pipeline aus Slices mit Outbox | **maßgeblich** (in Teilen verfeinert) | [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) (Kernel-Aspekt), [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Slice-Mechanik), [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (Fehler-Taktik + ID-Handoff) |
 | [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) | Zwei Kernel-Crates + idiomatische Outbox-Verträge | **maßgeblich** (in Teilen verfeinert) | [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Kernel-Flip + Fehler-Mapping) |
 | [0010](0010-seed-basierte-pseudonym-stabilitaet.md) | Seed-basierte Pseudonym-Stabilität | **maßgeblich** | — |
-| [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) | Slice-reine Pipeline, Outbox-Mechanik in `io` | **maßgeblich** (entschiedener Plan; in Teilen superseded) | [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (Entscheidung B — Fehler-Taktik) |
+| [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) | Slice-reine Pipeline, Outbox-Mechanik in `io` | **maßgeblich** (entschiedener Plan; in Teilen superseded) | [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (löst 0011s Entscheidung B ab — die Fehler-Taktik) |
 | [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) | Durchweg-terminale Pipeline + uniformes ID-Handoff | **maßgeblich** | — |
 
 ## Supersession-Graph (Kante zeigt vom Ablöser zum abgelösten ADR)
