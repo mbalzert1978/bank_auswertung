@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/shared_kernel",
     "crates/application_kernel",
     "crates/obfuskierung_domain",
     "crates/obfuskierung_adapter",

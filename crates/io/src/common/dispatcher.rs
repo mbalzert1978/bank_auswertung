@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage};
+use super::outbox::{OutboxError, OutboxHandler, OutboxMessage};
 
 /// Der **Broker-Dispatch** ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):
-/// löst eine Nachricht über ihren [`message_type`](shared_kernel::OutboxMessage::message_type) auf
+/// löst eine Nachricht über ihren [`message_type`](super::outbox::OutboxMessage::message_type) auf
 /// den registrierten Consumer auf und übergibt sie. Ein [`OutboxConsumer`](crate::OutboxConsumer)
 /// wird als `dyn OutboxHandler` registriert; so hält der Dispatcher heterogene Slice-Consumer
 /// uniform. Verdrahtet sind `einlesen` und `obfuskierung` — dieselbe generische Maschinerie über

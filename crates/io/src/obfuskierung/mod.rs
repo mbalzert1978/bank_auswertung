@@ -14,12 +14,12 @@
 //! reicht der Aufrufer als rohen `u64` herein (io liest ihn aus der Config), heute der
 //! Integrationstest mit Fakes, später die realen io-Adapter (Build-Order Schritt 5).
 
+use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
 use obfuskierung_adapter::{
     IngestedSourceSeam, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedStoreSeam,
     ObfuscatingHandler, ObfuscatorSeam, SourceError,
 };
-use shared_kernel::{OutboxPublisher, UnitOfWork};
 
 use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 

@@ -1,13 +1,13 @@
 //! `io` — die **Infrastruktur** des modularen Monolithen: hier lebt die Outbox-Mechanik, die
 //! die Slices seit [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
-//! **nicht** mehr kennen. `io` bindet **beide** Kernel — den io-privaten `shared_kernel` (die
-//! Outbox-Seams: `OutboxMessage`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/`UnitOfWork`)
-//! und den Slice↔`io`-Vertrag `application_kernel` (`Handler`/`CommandDecoder`/`Publisher`/…) —
-//! sowie die Slice-Adapter, die es verdrahtet.
+//! **nicht** mehr kennen. `io` hält die Outbox-Seams
+//! (`OutboxMessage`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/`UnitOfWork`) selbst als
+//! **io-privates Modul** [`outbox`] und bindet den Slice↔`io`-Vertrag `application_kernel`
+//! (`Handler`/`CommandDecoder`/`Publisher`/…) sowie die Slice-Adapter, die es verdrahtet.
 //!
 //! **Die generische Consumer-Maschinerie ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):**
 //!
-//! - [`OutboxConsumer`] ist der **eine** `shared_kernel::OutboxHandler` über **jeden**
+//! - [`OutboxConsumer`] ist der **eine** [`outbox::OutboxHandler`] über **jeden**
 //!   [`TransactionalHandler`]: er extrahiert die Envelope, ruft den slice-gelieferten
 //!   `CommandDecoder` (Shape Y — nur nackte Strings) und dispatcht das Kommando an den
 //!   `TransactionalHandler`, der **eine** `UnitOfWork` öffnet, den Slice-Handler **aus ihr** baut
@@ -17,7 +17,7 @@
 //!   Nachrichtenverarbeitung baut der Consumer (Retry entsteht ausschließlich io-intern beim
 //!   Commit); die Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`].
 //! - [`PublishingPort`] macht den **letzten Outbox-Hop**: es bindet
-//!   `application_kernel::Publisher` an `shared_kernel::OutboxPublisher`
+//!   `application_kernel::Publisher` an [`outbox::OutboxPublisher`]
 //!   (`PublishCommand → OutboxCommand`). **Heute pointer-only:** ein Kommando trägt nur
 //!   `message_type` + `partition_key` (Tabelle = Wahrheit, Message = Zeiger), kein `content`.
 //!   Ein erster nutzlast-tragender Slice erweitert den Outbox-Vertrag um einen Content-/serde-
@@ -36,6 +36,7 @@ mod common;
 pub mod einlesen;
 pub mod obfuskierung;
 
+pub use common::outbox;
 pub(crate) use common::run_in_unit;
 pub use common::{
     Dispatcher, OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler,
