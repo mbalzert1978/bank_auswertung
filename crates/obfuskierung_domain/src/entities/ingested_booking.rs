@@ -14,10 +14,16 @@ pub struct IngestedBooking {
 }
 
 impl IngestedBooking {
-    /// Baut das rohe Aggregat aus seinen Teilen — die Source-Bridge setzt es aus der gelesenen
-    /// einlesen-Zeile zusammen.
+    /// **Hydratisiert** das rohe Aggregat aus seinen bereits geprüften Teilen — kein Prägen einer
+    /// frischen Identität, sondern Rekonstitution der von `einlesen` **schon vergebenen** Buchung: die
+    /// Source-Bridge liest die Zeile per ID aus dem einlesen-Speicher und gießt die vom Adapter (ACL)
+    /// gebauten Wert-Objekte hier hinein.
     #[must_use]
-    pub fn new(id: BookingId, counterparty: RawCounterparty, pass_through: PassThrough) -> Self {
+    pub fn hydrate(
+        id: BookingId,
+        counterparty: RawCounterparty,
+        pass_through: PassThrough,
+    ) -> Self {
         Self {
             id,
             counterparty,
@@ -30,7 +36,7 @@ impl IngestedBooking {
     /// und der Seed wird ins Ergebnis mitpersistiert (reproduzierbar). Die Quell-ID reist als
     /// Fremdschlüssel mit; die neue Identität vergibt die Persistenz beim Ablegen.
     #[must_use]
-    pub fn obfuscate(self, seed: Seed, obfuscator: &dyn Obfuscator) -> ObfuscatedBooking {
+    pub(crate) fn obfuscate(self, seed: Seed, obfuscator: &dyn Obfuscator) -> ObfuscatedBooking {
         ObfuscatedBooking::new(
             self.id,
             ObfuscatedCounterparty::obfuscate(self.counterparty, seed, obfuscator),

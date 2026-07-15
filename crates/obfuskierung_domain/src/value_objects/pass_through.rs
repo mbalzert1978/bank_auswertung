@@ -13,9 +13,57 @@ use crate::value_objects::non_empty_string::NonEmptyString;
 /// deutet ihn, dieser Slice fasst ihn nicht an.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PassThrough {
-    pub amount_cent: u64,
-    pub currency: NonEmptyString,
-    pub direction: NonEmptyString,
-    pub booking_day: NonEmptyString,
-    pub value_date: NonEmptyString,
+    amount_cent: u64,
+    currency: NonEmptyString,
+    direction: NonEmptyString,
+    booking_day: NonEmptyString,
+    value_date: NonEmptyString,
+}
+
+impl PassThrough {
+    /// Setzt die durchgereichten Felder aus ihren bereits an der Adapter-Grenze (ACL) geprüften
+    /// Teilen zusammen — der Adapter reicht sie hier hinein und gießt das Ganze weiter in
+    /// [`IngestedBooking::hydrate`](crate::IngestedBooking::hydrate). Der Betrag ist bereits ein
+    /// dekodierter Cent-`u64`, die übrigen sind [`NonEmptyString`].
+    #[must_use]
+    pub fn from_parts(
+        amount_cent: u64,
+        currency: NonEmptyString,
+        direction: NonEmptyString,
+        booking_day: NonEmptyString,
+        value_date: NonEmptyString,
+    ) -> Self {
+        Self {
+            amount_cent,
+            currency,
+            direction,
+            booking_day,
+            value_date,
+        }
+    }
+
+    #[must_use]
+    pub fn amount_cent(&self) -> u64 {
+        self.amount_cent
+    }
+
+    #[must_use]
+    pub fn currency(&self) -> &NonEmptyString {
+        &self.currency
+    }
+
+    #[must_use]
+    pub fn direction(&self) -> &NonEmptyString {
+        &self.direction
+    }
+
+    #[must_use]
+    pub fn booking_day(&self) -> &NonEmptyString {
+        &self.booking_day
+    }
+
+    #[must_use]
+    pub fn value_date(&self) -> &NonEmptyString {
+        &self.value_date
+    }
 }

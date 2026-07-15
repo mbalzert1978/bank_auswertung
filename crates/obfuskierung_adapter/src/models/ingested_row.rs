@@ -32,22 +32,26 @@ impl IngestedRow {
         &self,
         id: &BookingId,
     ) -> Result<IngestedBooking, MissingMandatoryField> {
-        let counterparty = RawCounterparty {
-            ordering_account: mandatory(&self.ordering_account, "ordering_account")?,
-            counter_account: as_nonempty(&self.counter_account),
-            recipient_name: as_nonempty(&self.recipient_name),
-            creditor_id: as_nonempty(&self.creditor_id),
-            purpose: as_nonempty(&self.purpose),
-            booking_text: as_nonempty(&self.booking_text),
-        };
-        let pass_through = PassThrough {
-            amount_cent: self.amount_cent,
-            currency: mandatory(&self.currency, "currency")?,
-            direction: mandatory(&self.direction, "direction")?,
-            booking_day: mandatory(&self.booking_day, "booking_day")?,
-            value_date: mandatory(&self.value_date, "value_date")?,
-        };
-        Ok(IngestedBooking::new(id.clone(), counterparty, pass_through))
+        let counterparty = RawCounterparty::from_parts(
+            mandatory(&self.ordering_account, "ordering_account")?,
+            as_nonempty(&self.counter_account),
+            as_nonempty(&self.recipient_name),
+            as_nonempty(&self.creditor_id),
+            as_nonempty(&self.purpose),
+            as_nonempty(&self.booking_text),
+        );
+        let pass_through = PassThrough::from_parts(
+            self.amount_cent,
+            mandatory(&self.currency, "currency")?,
+            mandatory(&self.direction, "direction")?,
+            mandatory(&self.booking_day, "booking_day")?,
+            mandatory(&self.value_date, "value_date")?,
+        );
+        Ok(IngestedBooking::hydrate(
+            id.clone(),
+            counterparty,
+            pass_through,
+        ))
     }
 }
 
