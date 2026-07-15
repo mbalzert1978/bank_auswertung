@@ -17,8 +17,8 @@ pub struct OutboxMessage {
     /// [`partition_key`](OutboxMessage::partition_key), nie dieses Feld.
     pub id: String,
     /// Dispatch-Key, auf den der Prozessor den passenden
-    /// [`OutboxHandler`](crate::OutboxHandler) auflöst — dieselbe Quelle wie
-    /// [`OutboxCommand::MESSAGE_TYPE`](crate::OutboxCommand::MESSAGE_TYPE).
+    /// [`OutboxHandler`](super::OutboxHandler) auflöst — dieselbe Quelle wie
+    /// [`OutboxCommand::MESSAGE_TYPE`](super::OutboxCommand::MESSAGE_TYPE).
     pub message_type: String,
     /// Aggregat-Identität, auf der der Zyklus serialisiert (gleiche Keys der Reihe
     /// nach, verschiedene Keys nebenläufig). **Konvention:** dies ist zugleich der
@@ -29,7 +29,7 @@ pub struct OutboxMessage {
     /// Serialisierte Nutzlast (JSON-Text nach der hier beschriebenen Konvention).
     ///
     #[doc = "**Die eine JSON-Konvention für Outbox-Nutzlasten** — **nur Dokumentation, keine"]
-    #[doc = "serde-Impl im Kernel** (der `shared_kernel` bleibt dependency-frei)."]
+    #[doc = "serde-Impl hier** (das io-private Outbox-Modul bleibt dependency-frei)."]
     #[doc = ""]
     #[doc = "`io` (der `OutboxPublisher`) serialisiert den Kommando-Inhalt mit dieser"]
     #[doc = "Konvention, und **jede** Consume-Bridge deserialisiert ihren Request mit"]

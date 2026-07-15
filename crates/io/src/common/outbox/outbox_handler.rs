@@ -1,9 +1,9 @@
-use crate::{OutboxError, OutboxMessage};
+use super::{OutboxError, OutboxMessage};
 
 /// Öffentlicher Consume-Seam: der Outbox-Prozessor dispatcht **eine** Nachricht an
 /// den Handler, aufgelöst über
-/// [`OutboxMessage::message_type`](crate::OutboxMessage::message_type). Seit dem
-/// Kernel-Flip ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
+/// [`OutboxMessage::message_type`](super::OutboxMessage::message_type). Seit dem
+/// Kernel-Flip ([ADR-0011](../../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
 /// implementiert **`io`s generische `OutboxConsumer`** diesen Seam **einmal** über
 /// **jeden** Slice (statt je Slice eine eigene Consume-Bridge): sie extrahiert den
 /// Envelope, ruft den slice-gelieferten `CommandDecoder`, dispatcht an den

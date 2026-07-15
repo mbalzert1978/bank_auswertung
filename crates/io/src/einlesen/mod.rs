@@ -9,12 +9,12 @@
 //! reicht der Aufrufer herein — heute der Integrationstest mit Fakes, später die realen io-Adapter
 //! (Build-Order Schritt 5: eine `sqlx`-Transaktion pro Nachricht).
 
+use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
 use einlesen_adapter::{
     CalendarSeam, MoneySeam, ReadCommand, ReadCommandDecoder, ReadError, ReadingHandler,
     SourceSeam, StoreSeam,
 };
-use shared_kernel::{OutboxPublisher, UnitOfWork};
 
 use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 

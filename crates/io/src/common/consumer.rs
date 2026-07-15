@@ -1,5 +1,5 @@
+use super::outbox::{OutboxError, OutboxHandler, OutboxMessage, OutboxPublisher, UnitOfWork};
 use application_kernel::CommandDecoder;
-use shared_kernel::{OutboxError, OutboxHandler, OutboxMessage, OutboxPublisher, UnitOfWork};
 
 use crate::PublishingPort;
 
@@ -45,8 +45,8 @@ pub enum TransactionError<E> {
     Commit(String),
 }
 
-/// Der **eine** generische Outbox-Consumer ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
-/// Entscheidung A/B): er implementiert `shared_kernel::OutboxHandler` über **jeden**
+/// Der **eine** generische Outbox-Consumer ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
+/// Entscheidung A/B): er implementiert [`OutboxHandler`](super::outbox::OutboxHandler) über **jeden**
 /// [`TransactionalHandler`] `T`. Statt je Slice eine Consume-Bridge lebt die Verdrahtung
 /// Envelope → Kommando → Disposition **einmal** hier.
 ///

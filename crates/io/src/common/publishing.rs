@@ -1,9 +1,9 @@
+use super::outbox::{OutboxCommand, OutboxPublisher};
 use application_kernel::{PublishCommand, Publisher};
 use einlesen_adapter::{IngestedMessage, PublishSeam, PublishUnavailable};
-use shared_kernel::{OutboxCommand, OutboxPublisher};
 
 /// Der **letzte Outbox-Hop**: reicht ein veröffentlichtes adapter-seitiges Kommando an den
-/// io-privaten `shared_kernel::OutboxPublisher` durch — die eine Stelle, an der `PublishCommand`
+/// io-privaten [`OutboxPublisher`](super::outbox::OutboxPublisher) durch — die eine Stelle, an der `PublishCommand`
 /// (adapter-sichtbar) auf `OutboxCommand` (io-privat) trifft. Er erfüllt den Publish-Ausgang jedes
 /// Slice: `einlesen`s fehlbaren [`PublishSeam`] und (bis Issue 0028) obfuskierungs
 /// `application_kernel::Publisher`.

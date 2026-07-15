@@ -28,7 +28,7 @@ use einlesen_adapter::{
 };
 use io::Dispatcher;
 use io::einlesen::UnitFactory;
-use shared_kernel::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
+use io::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 
 // --- Seam-Fakes (minimale Stubs für die Fixtures) ---------------------------------------
 

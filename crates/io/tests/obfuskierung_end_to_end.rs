@@ -23,11 +23,11 @@ use std::rc::Rc;
 
 use io::Dispatcher;
 use io::obfuskierung::UnitFactory;
+use io::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 use obfuskierung_adapter::{
     IngestedRow, IngestedSourceSeam, ObfuscatedBooking, ObfuscatedStoreSeam, ObfuscatorSeam,
     StoreUnavailable,
 };
-use shared_kernel::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 
 const SEED: u64 = 42;
 

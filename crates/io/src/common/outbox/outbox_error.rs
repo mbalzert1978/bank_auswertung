@@ -1,14 +1,14 @@
 use std::fmt;
 
 /// Fehlerbild bei der Verarbeitung **einer** Outbox-Nachricht — das `E` im
-/// `Result<(), OutboxError>`, das ein [`OutboxHandler`](crate::OutboxHandler)
+/// `Result<(), OutboxError>`, das ein [`OutboxHandler`](super::OutboxHandler)
 /// zurückgibt. `Ok(())` heißt „verarbeitet" (das frühere `Handled`); die
 /// Fehler-Varianten steuern, was der Prozessor mit der Nachricht tut.
 ///
 /// Löst die C#-nahen Typen `HandleOutcome` **und** `Severity` ab: Rusts `Result`
 /// trägt Erfolg/Misserfolg selbst, also lebt hier nur noch das Fehlerbild, und der
 /// frühere Schweregrad ist zu den Fehler-Varianten geworden. Seit dem Kernel-Flip
-/// ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
+/// ([ADR-0011](../../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
 /// baut **`io`** diesen Fehler — die generische `OutboxConsumer` klassifiziert die
 /// Disposition (Handler-Fehler → `Warning` terminal, Commit-Fehler → `Retry`,
 /// leerer/ungültiger Inhalt → `Critical`); der Slice gibt nur seinen **nackten
