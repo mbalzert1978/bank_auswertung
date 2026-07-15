@@ -50,6 +50,6 @@ Crates und brauchen eine sichtbare Fläche; ein schmales `pub`-Modul in `io` gen
 ## Blocked by
 
 Blocked by [0031](0031-crates-auf-einheitliches-ziel-ordner-layout-umstrukturieren.md) —
-beide Umbauten fassen `io` an. 0031 normalisiert zuerst das Layout (u. a. `io` nach
-Top-Level `io/` mit `<feature>/`+`common/`); danach löst dieses Issue `shared_kernel` auf dem
-gesetzten `io/`-Stand io-privat auf. So editiert nie mehr als ein Branch gleichzeitig `io`.
+beide Umbauten fassen `io` an. 0031 gliedert `crates/io/` zuerst intern nach
+`<feature>/`+`common/`; danach löst dieses Issue `shared_kernel` auf dem gesetzten Stand
+io-privat in `io` auf. So editiert nie mehr als ein Branch gleichzeitig `io`.
