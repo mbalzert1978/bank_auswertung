@@ -50,7 +50,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 - [docs/adr/](docs/adr/) — twelve ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011**, the decided-but-not-yet-built plan to decouple each slice from the Outbox
   mechanics and flip the kernel cut, and by **0012**, which fixes the pipeline to
-  **durchweg terminal** — no dead-letter/retry in the slice, fallible read/save/publish —
+  **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
   and pins the **uniform ID handoff** (DB-assigned new ID as the published pointer, foreign
   entities referenced by ID only); 0010 governing seed-based pseudonym stability; 0001–0007
   each carry a superseded banner pointing at the canonical successor).

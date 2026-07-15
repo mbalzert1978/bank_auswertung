@@ -112,7 +112,7 @@ Die Umsetzung dieses Musters in den Slices ist **bereits erfolgt** — die Slice
 [0028](../issues/0028-obfuskierung-terminal-fehlbares-read-save-publish-und-id-handoff.md)
 (`obfuskierung`) und
 [0029](../issues/0029-einlesen-terminal-fehlbares-store-publish.md) (`einlesen`) sind
-umgesetzt: read/save/publish je fehlbar+terminal, die Ablage vergibt die neue ID, genau sie
+umgesetzt: lesen/ablegen/publizieren je fehlbar+terminal, die Ablage vergibt die neue ID, genau sie
 reist als Zeiger, Fremd-Referenz nur per ID. Dieses ADR ist der **kanonische Ort der
 Entscheidung**, keine Code-Änderung selbst.
 

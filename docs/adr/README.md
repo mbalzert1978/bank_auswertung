@@ -40,7 +40,7 @@ ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)).
   und 0012 die **Fehler-Taktik + das ID-Handoff** (siehe dort).
 - **[ADR-0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) ist maßgeblich**
   — die Pipeline ist **durchweg terminal** (kein Dead-Letter/Retry im Slice; alle drei
-  I/O-Schritte read/save/publish fehlbar), und das **ID-Handoff ist uniform**: die von der
+  I/O-Schritte lesen/ablegen/publizieren fehlbar), und das **ID-Handoff ist uniform**: die von der
   Ablage **neu vergebene** ID ist der publizierte Zeiger, Aggregate referenzieren
   Fremd-Entitäten **nur per ID**. Es korrigiert die „Dead-Letter"/`io`-Klassifikations-
   Erzählung von 0011 (Entscheidung B) als Missverständnis und präzisiert die
