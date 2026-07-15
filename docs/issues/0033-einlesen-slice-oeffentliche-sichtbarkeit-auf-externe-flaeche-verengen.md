@@ -1,7 +1,7 @@
 ---
 id: "0033"
 title: "einlesen-Slice: oeffentliche Sichtbarkeit auf externe Flaeche verengen"
-status: open
+status: closed
 ---
 
 # einlesen-Slice: oeffentliche Sichtbarkeit auf externe Flaeche verengen

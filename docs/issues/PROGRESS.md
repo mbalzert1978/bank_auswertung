@@ -20,6 +20,14 @@ Vertagt (Zielbild ADR-0008, bewusst noch kein Issue): `auswerten`-Consumer,
 
 ## Erledigt
 
+- [x] **[0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md](0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)** (2026-07-15, PR #25)
+  `shared_kernel` als eigene Crate aufgelöst und io-privat als Outbox-Modul in `io`
+  untergebracht (ADR-0011). Squash-gemergt in `main`.
+- [x] **[0033-einlesen-slice-oeffentliche-sichtbarkeit-auf-externe-flaeche-verengen.md](0033-einlesen-slice-oeffentliche-sichtbarkeit-auf-externe-flaeche-verengen.md)** (2026-07-15, PR #24)
+  `einlesen`-Slice: öffentliche Sichtbarkeit auf die externe Fläche verengt. Squash-gemergt in `main`.
+- [x] **[0034-obfuskierung-slice-oeffentliche-sichtbarkeit-auf-externe-flaeche-verengen.md](0034-obfuskierung-slice-oeffentliche-sichtbarkeit-auf-externe-flaeche-verengen.md)** (2026-07-15, PR #26)
+  `obfuskierung`-Slice: öffentliche Sichtbarkeit auf die externe Fläche verengt, Roh-VOs
+  über `from_parts` geschlossen. Squash-gemergt in `main`.
 - [x] **[0023-error-ketten-vervollstaendigen-source-an-wrapper-errors.md](0023-error-ketten-vervollstaendigen-source-an-wrapper-errors.md)** (2026-07-15, PR #19)
   Error-Ketten vervollständigt: `ReadError::source()` reicht die innere Ursache je Variante
   weiter, `From<SourceError>`/`From<LineError>` lassen den Handler `?` nutzen; `HandleError`

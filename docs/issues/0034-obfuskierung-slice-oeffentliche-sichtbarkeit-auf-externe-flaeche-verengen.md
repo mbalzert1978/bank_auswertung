@@ -1,7 +1,7 @@
 ---
 id: "0034"
 title: "obfuskierung-Slice: oeffentliche Sichtbarkeit auf externe Flaeche verengen"
-status: open
+status: closed
 ---
 
 # obfuskierung-Slice: oeffentliche Sichtbarkeit auf externe Flaeche verengen

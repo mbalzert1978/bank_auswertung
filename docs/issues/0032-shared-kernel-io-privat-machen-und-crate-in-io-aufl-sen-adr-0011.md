@@ -1,7 +1,7 @@
 ---
 id: "0032"
 title: shared_kernel io-privat machen und Crate in io auflösen (ADR-0011)
-status: blocked
+status: closed
 ---
 
 # shared_kernel io-privat machen und Crate in io auflösen (ADR-0011)
