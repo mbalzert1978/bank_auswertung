@@ -1,7 +1,6 @@
-//! Die Black-Box-Test-Fläche des Slice: Fakes der öffentlichen Abstractions (Vorbild
-//! `examples/Downloader/Adapter/TestApis/Fakes`). Implementieren **nie** einen internen
-//! Domänen-Port direkt — die echten Port-/Publisher-Bridges laufen in `run` immer über
-//! sie, genau wie gegen echtes IO.
+//! Die Black-Box-Test-Fläche des Slice: Fakes der öffentlichen Abstractions. Implementieren
+//! **nie** einen internen Domänen-Port direkt — die echten Port-/Publisher-Bridges laufen in
+//! `run` immer über sie, genau wie gegen echtes IO.
 
 mod fake_calendar_seam;
 mod fake_money_seam;
