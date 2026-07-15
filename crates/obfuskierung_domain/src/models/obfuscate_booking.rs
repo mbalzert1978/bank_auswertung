@@ -13,7 +13,7 @@ impl ObfuscateBooking {
         Self { id }
     }
 
-    pub fn id(&self) -> &BookingId {
+    pub(crate) fn id(&self) -> &BookingId {
         &self.id
     }
 }
