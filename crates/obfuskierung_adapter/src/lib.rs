@@ -11,10 +11,10 @@
 //! `OutboxConsumer` fährt ihn: sie extrahiert die Envelope, ruft den slice-gelieferten
 //! [`ObfuscateCommandDecoder`] (Shape Y, nur nackte Strings; der Aggregat-Zeiger liegt im
 //! `partition_key`) und dispatcht. Der Handler **liest** das rohe Aggregat per ID aus dem
-//! einlesen-Speicher, obfuskiert seed-basiert, **legt die ganze obfuskierte Buchung in der
-//! `obfuskiert`-Tabelle ab** und **publiziert nur die ID** als Zeiger (Tabelle = Wahrheit, Message =
-//! Pointer). Ein terminaler Fehler ist der **nackte Domänen-[`HandleError`]** (hier re-exportiert),
-//! dessen **redigierte** `Display` `io` als Dead-Letter-Grund spiegelt.
+//! einlesen-Speicher, obfuskiert seed-basiert, **legt die obfuskierte Buchung in der
+//! `obfuskiert`-Tabelle ab** (die Persistenz vergibt die neue ID) und **publiziert genau diese neue
+//! ID** als Zeiger (Tabelle = Wahrheit, Message = Pointer). Ein terminaler Fehler ist der **nackte
+//! Domänen-[`SourceError`]** (hier re-exportiert), dessen **redigierte** `Display` `io` spiegelt.
 //!
 //! **Schichtung:** der domänen-interne [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler)
 //! hängt **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
@@ -28,7 +28,7 @@
 //! [`AccountId`]/[`Pseudonym`]/[`ObfuscatedText`]/[`Recipient`]), die von `io` erfüllten Seams
 //! ([`IngestedSourceSeam`]/[`ObfuscatedStoreSeam`]/[`ObfuscatorSeam`]) und der von `io` verdrahtete
 //! Slice-Vertrag ([`ObfuscatingHandler`], [`ObfuscateCommand`]/[`ObfuscateCommandDecoder`], das opake
-//! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`HandleError`]). Alles andere
+//! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`SourceError`]). Alles andere
 //! ist crate-privat. Die eingehende Nachricht trägt **nur die ID** — kein Wire-DTO, **kein serde** im
 //! Slice.
 //!
@@ -44,7 +44,7 @@ mod dto;
 mod handler;
 mod testapi;
 
-pub use abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam};
+pub use abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, StoreUnavailable};
 pub use commands::{
     CONSUMED_MESSAGE_TYPE, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedMessage,
 };
@@ -52,13 +52,12 @@ pub use dto::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, Pseudon
 pub use handler::ObfuscatingHandler;
 pub use testapi::ObfuscationTestApi;
 
-/// Der **nackte Domänen-Fehler** des Slice, re-exportiert (ADR-0011, Entscheidung B): der
-/// [`ObfuscatingHandler`] gibt ihn 1:1 zurück, `io` spiegelt seine **redigierte** `Display` als
-/// Dead-Letter-Grund. Bewusst re-exportiert statt adapter-lokal re-deklariert — anders als die
-/// projizierten DTO-Typen ist der Fehler kein Datenwert, sondern der Redaktions-Vertrag selbst: seine
-/// `Display` ist der **alleinige** Eigentümer des Meldungssatzes, ein Re-Deklarat wäre ein
-/// Satz-Duplikat über Crates.
-pub use obfuskierung_domain::HandleError;
+/// Der **nackte Domänen-Fehler** des Slice, re-exportiert: der [`ObfuscatingHandler`] gibt ihn 1:1
+/// zurück, `io` spiegelt seine **redigierte** `Display`. Bewusst re-exportiert statt adapter-lokal
+/// re-deklariert — anders als die projizierten DTO-Typen ist der Fehler kein Datenwert, sondern der
+/// Redaktions-Vertrag selbst: seine `Display` ist der **alleinige** Eigentümer des Meldungssatzes, ein
+/// Re-Deklarat wäre ein Satz-Duplikat über Crates.
+pub use obfuskierung_domain::SourceError;
 
 #[cfg(test)]
 mod datenschutz {

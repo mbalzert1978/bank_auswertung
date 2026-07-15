@@ -1,11 +1,12 @@
+use crate::error::SourceError;
 use crate::value_objects::BookingId;
 
-/// Der von der Domäne **verlangte** Port, um die **ID** des obfuskierten Aggregats als Zeiger für
-/// den nächsten Pipeline-Schritt zu **publizieren** (nicht die Nutzlast — die liegt im Repository).
-/// Wie der Einlese-`EventSink` *staged* der Handler nur; der Commit (Zeiger **und** Ablage atomar)
-/// gehört io. Der Port spricht **Domänen-Vokabular** ([`BookingId`]); die Abbildung auf das
-/// Outbox-Wire-DTO ist Adapter-Sache.
+/// Der von der Domäne **verlangte** Publish-Port: veröffentlicht (staged) die **neu vergebene**
+/// [`BookingId`] des obfuskierten Aggregats als Zeiger für den nächsten Pipeline-Schritt — nicht die
+/// Nutzlast, die liegt in der `obfuskiert`-Tabelle. Der Handler *staged* nur; den Commit besorgt io.
+///
+/// **Fehlbar und terminal** ([`SourceError`]).
 pub trait BookingPublisher {
-    /// Reiht die ID als `Obfuscated`-Zeiger in die offene Arbeitseinheit ein (Staging).
-    fn publish(&self, id: &BookingId);
+    /// Reiht die neu vergebene ID als Zeiger ein (Staging), oder scheitert terminal mit [`SourceError`].
+    fn publish(&self, id: &BookingId) -> Result<(), SourceError>;
 }

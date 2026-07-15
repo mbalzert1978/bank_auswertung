@@ -4,12 +4,13 @@ use crate::value_objects::pass_through::PassThrough;
 use crate::value_objects::seed::Seed;
 
 /// Das **obfuskierte** Aggregat — das Ergebnis, das der Handler ins Repository (die
-/// `obfuskiert`-Tabelle) ablegt und dessen [`id`](ObfuscatedBooking::id) er als Zeiger publiziert
-/// (Tabelle = Wahrheit, Message = Pointer). Trägt die obfuskierte Gegenpartei (nur Token), die
-/// durchgereichten Felder, den mitpersistierten [`Seed`] (reproduzierbar) und seine Identität.
+/// `obfuskiert`-Tabelle) ablegt. Es referenziert die Quell-Buchung **nur per ID**
+/// ([`source_id`](ObfuscatedBooking::source_id), Fremdschlüssel); seine **eigene** Identität vergibt
+/// die Persistenz beim Ablegen. Trägt die obfuskierte Gegenpartei (nur Token), die durchgereichten
+/// Felder und den mitpersistierten [`Seed`] (reproduzierbar).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObfuscatedBooking {
-    id: BookingId,
+    source_id: BookingId,
     counterparty: ObfuscatedCounterparty,
     pass_through: PassThrough,
     seed: Seed,
@@ -18,13 +19,13 @@ pub struct ObfuscatedBooking {
 impl ObfuscatedBooking {
     #[must_use]
     pub(crate) fn new(
-        id: BookingId,
+        source_id: BookingId,
         counterparty: ObfuscatedCounterparty,
         pass_through: PassThrough,
         seed: Seed,
     ) -> Self {
         Self {
-            id,
+            source_id,
             counterparty,
             pass_through,
             seed,
@@ -32,8 +33,8 @@ impl ObfuscatedBooking {
     }
 
     #[must_use]
-    pub fn id(&self) -> &BookingId {
-        &self.id
+    pub fn source_id(&self) -> &BookingId {
+        &self.source_id
     }
 
     #[must_use]

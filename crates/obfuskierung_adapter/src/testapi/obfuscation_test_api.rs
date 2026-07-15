@@ -1,7 +1,7 @@
 use application_kernel::{CommandDecoder, Handler};
 use obfuskierung_domain::{
-    AccountToken, HandleError, NonEmptyString, ObfuscatedText as DomainText, Obfuscator,
-    Pseudonym as DomainPseudonym, Replacement, Seed,
+    AccountToken, NonEmptyString, ObfuscatedText as DomainText, Obfuscator,
+    Pseudonym as DomainPseudonym, Replacement, Seed, SourceError,
 };
 
 use super::fakes::{FakeIngestedSource, FakeObfuscatedStore, FakeObfuscator, FakePublisher};
@@ -20,9 +20,8 @@ use crate::handler::ObfuscatingHandler;
 /// Fakes. **Keine Outbox-Mechanik mehr:** der Slice ist eine reine Pipeline; die
 /// `OutboxConsumer`/`UnitOfWork`/Dead-Letter-Taktik prüft der io-Integrationstest, nicht dieser Spec.
 ///
-/// `run` gibt den **nackten Domänen-[`HandleError`]** zurück (kein `OutboxError`): eine absente Zeile
-/// (gebrochenes Invariant) oder ein fehlendes Pflichtfeld lässt ihn **terminal** scheitern; nichts
-/// wird abgelegt/publiziert.
+/// `run` gibt den **nackten Domänen-[`SourceError`]** zurück (kein `OutboxError`): eine absente Zeile
+/// oder ein fehlendes Pflichtfeld lässt ihn **terminal** scheitern; nichts wird abgelegt/publiziert.
 ///
 /// **Erwartungen prüft die TestApi selbst** (`assert_*`): die Spec formuliert das erwartete Ergebnis
 /// als **DTO** — die Token-Felder über die deterministischen `expected_*`-Helfer (dieselbe
@@ -67,8 +66,8 @@ impl ObfuscationTestApi {
 
     /// Fährt die echte Kette (Decoder → Handler) für einen `Ingested`-**Zeiger** (die ID reist als
     /// `partition_key` der Envelope, kein Inhalt) und gibt das Handler-Ergebnis zurück (`Ok(())` =
-    /// verarbeitet, `Err` = terminaler [`HandleError`], den `io` dead-lettert).
-    pub fn run(&self, id: &str) -> Result<(), HandleError> {
+    /// verarbeitet, `Err` = terminaler [`SourceError`]).
+    pub fn run(&self, id: &str) -> Result<(), SourceError> {
         // Der Zeiger ist der `partition_key`; der `content` ist leer (reiner Zeiger). Ein blanker
         // Zeiger (→ Decoder `None`) ist eine io-Envelope-Sorge (`Critical`), nicht Handler-Eingabe —
         // die Specs reichen stets einen echten Zeiger herein.
@@ -128,7 +127,7 @@ impl ObfuscationTestApi {
         assert_eq!(self.publisher.partition_keys(), expected_ids);
     }
 
-    /// Prüft, dass **nichts** abgelegt oder publiziert wurde (Dead-Letter-Fall).
+    /// Prüft, dass **nichts** abgelegt oder publiziert wurde (terminaler Fehler).
     pub fn assert_nothing_emitted(&self) {
         assert!(
             self.store.bookings().is_empty(),

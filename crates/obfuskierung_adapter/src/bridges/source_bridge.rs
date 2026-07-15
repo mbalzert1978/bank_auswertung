@@ -1,29 +1,25 @@
-use obfuskierung_domain::{BookingId, BookingLookup, RawBookingSource};
+use obfuskierung_domain::{BookingId, IngestedBooking, RawBookingSource, SourceError};
 
 use crate::abstractions::IngestedSourceSeam;
 
 /// Die **Port-Bridge** für den Lese-Port: erfüllt `obfuskierung_domain::RawBookingSource` und mappt
-/// ihn auf den öffentlichen [`IngestedSourceSeam`] (den io erfüllt). „außen → innen": der Seam
-/// liefert die rohe [`IngestedRow`](crate::dto::IngestedRow), die Bridge deutet sie in das
-/// Domänen-Aggregat. Sie **trennt die drei Ausgänge im Typ** ([`BookingLookup`]): der Seam liefert
-/// keine Zeile → `Absent` (gebrochenes Invariant, terminal — der Broker stellt erst nach `einlesen`s
-/// atomarem Commit zu, die Zeile muss also liegen); die Zeile ist da, aber ein Pflichtfeld fehlt →
-/// `Malformed` mit redigiertem Feldnamen (terminal); sonst `Found`. Vorbild: `CalendarBridge` des
-/// Einlese-Slice.
+/// ihn auf den öffentlichen [`IngestedSourceSeam`] (den io erfüllt). „außen → innen": der Seam liefert
+/// die rohe [`IngestedRow`](crate::dto::IngestedRow), die Bridge deutet sie in das Domänen-Aggregat.
+/// Keine Zeile → terminaler [`SourceError::NotFound`] (opake ID); eine Zeile mit fehlendem Pflichtfeld
+/// → [`SourceError::MissingMandatoryField`] (redigierter Feldname).
 pub(crate) struct SourceBridge<'a> {
     pub(crate) seam: &'a dyn IngestedSourceSeam,
 }
 
 impl RawBookingSource for SourceBridge<'_> {
-    fn read(&self, id: &BookingId) -> BookingLookup {
+    fn read(&self, id: &BookingId) -> Result<IngestedBooking, SourceError> {
         match self.seam.read(id.as_str()) {
-            None => BookingLookup::Absent,
-            Some(row) => match row.to_booking(id) {
-                Ok(booking) => BookingLookup::Found(Box::new(booking)),
-                Err(missing) => BookingLookup::Malformed {
+            None => Err(SourceError::NotFound(id.clone())),
+            Some(row) => row
+                .to_booking(id)
+                .map_err(|missing| SourceError::MissingMandatoryField {
                     field: missing.field(),
-                },
-            },
+                }),
         }
     }
 }

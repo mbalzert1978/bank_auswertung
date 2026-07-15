@@ -1,5 +1,5 @@
 use application_kernel::{Handler, Publisher};
-use obfuskierung_domain::{BookingId, HandleError, ObfuscateBooking, ObfuscationHandler, Seed};
+use obfuskierung_domain::{BookingId, ObfuscateBooking, ObfuscationHandler, Seed, SourceError};
 
 use crate::abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam};
 use crate::bridges::{ObfuscatorBridge, PublisherBridge, RepositoryBridge, SourceBridge};
@@ -13,9 +13,9 @@ use crate::commands::{ObfuscateCommand, ObfuscatedMessage};
 /// Einlese-Slice.
 ///
 /// **Transaktions-blind:** `save`/`publish` *stagen* nur; die eine `UnitOfWork` (Ablage + Nachricht
-/// atomar) besitzt `io`. Der Handler gibt seinen **nackten Domänen-Fehler** [`HandleError`] zurück —
-/// jeder Fehler ist terminal; `io` spiegelt dessen **redigierte** `Display` als Dead-Letter-Grund
-/// (ADR-0011, Entscheidung B). Kein `OutboxError`, kein `shared_kernel`.
+/// atomar) besitzt `io`. Der Handler gibt seinen **nackten Domänen-Fehler** [`SourceError`] zurück —
+/// jeder Fehler ist terminal; `io` spiegelt dessen **redigierte** `Display`. Kein `OutboxError`, kein
+/// `shared_kernel`.
 ///
 /// Der `ObfuscationHandler` borgt die gebündelten Bridges; er wird pro `handle` frisch gebaut (die
 /// Bridges tragen nur `&dyn`-Seams, das ist billig) — so bleibt der Handler ohne selbst-referenzielles
@@ -53,9 +53,9 @@ impl<'a> ObfuscatingHandler<'a> {
 impl Handler for ObfuscatingHandler<'_> {
     type Command = ObfuscateCommand;
     type Response = ();
-    type Error = HandleError;
+    type Error = SourceError;
 
-    fn handle(&self, command: ObfuscateCommand) -> Result<(), HandleError> {
+    fn handle(&self, command: ObfuscateCommand) -> Result<(), SourceError> {
         ObfuscationHandler::new(
             self.seed,
             &self.source,

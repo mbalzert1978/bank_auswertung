@@ -25,6 +25,7 @@ use io::Dispatcher;
 use io::obfuskierung::UnitFactory;
 use obfuskierung_adapter::{
     IngestedRow, IngestedSourceSeam, ObfuscatedBooking, ObfuscatedStoreSeam, ObfuscatorSeam,
+    StoreUnavailable,
 };
 use shared_kernel::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 
@@ -91,7 +92,8 @@ struct FakeDb {
 
 #[derive(Default)]
 struct Committed {
-    bookings: Vec<ObfuscatedBooking>,
+    /// Je abgelegter Buchung die vom Store **neu vergebene** ID und das DTO.
+    bookings: Vec<(String, ObfuscatedBooking)>,
     messages: Vec<(String, String)>,
 }
 
@@ -104,15 +106,31 @@ impl FakeDb {
     }
 
     fn committed_bookings(&self) -> Vec<ObfuscatedBooking> {
-        self.committed.borrow().bookings.clone()
-    }
-
-    fn committed_booking_ids(&self) -> Vec<String> {
         self.committed
             .borrow()
             .bookings
             .iter()
-            .map(|booking| booking.id.clone())
+            .map(|(_, booking)| booking.clone())
+            .collect()
+    }
+
+    /// Die vom Store **neu vergebenen** IDs der abgelegten Buchungen — genau sie reisen als Zeiger.
+    fn committed_assigned_ids(&self) -> Vec<String> {
+        self.committed
+            .borrow()
+            .bookings
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Die **Quell-IDs** (Fremdschlüssel) der abgelegten Buchungen — zeigen auf die einlesen-Zeile.
+    fn committed_source_ids(&self) -> Vec<String> {
+        self.committed
+            .borrow()
+            .bookings
+            .iter()
+            .map(|(_, booking)| booking.source_id.clone())
             .collect()
     }
 
@@ -158,8 +176,15 @@ struct FakeUnit {
 }
 
 impl ObfuscatedStoreSeam for FakeUnit {
-    fn save(&self, booking: &ObfuscatedBooking) {
-        self.pending.borrow_mut().bookings.push(booking.clone());
+    fn save(&self, booking: &ObfuscatedBooking) -> Result<String, StoreUnavailable> {
+        let mut pending = self.pending.borrow_mut();
+        // Deterministische, je abgelegter Buchung eindeutige ID (der Fake spielt `INSERT … RETURNING id`).
+        let id = format!(
+            "obfuskiert-{}",
+            self.committed.borrow().bookings.len() + pending.bookings.len() + 1
+        );
+        pending.bookings.push((id.clone(), booking.clone()));
+        Ok(id)
     }
 }
 
@@ -249,19 +274,22 @@ fn ein_envelope_wird_end_to_end_verarbeitet_und_atomar_committet() {
 
     assert_eq!(ergebnis, Ok(()));
     // Atomar committet: genau eine obfuskierte Buchung **und** genau eine „Obfuscated"-Nachricht,
-    // deren Zeiger sich mit der abgelegten Buchungs-ID deckt (Tabelle = Wahrheit, Message = Pointer).
+    // deren Zeiger sich mit der vom Store **neu vergebenen** ID deckt (Tabelle = Wahrheit, Message =
+    // Pointer) — nicht mit der Quell-ID.
     assert_eq!(db.committed_bookings().len(), 1);
     assert_eq!(db.committed_message_types(), vec!["Obfuscated"]);
-    assert_eq!(db.committed_partition_keys(), db.committed_booking_ids());
-    assert_eq!(db.committed_partition_keys(), vec!["buchung-1"]);
+    assert_eq!(db.committed_partition_keys(), db.committed_assigned_ids());
+    assert_eq!(db.committed_partition_keys(), vec!["obfuskiert-1"]);
+    // Die abgelegte Buchung referenziert die einlesen-Zeile nur per Fremdschlüssel.
+    assert_eq!(db.committed_source_ids(), vec!["buchung-1"]);
 }
 
 // --- Terminaler Handler-Fehler: redigiertes Dead-Letter, nichts committet ---------------
 
 #[test]
 fn ein_malformed_datensatz_wird_redigiert_dead_lettered() {
-    // Pflichtfeld leer (Währung) → `MalformedSource` (terminal). Der Grund trägt nur den Feldnamen,
-    // nie den Rohwert (die IBAN im selben Datensatz).
+    // Pflichtfeld leer (Währung) → `MissingMandatoryField` (terminal). Der Grund trägt nur den
+    // Feldnamen, nie den Rohwert (die IBAN im selben Datensatz).
     let mut zeile = gültige_zeile();
     zeile.currency = String::new();
     let source = FakeSource::with("buchung-1", zeile);
