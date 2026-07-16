@@ -13,7 +13,8 @@ Transaktionen aus, ändert keine Kontodaten.
 > tragen englische Namen, die den deutschen Begriff übersetzen (im einlesen-Slice
 > z. B. „Empfänger" → `Recipient`, „Betrag" → `Amount`, „Richtung" → `Direction`
 > mit `Incoming`/`Outgoing`, „Verwendungszweck" → `Purpose`, „Buchungstext" →
-> `BookingText`, „Gläubiger-ID" → `CreditorId`, „Rohzeile" → `RawLine`). Kein
+> `BookingText`, „Gläubiger-ID" → `CreditorId`, „Rohzeile" → `RawLine`; im fenstern-Slice
+> „Auswertungsfenster" → `AnalysisWindow`, „fenstern" → `Windowing`). Kein
 > Deutsch im Code außer in Doc-Comments und Tests. Ausführlich im Abschnitt
 > „Language convention" von [CLAUDE.md](CLAUDE.md).
 
@@ -108,6 +109,23 @@ Händler-Token des Verwendungszwecks. Die Domäne fragt das LLM nur für ihr noc
 Deduplizierung über Fingerabdrücke hält den Chat-Payload klein.
 _Avoid_: Hash, Schlüssel
 
+**Auswertungsfenster**:
+Ein materialisierter, **eingefrorener** Snapshot der obfuskierten Buchungen **einer**
+paginierten Zeitscheibe (Seitengröße real ~400 Tage, bewusst **> 365**, damit ein voller
+Jahreszyklus in **eine** Seite fällt). Die Einheit, über die die periodische Auswertung
+(Cashflow/Gebühren/Pareto) **innerhalb** rechnet und aus deren Gesamtheit — über **alle**
+Fenster — die **Wiederkehr** liest. Vom Schritt `fenstern` gebildet.
+_Avoid_: Berichtszeitraum/Zeitraum (das Monats-Bucketing ist etwas anderes), Seite (bloße
+Pager-Mechanik)
+
+**fenstern**:
+Der Pipeline-Schritt zwischen **Obfuskierung** und **Auswertung**, der die obfuskierte
+Historie in begrenzte Zeitfenster **paginiert** und jedes als **Auswertungsfenster**
+materialisiert (N→1). Benannt nach seiner Verantwortung — er _bildet_ das Fenster —, nicht
+nach der Mechanik.
+_Avoid_: sammeln/Collector (sammelt nichts von außen — die Daten liegen schon lokal),
+Paginieren (nur die halbe Verantwortung)
+
 ### Markierte Mehrdeutigkeiten
 
 **Firma vs. Privatperson** — entscheidet, ob der Empfänger-Name im Klartext
@@ -116,6 +134,16 @@ bleibt (Firma) oder pseudonymisiert wird (Privatperson). Auflösung: heuristisch
 ist bewusst **fail-safe**: bei Unsicherheit als Privatperson behandeln und
 pseudonymisieren, weil der teurere Fehler der Klartext-Leak eines echten Namens
 ist, nicht ein Pseudonym zu viel.
+
+**Fenster vs. Zeitraum** — das **Auswertungsfenster** ist die **Seitengröße** des Pagers
+(~400 Tage, bewusst > 1 Jahr, damit ein Jahreszyklus in eine Seite fällt), **nicht** der
+Berichts-/Bucketing-**Zeitraum**. Der Bericht bucketet _innerhalb_ eines Fensters nach Monat.
+Nicht verwechseln: ein Fenster deckt viele Zeiträume ab.
+
+**Reichweite: pro-Fenster vs. fenster-übergreifend** — die periodische Auswertung
+(Cashflow/Gebühren/Pareto) rechnet **innerhalb** eines Auswertungsfensters; die
+**Wiederkehr** liest **über alle** Fenster hinweg (ein jährliches Abo erscheint je Seite nur
+1×, also braucht es 2+ Vorkommen über die Seiten). Wiederkehr ist **nicht** pro-Fenster.
 
 ## Beispieldialog
 
