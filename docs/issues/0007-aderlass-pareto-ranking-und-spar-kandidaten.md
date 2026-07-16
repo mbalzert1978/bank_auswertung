@@ -8,6 +8,12 @@ status: blocked
 
 **Typ:** AFK
 
+> **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
+> Analyzer-Baustein **unter dem `auswerten`-Slice**, die **pro-Fenster**-Reichweite: Cashflow/Pareto/
+> Spar-Kandidaten **innerhalb** eines `Auswertungsfenster`s (Handler auf `FensterGeschlossen`). Der
+> Pareto-Top-N darf optional den **Kostentreiber-Filter** der fenster-übergreifenden Wiederkehr-Query
+> ([0005](0005-wiederkehr-erkennung.md)) speisen.
+
 ## Was zu bauen ist
 
 Vierter und letzter Teil des Analyse-Kerns, die drei eng gekoppelten

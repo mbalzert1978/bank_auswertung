@@ -8,6 +8,14 @@ status: blocked
 
 **Typ:** AFK
 
+> **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
+> Analyzer-Baustein **unter dem `auswerten`-Slice**, die **fenster-übergreifende** Reichweite. Die
+> Wiederkehr läuft als **Read-Port-Query über alle `Auswertungsfenster`-Aggregate** eines Laufs,
+> ausgelöst durch `HistorieVollständig` (Abschluss des Pagers `fenstern`) — **kein** Fold-Log /
+> `Vorkommens-Log` (das im Entwurf gedachte akkumulierende Log ist **verworfen**, #30). Nur die Sicht
+> über **alle** Fenster belegt eine **jährliche** Wiederkehr (2+ Vorkommen im 12-Monats-Abstand); ein
+> jährliches Abo erscheint je ~400-Tage-Seite nur 1×.
+
 ## Was zu bauen ist
 
 Zweiter Teil des Analyse-Kerns: deterministische Erkennung wiederkehrender

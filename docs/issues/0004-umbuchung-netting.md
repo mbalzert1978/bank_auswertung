@@ -8,6 +8,14 @@ status: blocked
 
 **Typ:** AFK
 
+> **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
+> Analyzer-Baustein **unter dem `auswerten`-Slice**. Läuft **in** `auswerten` auf den obfuskierten
+> Buchungen eines `Auswertungsfenster`s; `Gegenkonto::Eigen|Fremd` wird **token-orientiert** aufgelöst
+> (Gegenkonto-`KONTO_x` gegen die seed-tokenisierte Menge der eigenen Konten, ADR-0013 F) — **nicht**
+> mehr vom CSV-Adapter (der frühere „Slice 0003" ist entfallen). Das Netting speist beide Reichweiten:
+> die Pro-Fenster-Analyse **und** die fenster-übergreifende Wiederkehr, die auf **genetteten** Abflüssen
+> liest.
+
 ## Was zu bauen ist
 
 Erster Teil des Analyse-Kerns (Baureihenfolge-Schritt 3), black-box am

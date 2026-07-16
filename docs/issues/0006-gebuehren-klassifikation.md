@@ -8,6 +8,12 @@ status: blocked
 
 **Typ:** AFK
 
+> **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
+> Analyzer-Baustein **unter dem `auswerten`-Slice**, die **pro-Fenster**-Reichweite: klassifiziert die
+> Gebühren **innerhalb** eines `Auswertungsfenster`s (Handler auf `FensterGeschlossen`). „Slice 0004"
+> unten meint den Netting-Baustein [0004](0004-umbuchung-netting.md), der ebenfalls unter `auswerten`
+> hängt.
+
 ## Was zu bauen ist
 
 Dritter Teil des Analyse-Kerns: Bank-Gebühren (z. B. Buchungstext `ENTGELT`)

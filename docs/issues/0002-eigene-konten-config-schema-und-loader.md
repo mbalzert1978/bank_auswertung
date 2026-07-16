@@ -18,6 +18,10 @@ status: blocked
 > **wird zum `auswerten`-Input**; die Nachschlage-/Loader-Logik wird bei Bau von `auswerten`
 > **token-orientiert neu** aufgesetzt (mod-97-Prüfung + `Rolle` als wiederverwendbarer Kern).
 > Der Textkörper unten ist die ursprüngliche Slice-Fassung und bleibt als Kontext stehen.
+>
+> **Bestätigt durch [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)
+> (Entscheidung F):** diese Config ist ein **`auswerten`-Input** — Quelle der seed-tokenisierten
+> Menge eigener Konten für `Gegenkonto::Eigen|Fremd` auf Token.
 
 ## Was zu bauen ist
 
