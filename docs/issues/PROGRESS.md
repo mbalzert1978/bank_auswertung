@@ -1,6 +1,6 @@
 # Issue-Fortschritt
 
-Stand: 2026-07-15
+Stand: 2026-07-16
 
 ## Neu (offen) — event-getriebene Pipeline (ADR-0008)
 
@@ -14,9 +14,61 @@ bleiben gültig; nur ihre Verortung wandert in die Pipeline-Slices.
 - [ ] **[0016-obfuskieren-slice-als-pipeline-consumer.md](0016-obfuskieren-slice-als-pipeline-consumer.md)**
   `obfuskieren`-Slice als Consumer von `Eingelesen`, Message `Obfuskiert` (Datenschutz-Grenze).
 
-Vertagt (Zielbild ADR-0008, bewusst noch kein Issue): `auswerten`-Consumer,
-`report`-Consumer, `io`-Outbox-Broker (SQLite) — die Fachlogik ist bereits durch
-0004–0007 / 0009 / 0012 abgedeckt.
+Vertagt (Zielbild ADR-0008, bewusst noch kein Issue): `report`-Consumer und der echte
+`io`-Outbox-Broker (SQLite). Der `auswerten`-Consumer ist seit
+[ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) durch 0040–0045
+belegt.
+
+## Neu (offen) — Bau nach ADR-0013 (`fenstern` + `auswerten`-Split)
+
+Zerlegung des Baus hinter dem akzeptierten
+[ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) in vertikale
+Tracer-Bullet-Slices — jeder Schnitt geht durch alle Schichten und ist für sich verifizierbar
+(gegen Fakes). **Out of scope bleibt** echtes `io` (SQLite/`sqlx`, Tag-Stamp-Persistenz,
+Broker-Trigger) und der `report`. Die Fach-Analyzer sind **nicht** dupliziert — 0004/0005/0006/0007
+bleiben gültig und wurden nur neu verdrahtet.
+
+Prefactor:
+
+- [ ] **[0035-architektur-doku-auf-realen-stand-ziehen.md](0035-architektur-doku-auf-realen-stand-ziehen.md)**
+  Doku auf den realen Stand (kein `shared_kernel` mehr, `fenstern` in Pipeline + Baureihenfolge).
+  *Frei — kann sofort starten.*
+
+`fenstern`-Slice:
+
+- [ ] **[0036-fenstern-triade-ein-auswertungsfenster-materialisieren.md](0036-fenstern-triade-ein-auswertungsfenster-materialisieren.md)**
+  Triade + Kern-Pfad: `AdvanceWindow` → `Auswertungsfenster` materialisieren → `FensterGeschlossen`.
+  *Blockiert durch 0035.*
+- [ ] **[0037-fenstern-selbst-fortsetzung-mehr-seiten-paging.md](0037-fenstern-selbst-fortsetzung-mehr-seiten-paging.md)**
+  Selbst-Fortsetzung über `max(booking_day < from)`; Lücken übersprungen, Fenster nie leer.
+  *Blockiert durch 0036.*
+- [ ] **[0038-fenstern-startanalysis-kickoff-und-leere-datenbank.md](0038-fenstern-startanalysis-kickoff-und-leere-datenbank.md)**
+  `StartAnalysis`-Anstoß über den `WindowAnchor`-Port; leerer Bestand → `Ok`, publiziert nichts.
+  *Blockiert durch 0036.*
+- [ ] **[0039-io-fenstern-end-to-end-ueber-generische-outboxconsumer.md](0039-io-fenstern-end-to-end-ueber-generische-outboxconsumer.md)**
+  `fenstern` in `io` verdrahtet, end-to-end gegen Fakes. *Blockiert durch 0037, 0038.*
+
+`auswerten`-Slice:
+
+- [ ] **[0040-auswerten-triade-skelett-pro-fenster-reichweite.md](0040-auswerten-triade-skelett-pro-fenster-reichweite.md)**
+  Triade + erster Handler (`FensterGeschlossen` → Aggregat per ID → Monats-Cashflow).
+  *Blockiert durch 0036.*
+- [ ] **[0041-fingerabdruck-als-domaenenfunktion.md](0041-fingerabdruck-als-domaenenfunktion.md)**
+  `Fingerabdruck` als reine Domänenfunktion (inkl. Intermediär + Händler-Token).
+  *Blockiert durch 0040.*
+- [ ] **[0042-eigene-konten-config-und-gegenkonto-auf-token.md](0042-eigene-konten-config-und-gegenkonto-auf-token.md)**
+  `Gegenkonto::Eigen|Fremd` auf Token + token-orientierte Eigene-Konten-Config. *Blockiert durch 0040.*
+- [ ] **[0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md](0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md)**
+  Zweiter Handler: `HistorieVollständig` → Read-Port-Query über alle Fenster des Laufs (kein Log).
+  *Blockiert durch 0037, 0040.*
+- [ ] **[0044-kategorisierer-port-fuer-unbekannte-fingerabdruecke.md](0044-kategorisierer-port-fuer-unbekannte-fingerabdruecke.md)**
+  `Kategorisierer`-Port nur für unbekannte Fingerabdrücke, Egress-DTO ohne `Serialize`.
+  *Blockiert durch 0041.*
+- [ ] **[0045-io-auswerten-end-to-end.md](0045-io-auswerten-end-to-end.md)**
+  `auswerten` in `io` verdrahtet; volle Pipeline gegen Fakes. *Blockiert durch 0039, 0043.*
+
+Neu verdrahtete Fach-Analyzer (bestehende Issues): 0004 ← 0042 · 0006 ← 0040, 0004 ·
+0005 ← 0041, 0043, 0004 · 0007 ← 0040, 0004, 0005, 0006.
 
 ## Erledigt
 
