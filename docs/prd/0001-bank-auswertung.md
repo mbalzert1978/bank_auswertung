@@ -4,22 +4,26 @@
 > dieser PRD liegt als lokaler Entwurf unter `docs/prd/`. Veröffentlichung später,
 > falls gewünscht.
 >
-> Quelle der Wahrheit: [README.md](../../README.md). Begriffe:
-> [CONTEXT.md](../../CONTEXT.md). Entscheidungen: [docs/adr/](../adr/). Dieser PRD
-> bildet die README treu ab und erfindet nichts darüber hinaus.
+> Quelle der Wahrheit für **Zweck, Umfang und Datenschutz**:
+> [README.md](../../README.md); für die **Architektur**: [docs/adr/](../adr/) (die README
+> trägt bewusst keine Architekturdetails mehr). Begriffe:
+> [CONTEXT.md](../../CONTEXT.md). Dieser PRD erfindet nichts über README und ADRs hinaus.
 >
 > **Architektur superseded durch
 > [ADR-0007](../adr/0007-modularer-monolith-feature-slices.md):** Die Abschnitte zu
 > Cargo-Workspace/„reine Domänen-Crate" und die Domänen-Module **D1–D5 in einem
 > Crate** sind überholt — Ziel ist ein modularer Monolith aus Feature-Slices
-> (Triade `_domain`/`_adapter`/`_specs`, dünner `shared_kernel`, kein geteiltes
-> `domain`-Crate). Fachfunktionen, Datenschutz-Invarianten und Baureihenfolge
-> bleiben gültig; nur ihre Verortung ändert sich.
+> (Triade `_domain`/`_adapter`/`_specs`, ein dünner interface-only Kernel, kein geteiltes
+> `domain`-Crate; dieser Kernel heißt heute **`application_kernel`** — s. u.).
+> Fachfunktionen, Datenschutz-Invarianten und Baureihenfolge bleiben gültig; nur ihre
+> Verortung ändert sich.
 >
 > **Maßgeblich ist jetzt
 > [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md):** eine
-> **event-getriebene Pipeline aus Slices mit Outbox** (`einlesen → obfuskieren →
-> auswerten → report`), die ADR-0007 in Teilen verfeinert/supersedet. Sie ändert
+> **event-getriebene Pipeline aus Slices mit Outbox** — seit
+> [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) (akzeptiert)
+> `einlesen → obfuskieren → fenstern → auswerten → report` —, die ADR-0007 in Teilen
+> verfeinert/supersedet. Sie ändert
 > die **Ablauf-Verortung** — jeder Schritt ist ein eigener Consumer-Slice, gekoppelt
 > nur über Outbox-Messages — und **reframt die Datenschutz-Grenze** von „`Iban`/`Bic`
 > sind nie serialisierbar" auf „roh verlässt die Maschine nie" (Grenze an
@@ -211,12 +215,18 @@ Diese Sektion ist der aktuelle Stand der Architektur-Verortung; die Verteilung d
 Domänen-Module auf Crates aus „Domänen-Module (tief, …)" ist entsprechend
 verschoben (s. dort den Supersession-Hinweis).
 
-- **Pipeline `einlesen → obfuskieren → auswerten → report`.** Jeder Schritt ist ein
+- **Pipeline `einlesen → obfuskieren → fenstern → auswerten → report`.** Jeder Schritt ist ein
   eigener **Consumer-Slice** (Triade `_domain`/`_adapter`/`_specs`), der **ein**
   eingehendes Command verarbeitet und in **einer** Transaktion (`UnitOfWork`) (a)
   seine eigene Tabelle und (b) eine **Outbox-Message** für den nächsten Schritt
   schreibt (Outbox-Pattern → atomar, at-least-once, wiederaufsetzbar). Kein Schritt
   ruft den nächsten synchron; die Kopplung läuft **nur** über die Message.
+  > **Verfeinert durch [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)
+  > (akzeptiert):** zwischen `obfuskieren` und `auswerten` sitzt der Schritt **`fenstern`** —
+  > er paginiert die obfuskierte Historie und materialisiert je Seite ein
+  > **`Auswertungsfenster`**-Aggregat (N→1), dessen ID er publiziert. `auswerten` spaltet in
+  > **zwei Reichweiten** (pro Fenster / fenster-übergreifend); Begriffe in
+  > [CONTEXT.md](../../CONTEXT.md).
 - **Kategorisieren ist kein Pipeline-Schritt**, sondern eine Domänen-Entscheidung
   im `auswerten`-Slice: entscheidet die Domäne, dass ein Fingerabdruck unbekannt
   ist, ruft der Handler den injizierten `Kategorisierer`-Port (LLM als Orakel). Die
@@ -242,6 +252,12 @@ verschoben (s. dort den Supersession-Hinweis).
   > Slice") sind Rust-idiomatisch: `Result<(), OutboxError>` statt
   > `HandleOutcome`/`Severity`, `publish` statt `add_to_outbox`, `const MESSAGE_TYPE`,
   > `TypedOutboxHandler` statt `OutboxHandlerBase`.
+  > **Erneut verfeinert durch [ADR-0011](../adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
+  > (gebaut):** der Zwei-Crate-Schnitt ist wieder **zusammengeführt** — die Crate
+  > `shared_kernel` wurde **aufgelöst** (Issue 0032), ihre Outbox-Seams liegen jetzt
+  > **`io`-privat** in `io`. **`application_kernel` ist der einzige** Slice↔`io`-Vertrag
+  > (`Command`/`Handler`/`Publisher`/`PublishCommand`/`CommandDecoder`); der
+  > `<slice>_adapter` bindet nur noch ihn und nennt keinen Outbox-Typ mehr.
 - **Testbar jetzt, echtes IO später:** jeder Slice fährt als Black-Box über seine
   Fluent-TestApi mit **Fakes** (Fake-`OutboxPublisher`, Fake-Stores, Fake-Quelle);
   das echte `io`-Crate (SQLite-Outbox + -Stores, Datei/CSV-Parse) erfüllt später

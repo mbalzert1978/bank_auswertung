@@ -14,8 +14,8 @@ use crate::models::{ObfuscateCommand, ObfuscatedMessage};
 ///
 /// **Transaktions-blind:** `save`/`publish` *stagen* nur; die eine `UnitOfWork` (Ablage + Nachricht
 /// atomar) besitzt `io`. Der Handler gibt seinen **nackten Domänen-Fehler** [`SourceError`] zurück —
-/// jeder Fehler ist terminal; `io` spiegelt dessen **redigierte** `Display`. Kein `OutboxError`, kein
-/// `shared_kernel`.
+/// jeder Fehler ist terminal; `io` spiegelt dessen **redigierte** `Display`. Kein `OutboxError`, keine
+/// Outbox-Mechanik.
 ///
 /// Der `ObfuscationHandler` borgt die gebündelten Bridges; er wird pro `handle` frisch gebaut (die
 /// Bridges tragen nur `&dyn`-Seams, das ist billig) — so bleibt der Handler ohne selbst-referenzielles

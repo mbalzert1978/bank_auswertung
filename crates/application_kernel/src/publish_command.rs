@@ -2,7 +2,7 @@ use crate::Command;
 
 /// Ein Kommando, das über einen [`Publisher`](crate::Publisher) zur späteren
 /// Verarbeitung versendet werden kann — der **adapter-seitige** Zwilling des io-privaten
-/// `shared_kernel::OutboxCommand`. Der Slice-Adapter spricht nur dieses Vokabular; `io`
+/// `OutboxCommand`. Der Slice-Adapter spricht nur dieses Vokabular; `io`
 /// macht den letzten Outbox-Hop und bildet einen `PublishCommand` auf ein `OutboxCommand`
 /// ab ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
 /// Entscheidung D). Darum trägt dieser Vertrag genau das, was `io` für die Hülle braucht:

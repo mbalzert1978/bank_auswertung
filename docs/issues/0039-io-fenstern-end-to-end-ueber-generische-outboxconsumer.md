@@ -1,10 +1,10 @@
 ---
 id: "0039"
-title: io — fenstern end-to-end über die generische OutboxConsumer
+title: io — fenstern end-to-end über den generischen OutboxConsumer
 status: blocked
 ---
 
-# io — fenstern end-to-end über die generische OutboxConsumer
+# io — fenstern end-to-end über den generischen OutboxConsumer
 
 **Typ:** AFK
 

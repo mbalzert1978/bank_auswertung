@@ -7,15 +7,15 @@
 //! Vertrag, über den ein Slice-Adapter und `io` sich treffen — wie ein Slice seinen Handler,
 //! sein Kommando und seinen Ausgang strukturiert (`Command`/`Handler`/`Publisher`/
 //! `PublishCommand`) und wie `io` die Envelope an ihn übergibt (`CommandDecoder`, Shape Y).
-//! Gebunden von **`<slice>_adapter` und `io`**. Der io-private `shared_kernel` (die
-//! Outbox-Mechanik: `OutboxMessage`/`OutboxError`/`OutboxHandler`/…) liegt daneben — ihn
-//! bindet **nur** `io`, nie ein Slice-Adapter, so kann ein Adapter die Outbox-Mechanik gar
-//! nicht importieren.
+//! Gebunden von **`<slice>_adapter` und `io`**. Die **io-private Outbox-Mechanik**
+//! (`OutboxMessage`/`OutboxError`/`OutboxHandler`/…) liegt `io`-intern daneben — sie ist aus
+//! keinem Slice-Adapter erreichbar, so kann ein Adapter die Outbox-Mechanik gar nicht
+//! importieren.
 //!
 //! **Dependency-frei:** Seit `TypedOutboxHandler` sich aufgelöst hat (die Verdrahtung
-//! Envelope → Request → `Result` lebt jetzt einmal in `io`s generischer `OutboxConsumer`),
-//! hängt diese Crate an **nichts** mehr — die frühere Kante `application_kernel →
-//! shared_kernel` ist entfallen. Beide Kernel sind Geschwister; `io` bindet beide.
+//! Envelope → Request → `Result` lebt jetzt einmal in `io`s generischem Consumer), hängt
+//! diese Crate an **nichts** mehr. Sie ist der **einzige** Kernel — die frühere
+//! Schwester-Crate mit den Outbox-Seams wurde in `io` aufgelöst (Issue 0032).
 //!
 //! Jeder Vertrag lebt in seiner eigenen Datei; dieser Root zieht die Module zusammen und
 //! re-exportiert sie flach (`application_kernel::Handler` usw.).

@@ -10,7 +10,7 @@ pub(crate) const MESSAGE_TYPE: &str = "Obfuscated";
 /// = Wahrheit, Message = Pointer).
 ///
 /// Es erfüllt `application_kernel::PublishCommand` (adapter-seitiger Vertrag); **kein
-/// `shared_kernel::OutboxCommand`** mehr ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
+/// io-privates `OutboxCommand`** mehr ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md),
 /// Entscheidung D): den letzten Outbox-Hop macht `io`. **Kein `Serialize`**: `PublishCommand` verlangt
 /// keins, die ID reist in der Outbox-Hülle; die spätere io-Serialisierung des Inhalts (falls nötig)
 /// kommt mit io. Der Typ ist **öffentlich, aber opak** (private Felder, crate-interner Konstruktor):
