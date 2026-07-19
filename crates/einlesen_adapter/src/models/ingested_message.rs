@@ -13,7 +13,7 @@ pub(crate) const MESSAGE_TYPE: &str = "Ingested";
 /// nicht aus der Nachricht.
 ///
 /// Es erfüllt `application_kernel::PublishCommand` (adapter-seitiger Vertrag); **kein
-/// `shared_kernel::OutboxCommand`** mehr (ADR-0011): den letzten Outbox-Hop macht `io`. **Kein
+/// io-privates `OutboxCommand`** mehr (ADR-0011): den letzten Outbox-Hop macht `io`. **Kein
 /// `Serialize`**: die ID reist als `partition_key` der Outbox-Hülle, die abgeflachten Rohfelder
 /// werden nicht über die Message dupliziert. Der Typ ist **öffentlich, aber opak** (private Felder,
 /// crate-interner Konstruktor): der [`PublishSeam`](crate::PublishSeam) nennt ihn als Nutzlast,

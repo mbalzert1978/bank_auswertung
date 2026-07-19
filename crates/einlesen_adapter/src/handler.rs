@@ -13,8 +13,8 @@ use crate::models::ReadCommand;
 ///
 /// **Transaktions-blind:** den atomaren Commit der Arbeitseinheit (Aggregat + Nachricht) besitzt
 /// `io`. Der Handler gibt seinen **nackten Domänen-Fehler** [`ReadError`] zurück — jeder Fehler
-/// ist terminal; `io` spiegelt dessen **redigierte** `Display`. Kein `OutboxError`, kein
-/// `shared_kernel`.
+/// ist terminal; `io` spiegelt dessen **redigierte** `Display`. Kein `OutboxError`, keine
+/// Outbox-Mechanik.
 ///
 /// Der `ReadHandler` borgt die gebündelten Bridges; er wird pro `handle` frisch gebaut (die Bridges
 /// tragen nur `&dyn`-Seams, das ist billig) — so bleibt der Handler ohne selbst-referenzielles Feld.

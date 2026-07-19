@@ -2,9 +2,9 @@
 //! die **einzige** öffentliche Fläche des Slice ([ADR-0007](../../../docs/adr/0007-modularer-monolith-feature-slices.md),
 //! [ADR-0008](../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md),
 //! [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)). Seit dem
-//! Kernel-Flip ist er **restlos outbox-frei**: er bindet **nur** `application_kernel`, nie
-//! `shared_kernel` — die Outbox-Mechanik (Envelope, Consumer-Rolle, `UnitOfWork`) lebt
-//! vollständig in `io`.
+//! Kernel-Flip ist er **restlos outbox-frei**: er bindet **nur** `application_kernel` und
+//! nennt keinen Outbox-Typ — die Outbox-Mechanik (Envelope, Consumer-Rolle, `UnitOfWork`)
+//! lebt vollständig in `io`.
 //!
 //! **Reine Pipeline (ADR-0011, Entscheidung A):** der [`ReadingHandler`] ist der
 //! `application_kernel::Handler` des Slice — `ReadCommand → Domäne → Response`. `io`s generische
