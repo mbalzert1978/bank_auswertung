@@ -4,11 +4,13 @@
 //! Fremdschlüssel). **Kommandos:** der eingehende [`AdvanceWindowCommand`] samt slice-geliefertem
 //! [`AdvanceWindowCommandDecoder`] (Envelope → Kommando, Shape Y; der Anker liegt als
 //! stringifizierter Tag-Stamp im `partition_key`) und die ausgehende [`WindowClosedMessage`] (ein
-//! reiner ID-Zeiger, kein serde) samt der [`HistoryCompleteMessage`], die den Abschluss der Kette mit
-//! der Lauf-Spanne trägt. Alle sprechen nur `application_kernel`-Verträge; die
+//! reiner ID-Zeiger, kein serde), die [`AdvanceWindowMessage`] der Selbst-Fortsetzung (derselbe
+//! Nachrichtentyp, den der Slice konsumiert) und die [`HistoryCompleteMessage`], die den Abschluss
+//! der Kette mit der Lauf-Spanne trägt. Alle sprechen nur `application_kernel`-Verträge; die
 //! Outbox-Mechanik lebt in `io` (ADR-0011).
 
 mod advance_window_command;
+mod advance_window_message;
 mod analysis_window_row;
 mod history_complete_message;
 mod obfuscated_row;
@@ -17,6 +19,7 @@ mod window_closed_message;
 pub use advance_window_command::{
     AdvanceWindowCommand, AdvanceWindowCommandDecoder, CONSUMED_MESSAGE_TYPE,
 };
+pub use advance_window_message::AdvanceWindowMessage;
 pub use analysis_window_row::AnalysisWindowRow;
 pub use history_complete_message::HistoryCompleteMessage;
 pub use obfuscated_row::ObfuscatedRow;

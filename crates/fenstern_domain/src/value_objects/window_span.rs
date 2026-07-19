@@ -64,6 +64,21 @@ impl WindowSpan {
         }
     }
 
+    /// Die Spanne **über zwei Eckpunkte** — die Lauf-Spanne, die `fenstern` beim Versiegen der
+    /// Historie publiziert: von der Unterkante der letzten Seite bis zum Anker, mit dem der Lauf
+    /// begann.
+    ///
+    /// **Unfehlbar und wohlgeordnet:** sie ordnet die beiden Eckpunkte selbst (`from = min`,
+    /// `to = max`), statt eine verdrehte Eingabe „zu prüfen". Es gibt darum keinen Fehler-Ausgang
+    /// und keinen illegalen Zustand, den ein Aufrufer erzeugen könnte (ADR-0005).
+    #[must_use]
+    pub fn spanning(a: DayStamp, b: DayStamp) -> Self {
+        Self {
+            from: DayStamp(a.0.min(b.0)),
+            to: DayStamp(a.0.max(b.0)),
+        }
+    }
+
     #[must_use]
     pub fn from(&self) -> DayStamp {
         self.from

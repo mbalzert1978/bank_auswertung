@@ -14,6 +14,16 @@ pub trait ObfuscatedWindowSeam {
     /// Liest die obfuskierten Zeilen der Spanne `[from … to]` (beide Grenzen einschließlich, in
     /// Lesereihenfolge); `Err` = Beschaffung misslungen (terminal).
     fn read(&self, from: i64, to: i64) -> Result<Vec<ObfuscatedRow>, SourceUnavailable>;
+
+    /// Der **jüngste Buchungstag echt unterhalb** von `day` (io: `SELECT MAX(booking_day) WHERE
+    /// booking_day < ?`) — dieselbe Query-Art wie der Initial-Anker, nur mit Untergrenze. Er trägt
+    /// die **Selbst-Fortsetzung und die Terminierung** des Pagers (ADR-0013, Entscheidung B,
+    /// Präzisierung 2).
+    ///
+    /// `Ok(None)` ist die **gültige** Antwort „darunter liegt nichts mehr" und beendet die Kette;
+    /// `Err` = die Abfrage misslang (terminal). Beides zu trennen ist der Grund für
+    /// `Result<Option<_>>` statt eines überladenen `Option`.
+    fn latest_before(&self, day: i64) -> Result<Option<i64>, SourceUnavailable>;
 }
 
 /// Die Beschaffung ist **misslungen** — terminaler Seam-Fehler, der die **io-Diagnose** trägt

@@ -48,8 +48,8 @@ pub use abstractions::{
 };
 pub use handler::WindowingHandler;
 pub use models::{
-    AdvanceWindowCommand, AdvanceWindowCommandDecoder, AnalysisWindowRow, CONSUMED_MESSAGE_TYPE,
-    HistoryCompleteMessage, ObfuscatedRow, WindowClosedMessage,
+    AdvanceWindowCommand, AdvanceWindowCommandDecoder, AdvanceWindowMessage, AnalysisWindowRow,
+    CONSUMED_MESSAGE_TYPE, HistoryCompleteMessage, ObfuscatedRow, WindowClosedMessage,
 };
 pub use testapi::WindowingTestApi;
 

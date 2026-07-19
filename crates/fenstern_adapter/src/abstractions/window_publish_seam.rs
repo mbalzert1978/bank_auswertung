@@ -1,4 +1,4 @@
-use crate::models::{HistoryCompleteMessage, WindowClosedMessage};
+use crate::models::{AdvanceWindowMessage, HistoryCompleteMessage, WindowClosedMessage};
 
 /// Der öffentliche, mechanische **Publish-Seam** des Slice: reiht die ausgehenden Nachrichten beim
 /// nachgelagerten Slice ein. **io erfüllt ihn** (der letzte Outbox-Hop) — roh-typisiert, ohne
@@ -15,6 +15,11 @@ pub trait WindowPublishSeam {
     /// Reiht den `WindowClosed`-Zeiger stromabwärts nach `auswerten` ein; `Err` = terminal. Der
     /// Commit besorgt io.
     fn publish_closed(&self, message: WindowClosedMessage) -> Result<(), PublishUnavailable>;
+
+    /// Reiht den **nächsten Fenster-Schritt** ein (die Selbst-Fortsetzung); `Err` = terminal. Er
+    /// committet atomar mit der Ablage und dem `WindowClosed`-Zeiger — dieselbe Arbeitseinheit, also
+    /// entsteht nie eine halb-fortgesetzte Kette.
+    fn publish_advance(&self, message: AdvanceWindowMessage) -> Result<(), PublishUnavailable>;
 
     /// Reiht den `HistoryComplete`-Abschluss mit der Lauf-Spanne ein; `Err` = terminal. Er committet
     /// atomar mit der Ablage und dem `WindowClosed`-Zeiger — dieselbe Arbeitseinheit.

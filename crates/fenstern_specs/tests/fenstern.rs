@@ -4,18 +4,20 @@
 //! öffentliche Fakes und gibt den **nackten Domänen-Fehler** zurück — keine Outbox-Typen (die
 //! Outbox-Mechanik prüft der io-Integrationstest).
 //!
-//! Der Slice konsumiert `AdvanceWindow{anchor}`, liest die obfuskierten Buchungen der Seite
+//! Der Slice konsumiert `AdvanceWindow{anchor, run_top}`, liest die obfuskierten Buchungen der Seite
 //! `[anchor − window_days + 1 … anchor]` per Port, reduziert sie **N→1** zu **einem**
 //! `Auswertungsfenster`, legt es in eigener Ablage ab (die Ablage vergibt die ID) und publiziert
-//! **diese neue ID** als Zeiger. Weil dieser Schnitt **noch nicht paginiert**
-//! ([0037](../../../docs/issues/0037-fenstern-selbst-fortsetzung-mehr-seiten-paging.md)), endet die
-//! Kette sofort mit einem zusätzlichen `HistoryComplete`.
+//! **diese neue ID** als Zeiger. Danach **setzt er sich selbst fort**: der nächste Anker ist
+//! `max(booking_day < from)` — liefert die Abfrage einen Tag, geht die Kette weiter, sonst schließt
+//! sie mit `HistoryComplete` und der Lauf-Spanne ab (ADR-0013, Entscheidung B, Präzisierung 2).
+//! `run` fährt **einen** Schritt, `run_chain` den **ganzen** Lauf (die Rolle, die in Produktion die
+//! Outbox spielt).
 
 use fenstern_adapter::{AnalysisWindowRow, WindowError, WindowingTestApi};
 
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
-use fixtures::{ANKER, UNTERGRENZE, api, erwartetes_fenster, zeile};
+use fixtures::{ANKER, UNTERGRENZE, WINDOW_DAYS, api, erwartetes_fenster, fenster, zeile};
 
 // --- Kern-Pfad: N Zeilen → genau ein Fenster, genau ein Zeiger ------------------
 
@@ -39,20 +41,145 @@ fn eine_seite_mit_n_buchungen_ergibt_genau_ein_fenster_und_genau_einen_zeiger() 
     api.assert_window_closed(&["fenster-1"]);
 }
 
-// --- Noch keine Paginierung: die Kette endet sofort -----------------------------
+// --- Selbst-Fortsetzung: der eine Mechanismus `max(booking_day < from)` ---------
 
 #[test]
-fn ohne_paginierung_endet_die_kette_sofort_mit_der_lauf_spanne() {
+fn eine_einzige_seite_endet_sofort_mit_der_lauf_spanne() {
     let api = api().with_obfuscated(ANKER, zeile("buchung-1", "EUR"));
 
     let ergebnis = api.run(ANKER);
 
     assert_eq!(ergebnis, Ok(()));
     api.assert_window_closed(&["fenster-1"]);
-    // Dieser Schnitt paginiert noch nicht (die Selbst-Fortsetzung kommt in 0037) — der Schritt
-    // meldet die Historie darum sofort als erschöpft, mit der Lauf-Spanne. Erst dieser Abschluss
-    // lässt `auswerten` seine fenster-übergreifende Reichweite laufen (ADR-0013, Entscheidung E).
+    // Unter der Fensterunterkante liegt keine Buchung mehr — `max(booking_day < from)` versiegt,
+    // also endet die Kette statt sich fortzusetzen. Erst dieser Abschluss lässt `auswerten` seine
+    // fenster-übergreifende Reichweite laufen (ADR-0013, Entscheidung E).
+    api.assert_advance_window(&[]);
     api.assert_history_complete(&[(UNTERGRENZE, ANKER)]);
+}
+
+#[test]
+fn eine_historie_ueber_mehrere_seiten_ergibt_je_seite_ein_fenster_und_genau_einen_abschluss() {
+    // Drei Buchungen, je eine pro Seite: der nächste Anker ist stets der **jüngste echte
+    // Buchungstag unter der Fensterunterkante** — kein Zähler, kein Boolean.
+    //   Seite 1 = [601 … 1000] → Buchung 1000, nächster Anker max(< 601) = 500
+    //   Seite 2 = [101 …  500] → Buchung  500, nächster Anker max(< 101) = 100
+    //   Seite 3 = [-299 … 100] → Buchung  100, max(< -299) versiegt → Abschluss
+    let api = api()
+        .with_obfuscated(ANKER, zeile("seite-1", "EUR"))
+        .with_obfuscated(500, zeile("seite-2", "EUR"))
+        .with_obfuscated(100, zeile("seite-3", "EUR"));
+
+    let ergebnis = api.run_chain(ANKER);
+
+    assert_eq!(ergebnis, Ok(()));
+    // Je Seite genau ein abgelegtes Fenster und genau ein Zeiger stromabwärts.
+    api.assert_window_closed(&["fenster-1", "fenster-2", "fenster-3"]);
+    // Die Kette hat sich zweimal selbst fortgesetzt — die Anker sind echte Buchungstage.
+    api.assert_advance_window(&[500, 100]);
+    // **Genau ein** Abschluss, und er trägt die **Lauf-Spanne**: von der Unterkante der letzten
+    // Seite bis zum Anker, mit dem der Lauf begann (nicht die Spanne der letzten Seite).
+    api.assert_history_complete(&[(100 - WINDOW_DAYS as i64 + 1, ANKER)]);
+}
+
+#[test]
+fn eine_datenluecke_groesser_als_eine_seitengroesse_wird_uebersprungen() {
+    // 100 Tage Lücke bei einer Seitengröße von 10 — der ältere Anker ist ein **echter Buchungstag**,
+    // nicht `from − 1`. Die leere Zwischenzone wird darum gar nicht erst zu Seiten: es entstehen
+    // **zwei** Fenster statt zehn, keines davon leer, und die Kette bricht nicht ab.
+    let api = WindowingTestApi::new()
+        .with_window_days(10)
+        .with_obfuscated(1000, zeile("jung", "EUR"))
+        .with_obfuscated(900, zeile("alt", "EUR"));
+
+    let ergebnis = api.run_chain(1000);
+
+    assert_eq!(ergebnis, Ok(()));
+    api.assert_advance_window(&[900]);
+    api.assert_stored_windows(&[fenster(991, 1000, &["jung"]), fenster(891, 900, &["alt"])]);
+    api.assert_history_complete(&[(891, 1000)]);
+}
+
+#[test]
+fn die_fenster_ueberlappen_nicht_und_jede_buchung_landet_in_genau_einem() {
+    // Fünf Buchungen, Seitengröße 10. Weil der nächste Anker **echt unterhalb** der Unterkante
+    // liegt, stoßen die Seiten lückenlos aneinander, ohne sich zu überschneiden.
+    let api = WindowingTestApi::new()
+        .with_window_days(10)
+        .with_obfuscated(1000, zeile("b-1000", "EUR"))
+        .with_obfuscated(995, zeile("b-995", "EUR"))
+        .with_obfuscated(991, zeile("b-991", "EUR"))
+        .with_obfuscated(990, zeile("b-990", "EUR"))
+        .with_obfuscated(985, zeile("b-985", "EUR"));
+
+    api.run_chain(1000).expect("zwei Seiten");
+
+    // [981 … 990] und [991 … 1000] berühren sich, überlappen aber nicht — und zusammen tragen sie
+    // jede der fünf Buchungen **genau einmal**.
+    api.assert_stored_windows(&[
+        fenster(991, 1000, &["b-991", "b-995", "b-1000"]),
+        fenster(981, 990, &["b-985", "b-990"]),
+    ]);
+}
+
+#[test]
+fn die_kette_terminiert_weil_der_anker_streng_monoton_sinkt() {
+    // Seitengröße 1 — die engstmögliche Seite, also die meisten Fortsetzungen. Zwei Buchungen am
+    // **selben** Tag zeigen dabei, dass der nächste Anker **echt** unterhalb liegt (`< from`, nicht
+    // `<= from`): ein Tag kann sich nicht selbst als nächsten Anker liefern, sonst liefe die Kette
+    // ewig. `run_chain` würde ein Nicht-Terminieren als Fehlschlag melden.
+    let api = WindowingTestApi::new()
+        .with_window_days(1)
+        .with_obfuscated(1000, zeile("b-1000-a", "EUR"))
+        .with_obfuscated(1000, zeile("b-1000-b", "EUR"))
+        .with_obfuscated(999, zeile("b-999", "EUR"))
+        .with_obfuscated(990, zeile("b-990", "EUR"));
+
+    let ergebnis = api.run_chain(1000);
+
+    assert_eq!(ergebnis, Ok(()));
+    // Streng monoton sinkend, und der Vorrat versiegt — daher die garantierte Terminierung.
+    api.assert_advance_window(&[999, 990]);
+    api.assert_history_complete(&[(990, 1000)]);
+}
+
+// --- Ablage + beide Publishes sind eine Einheit: keine gegabelte Kette ----------
+
+#[test]
+fn je_schritt_feuert_genau_einer_der_beiden_fortsetzungs_zweige() {
+    // Fortsetzung und Abschluss schließen einander aus. Solange die Historie trägt, geht **nur**
+    // die Fortsetzung heraus — ein zusätzlicher Abschluss wäre die gegabelte Kette.
+    let api = api()
+        .with_obfuscated(ANKER, zeile("seite-1", "EUR"))
+        .with_obfuscated(500, zeile("seite-2", "EUR"));
+
+    api.run(ANKER).expect("erste Seite");
+
+    api.assert_window_closed(&["fenster-1"]);
+    api.assert_advance_window(&[500]);
+    api.assert_history_complete(&[]);
+}
+
+#[test]
+fn ein_fehlschlag_beim_publizieren_setzt_die_kette_nicht_fort() {
+    // Auch mit tragender Historie geht **keine** Fortsetzung heraus, wenn das Einreihen scheitert:
+    // Ablage und beide Publishes sind eine Einheit — es entsteht keine halb-fortgesetzte Kette.
+    // Den atomaren Rückbau des Stagings besorgt io (der Handler ist transaktions-blind).
+    let api = api()
+        .with_obfuscated(ANKER, zeile("seite-1", "EUR"))
+        .with_obfuscated(500, zeile("seite-2", "EUR"))
+        .with_failing_publisher("Outbox nicht erreichbar");
+
+    let ergebnis = api.run(ANKER);
+
+    assert_eq!(
+        ergebnis,
+        Err(WindowError::PublishFailed {
+            reason: "Outbox nicht erreichbar".to_string()
+        })
+    );
+    api.assert_advance_window(&[]);
+    api.assert_history_complete(&[]);
 }
 
 // --- `window_days` kommt als Wert herein und spannt die Seite auf ---------------
@@ -159,6 +286,7 @@ fn ein_fehlschlag_beim_publizieren_beendet_den_lauf_terminal() {
     // Die Ablage hat zwar gestaged, aber publiziert wurde nichts; den atomaren Rückbau besorgt io
     // (der Handler ist transaktions-blind).
     api.assert_window_closed(&[]);
+    api.assert_advance_window(&[]);
     api.assert_history_complete(&[]);
 }
 
