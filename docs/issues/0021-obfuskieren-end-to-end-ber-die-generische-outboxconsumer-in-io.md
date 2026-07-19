@@ -1,10 +1,10 @@
 ---
 id: "0021"
-title: obfuskieren end-to-end über die generische OutboxConsumer in io
+title: obfuskieren end-to-end über den generischen OutboxConsumer in io
 status: open
 ---
 
-# obfuskieren end-to-end über die generische OutboxConsumer in io
+# obfuskieren end-to-end über den generischen OutboxConsumer in io
 
 ## Parent
 

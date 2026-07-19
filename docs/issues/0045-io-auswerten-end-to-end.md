@@ -1,10 +1,10 @@
 ---
 id: "0045"
-title: io — auswerten end-to-end über die generische OutboxConsumer
+title: io — auswerten end-to-end über den generischen OutboxConsumer
 status: blocked
 ---
 
-# io — auswerten end-to-end über die generische OutboxConsumer
+# io — auswerten end-to-end über den generischen OutboxConsumer
 
 **Typ:** AFK
 

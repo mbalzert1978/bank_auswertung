@@ -1,4 +1,4 @@
-# Workflow-Plan: Issue 0021 — obfuskieren end-to-end über die generische OutboxConsumer in io
+# Workflow-Plan: Issue 0021 — obfuskieren end-to-end über den generischen OutboxConsumer in io
 
 Mechanische Migration des `obfuskierung`-Slice auf die in 0020 gebaute `io`-Maschinerie,
 **Zeile für Zeile parallel zu `einlesen`**. Der Slice wird eine reine

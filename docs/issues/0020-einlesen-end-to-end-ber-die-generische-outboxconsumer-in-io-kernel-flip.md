@@ -1,10 +1,10 @@
 ---
 id: "0020"
-title: einlesen end-to-end über die generische OutboxConsumer in io (Kernel-Flip)
+title: einlesen end-to-end über den generischen OutboxConsumer in io (Kernel-Flip)
 status: open
 ---
 
-# einlesen end-to-end über die generische OutboxConsumer in io (Kernel-Flip)
+# einlesen end-to-end über den generischen OutboxConsumer in io (Kernel-Flip)
 
 ## Parent
 
