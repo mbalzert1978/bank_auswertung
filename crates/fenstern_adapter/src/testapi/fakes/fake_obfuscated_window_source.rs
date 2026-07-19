@@ -28,15 +28,29 @@ impl FakeObfuscatedWindowSource {
     }
 }
 
-impl ObfuscatedWindowSeam for FakeObfuscatedWindowSource {
-    fn read(&self, from: i64, to: i64) -> Result<Vec<ObfuscatedRow>, SourceUnavailable> {
+impl FakeObfuscatedWindowSource {
+    /// Das arrangierte Scheitern als Vorbedingung — `Ok(())`, solange keines gesetzt ist.
+    fn arranged_failure(&self) -> Result<(), SourceUnavailable> {
         self.failure
             .clone()
-            .map_or(Ok(()), |message| Err(SourceUnavailable { message }))?;
+            .map_or(Ok(()), |message| Err(SourceUnavailable { message }))
+    }
+}
+
+impl ObfuscatedWindowSeam for FakeObfuscatedWindowSource {
+    fn read(&self, from: i64, to: i64) -> Result<Vec<ObfuscatedRow>, SourceUnavailable> {
+        self.arranged_failure()?;
         Ok(self
             .rows
             .range(from..=to)
             .flat_map(|(_, rows)| rows.iter().cloned())
             .collect())
+    }
+
+    fn latest_before(&self, day: i64) -> Result<Option<i64>, SourceUnavailable> {
+        self.arranged_failure()?;
+        // `MAX(booking_day) WHERE booking_day < day` — die `BTreeMap` gibt die Ordnung her, der
+        // letzte Schlüssel unterhalb der Grenze ist die Antwort.
+        Ok(self.rows.range(..day).next_back().map(|(day, _)| *day))
     }
 }

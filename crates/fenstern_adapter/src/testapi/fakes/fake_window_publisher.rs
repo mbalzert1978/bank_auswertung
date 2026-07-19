@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use application_kernel::PublishCommand;
 
 use crate::abstractions::{PublishUnavailable, WindowPublishSeam};
-use crate::models::{HistoryCompleteMessage, WindowClosedMessage};
+use crate::models::{AdvanceWindowMessage, HistoryCompleteMessage, WindowClosedMessage};
 
 /// Beobachtet die eingereihten Nachrichten am Publish-Seam getrennt nach Dispatch-Key
 /// (`MESSAGE_TYPE`) und `partition_key()`. Steht **an der Stelle, an der später `io` sitzt** (den
@@ -49,6 +49,10 @@ impl FakeWindowPublisher {
 impl WindowPublishSeam for FakeWindowPublisher {
     fn publish_closed(&self, message: WindowClosedMessage) -> Result<(), PublishUnavailable> {
         self.record(WindowClosedMessage::MESSAGE_TYPE, message.partition_key())
+    }
+
+    fn publish_advance(&self, message: AdvanceWindowMessage) -> Result<(), PublishUnavailable> {
+        self.record(AdvanceWindowMessage::MESSAGE_TYPE, message.partition_key())
     }
 
     fn publish_history_complete(

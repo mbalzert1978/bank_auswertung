@@ -1,7 +1,7 @@
 ---
 id: "0037"
 title: fenstern — Selbst-Fortsetzung über mehrere Seiten
-status: blocked
+status: closed
 ---
 
 # fenstern — Selbst-Fortsetzung über mehrere Seiten
@@ -31,15 +31,15 @@ mehrere Publishes je Transaktion bereits (`einlesen` publiziert schon N je Lauf)
 
 ## Acceptance criteria
 
-- [ ] Eine Historie über mehrere Seiten erzeugt **je Seite** ein `Auswertungsfenster` samt
+- [x] Eine Historie über mehrere Seiten erzeugt **je Seite** ein `Auswertungsfenster` samt
       `FensterGeschlossen` und **genau ein** abschließendes `HistorieVollständig`.
-- [ ] Eine Datenlücke, die größer ist als eine Seitengröße, wird übersprungen — es entsteht **kein
+- [x] Eine Datenlücke, die größer ist als eine Seitengröße, wird übersprungen — es entsteht **kein
       leeres** Fenster und die Kette bricht nicht ab.
-- [ ] Die Fenster überlappen nicht; jede Buchung erscheint in **genau einem** Fenster.
-- [ ] Die Kette terminiert garantiert (der Anker sinkt streng monoton, die Abfrage versiegt).
-- [ ] Ablage + beide Publishes sind **eine** Einheit: schlägt eines fehl, ist nichts abgelegt und
+- [x] Die Fenster überlappen nicht; jede Buchung erscheint in **genau einem** Fenster.
+- [x] Die Kette terminiert garantiert (der Anker sinkt streng monoton, die Abfrage versiegt).
+- [x] Ablage + beide Publishes sind **eine** Einheit: schlägt eines fehl, ist nichts abgelegt und
       nichts publiziert — es entsteht keine gegabelte Kette.
-- [ ] `cargo build`, `cargo test`, `cargo clippy --all-targets`, `cargo fmt --check` und
+- [x] `cargo build`, `cargo test`, `cargo clippy --all-targets`, `cargo fmt --check` und
       `cargo test -p architecture` sind grün.
 
 ## Blocked by

@@ -135,6 +135,18 @@ Fensterunterkante**.
 - **Behebt ein Loch der Entwurfs-Form:** `has_bookings_before(from) = true` garantierte **nicht**, dass
   das nächste `[from−400 … from−1]` nicht leer ist (Datenlücke > `window_days` → leeres Aggregat).
 
+**Präzisierung 3 (Bau 0037) — der Lauf-Gipfel reist im Kommando mit.** `AdvanceWindow` trägt
+**zwei** Tag-Stamps im `partition_key` (`"{anchor}:{run_top}"`): den Anker der Seite und den
+**Lauf-Gipfel** — den Anker, mit dem der Lauf begann. Grund: der Handler ist **zustandslos** und
+kennt sonst nur seine eigene Seite, bräuchte für die **Lauf-Spanne** des abschließenden
+`HistorieVollständig` aber deren **Obergrenze**. Die Alternativen waren schlechter — die Spanne der
+letzten Seite ist **nicht** die Lauf-Spanne (sie scopte `auswerten`s fenster-übergreifende Query
+falsch), und `max(booking_day)` am Ende erneut zu lesen wäre eine zweite Query auf eine
+**lebendige** Sicht (ein Nach-Import dazwischen verschöbe die Spanne). Der Gipfel reist unverändert
+durch die ganze Kette; der Kickoff (Entscheidung B, `StartAnalysis`) setzt ihn gleich dem
+Initial-Anker. **Kein serde** — dieselbe Zwei-Stamp-Form nutzt `HistorieVollständig` schon für die
+Spanne.
+
 **Dimensionierung (real):** Input ~3 Jahre (≈ 1095 Tage), Seite ~400 Tage → **~3 Seiten**. Der Pager
 feuert wenige Male, dann erschöpft — die Kosten liegen nicht in der Seitenzahl.
 

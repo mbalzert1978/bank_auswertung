@@ -30,6 +30,17 @@ pub(crate) fn zeile(id: &str, currency: &str) -> ObfuscatedRow {
     }
 }
 
+/// Ein erwartetes abgelegtes Auswertungsfenster über frei gewählter Spanne — die Sicht für die
+/// mehrseitigen Läufe, in denen je Seite eine andere Spanne entsteht.
+pub(crate) fn fenster(from: i64, to: i64, booking_ids: &[&str]) -> AnalysisWindowRow {
+    AnalysisWindowRow {
+        from,
+        to,
+        currency: "EUR".to_string(),
+        booking_ids: booking_ids.iter().map(ToString::to_string).collect(),
+    }
+}
+
 /// Das erwartete abgelegte Auswertungsfenster: die Lauf-Spanne, die eine Währung und die
 /// Fremdschlüssel auf genau die eingefrorenen Zeilen.
 pub(crate) fn erwartetes_fenster(booking_ids: &[&str]) -> AnalysisWindowRow {

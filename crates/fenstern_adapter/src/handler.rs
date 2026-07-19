@@ -4,7 +4,10 @@ use application_kernel::Handler;
 use fenstern_domain::{AdvanceWindow, WindowDays, WindowError, WindowingHandler as DomainHandler};
 
 use crate::abstractions::{AnalysisWindowStoreSeam, ObfuscatedWindowSeam, WindowPublishSeam};
-use crate::adapter::{HistoryCompleteBridge, RepositoryBridge, SourceBridge, WindowClosedBridge};
+use crate::adapter::{
+    AdvanceWindowBridge, AnchorBridge, HistoryCompleteBridge, RepositoryBridge, SourceBridge,
+    WindowClosedBridge,
+};
 use crate::models::AdvanceWindowCommand;
 
 /// Der **`application_kernel::Handler` des Slice**: die reine `Command → Domäne → Response`-Pipeline,
@@ -24,7 +27,9 @@ pub struct WindowingHandler<'a> {
     window_days: WindowDays,
     source: SourceBridge<'a>,
     repository: RepositoryBridge<'a>,
+    anchors: AnchorBridge<'a>,
     closed: WindowClosedBridge<'a>,
+    advance: AdvanceWindowBridge<'a>,
     history: HistoryCompleteBridge<'a>,
 }
 
@@ -42,7 +47,9 @@ impl<'a> WindowingHandler<'a> {
             window_days: WindowDays::from(window_days),
             source: SourceBridge { seam: source },
             repository: RepositoryBridge { seam: repository },
+            anchors: AnchorBridge { seam: source },
             closed: WindowClosedBridge { seam: publish },
+            advance: AdvanceWindowBridge { seam: publish },
             history: HistoryCompleteBridge { seam: publish },
         }
     }
@@ -58,9 +65,11 @@ impl Handler for WindowingHandler<'_> {
             self.window_days,
             &self.source,
             &self.repository,
+            &self.anchors,
             &self.closed,
+            &self.advance,
             &self.history,
         )
-        .handle(AdvanceWindow::new(command.anchor()))
+        .handle(AdvanceWindow::new(command.anchor(), command.run_top()))
     }
 }

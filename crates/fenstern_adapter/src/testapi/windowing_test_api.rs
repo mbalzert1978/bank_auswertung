@@ -5,7 +5,9 @@ use fenstern_domain::WindowError;
 
 use super::fakes::{FakeAnalysisWindowStore, FakeObfuscatedWindowSource, FakeWindowPublisher};
 use crate::handler::WindowingHandler;
-use crate::models::{AdvanceWindowCommandDecoder, AnalysisWindowRow, ObfuscatedRow};
+use crate::models::{
+    AdvanceWindowCommandDecoder, AnalysisWindowRow, CONSUMED_MESSAGE_TYPE, ObfuscatedRow,
+};
 
 /// Fluent-TestApi des fenstern-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
 /// [ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)): die
@@ -23,6 +25,11 @@ use crate::models::{AdvanceWindowCommandDecoder, AnalysisWindowRow, ObfuscatedRo
 ///
 /// Die drei `with_failing_*`-Schalter spielen den terminalen Fehlschlag der jeweiligen Richtung —
 /// so trifft ein Spec **alle drei** fehlbaren I/O-Schritte black-box (ADR-0012).
+/// Die Schranke, ab der [`run_chain`](WindowingTestApi::run_chain) einen nicht terminierenden Lauf
+/// als Spec-Fehlschlag meldet, statt zu hängen. Großzügig über jeder realen Seitenzahl (~3 bei drei
+/// Jahren Historie) — sie greift nur, wenn der streng monoton sinkende Anker gebrochen ist.
+const KETTEN_SCHRANKE: usize = 1_000;
+
 pub struct WindowingTestApi {
     window_days: NonZeroU32,
     source: FakeObfuscatedWindowSource,
@@ -84,16 +91,66 @@ impl WindowingTestApi {
         self
     }
 
-    /// Fährt die echte Kette (Decoder → Handler) für einen `AdvanceWindow`-**Anker** (der Tag-Stamp
-    /// reist als `partition_key` der Envelope, kein Inhalt) und gibt das Handler-Ergebnis zurück
-    /// (`Ok(())` = verarbeitet, `Err` = terminaler [`WindowError`]).
+    /// Fährt **einen** Fenster-Schritt der echten Kette (Decoder → Handler) für einen Anker und gibt
+    /// das Handler-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` = terminaler [`WindowError`]). Der
+    /// Anker ist zugleich der Lauf-Gipfel — genau die Lage, in der ein Lauf beginnt.
+    ///
+    /// Für den **mehrseitigen** Lauf ist [`run_chain`](Self::run_chain) zuständig: `run` verarbeitet
+    /// bewusst nur das eine Kommando und lässt die publizierte Fortsetzung liegen, damit ein Spec
+    /// den einzelnen Schritt isoliert betrachten kann.
+    pub fn run(&self, anchor: i64) -> Result<(), WindowError> {
+        self.run_key(&format!("{anchor}:{anchor}"))
+    }
+
+    /// Fährt den **ganzen Lauf**: den ersten Schritt zum Anker und danach jede vom Slice selbst
+    /// publizierte Fortsetzung, bis die Historie versiegt (ADR-0013, Entscheidung B,
+    /// Präzisierung 2). Sie spielt damit die Rolle, die in Produktion die Outbox hat — der Slice
+    /// selbst kennt keine Schleife, er reiht nur sein nächstes Kommando ein.
+    ///
+    /// Ein terminaler Fehler bricht den Lauf sofort ab und wird nackt zurückgegeben.
     ///
     /// # Panics
-    /// Wenn der Anker nicht als Tag-Stamp decodiert — ein nicht-numerischer `partition_key` ist eine
-    /// io-Envelope-Sorge, nicht Handler-Eingabe; die Specs reichen stets einen echten Anker herein.
-    pub fn run(&self, anchor: i64) -> Result<(), WindowError> {
-        let command = AdvanceWindowCommandDecoder::decode(&anchor.to_string(), "")
-            .expect("Anker als Tag-Stamp");
+    /// Wenn die Kette nicht binnen [`KETTEN_SCHRANKE`] Schritten terminiert — der Anker muss streng
+    /// monoton sinken, ein Nicht-Terminieren ist ein **Fehlschlag des Specs**, kein Hänger.
+    pub fn run_chain(&self, anchor: i64) -> Result<(), WindowError> {
+        let mut key = format!("{anchor}:{anchor}");
+        let mut fortsetzungen = 0;
+        loop {
+            self.run_key(&key)?;
+            let Some(naechste) = self.naechste_fortsetzung(fortsetzungen) else {
+                return Ok(());
+            };
+            fortsetzungen += 1;
+            key = naechste;
+        }
+    }
+
+    /// Die `fortsetzungen`-te vom Slice publizierte Fortsetzung, oder `None`, wenn die Kette
+    /// terminiert hat.
+    ///
+    /// # Panics
+    /// Wenn die Kette nicht binnen [`KETTEN_SCHRANKE`] Schritten terminiert.
+    fn naechste_fortsetzung(&self, bereits: usize) -> Option<String> {
+        let naechste = self
+            .published_keys(CONSUMED_MESSAGE_TYPE)
+            .get(bereits)
+            .cloned();
+        assert!(
+            naechste.is_none() || bereits < KETTEN_SCHRANKE,
+            "die Kette terminiert nicht: nach {KETTEN_SCHRANKE} Schritten wird immer noch fortgesetzt"
+        );
+        naechste
+    }
+
+    /// Decodiert einen rohen `partition_key` und fährt den Handler damit — die eine Stelle, an der
+    /// die Specs die echte `Decoder → Handler`-Kette betreten.
+    ///
+    /// # Panics
+    /// Wenn der Schlüssel nicht als `"{anchor}:{run_top}"` decodiert — eine unlesbare Envelope ist
+    /// eine io-Sorge, nicht Handler-Eingabe; die Specs reichen stets einen echten Anker herein.
+    fn run_key(&self, partition_key: &str) -> Result<(), WindowError> {
+        let command =
+            AdvanceWindowCommandDecoder::decode(partition_key, "").expect("Anker als Tag-Stamp");
         let handler =
             WindowingHandler::new(self.window_days, &self.source, &self.store, &self.publisher);
         handler.handle(command)
@@ -105,6 +162,25 @@ impl WindowingTestApi {
     /// Zeile, ein Vergleich) — und damit zugleich, dass es **genau eines** ist (N→1).
     pub fn assert_stored(&self, expected: AnalysisWindowRow) {
         assert_eq!(self.store.windows(), vec![expected]);
+    }
+
+    /// Prüft, dass **genau diese** Auswertungsfenster in der Fenster-Tabelle liegen, in
+    /// Ablage-Reihenfolge — die Sicht für den mehrseitigen Lauf, in dem je Seite eines entsteht.
+    pub fn assert_stored_windows(&self, expected: &[AnalysisWindowRow]) {
+        assert_eq!(self.store.windows(), expected);
+    }
+
+    /// Prüft, dass genau die erwarteten **Anker** als Selbst-Fortsetzung publiziert wurden
+    /// (Reihenfolge signifikant) — ein leeres Erwartungsfeld heißt „die Kette hat sich nicht
+    /// fortgesetzt". Der mitreisende Lauf-Gipfel ist über die publizierte Lauf-Spanne belegt.
+    pub fn assert_advance_window(&self, anchors: &[i64]) {
+        let erwartet: Vec<String> = anchors.iter().map(i64::to_string).collect();
+        let publiziert: Vec<String> = self
+            .published_keys(CONSUMED_MESSAGE_TYPE)
+            .iter()
+            .map(|key| key.split(':').next().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(publiziert, erwartet);
     }
 
     /// Prüft, dass genau die erwarteten IDs unter dem Dispatch-Key `WindowClosed` als Zeiger
