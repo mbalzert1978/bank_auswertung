@@ -5,24 +5,28 @@ Guidance for Claude Code (claude.ai/code) working in this repo.
 > **Architektur:** modularer Monolith aus **Feature-Slice-Triaden**
 > (`<slice>_domain`/`_adapter`/`_specs`), gekoppelt als **event-getriebene Pipeline
 > über eine Outbox**. Maßgeblich:
-> **[ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md)** (Pipeline
-> `einlesen → obfuskieren → auswerten → report`, jeder Schritt ein Outbox-Consumer)
-> und **[ADR-0009](docs/adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md)**
-> (zwei Kernel-Crates, Rust-idiomatische Outbox-Verträge). Beide verfeinern/
-> supersedieren [ADR-0001](docs/adr/0001-hexagonale-architektur.md)–[0007](docs/adr/0007-modularer-monolith-feature-slices.md)
-> (jedes Alt-ADR trägt oben einen Superseded-Banner mit kanonischem Verweis). Der
-> **Einlese-Slice** ist als erster nach diesem Muster gebaut.
+> **[ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md)** (Pipeline aus
+> Outbox-Consumern) — verfeinert durch
+> **[ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)**
+> (**akzeptiert**), das den Schritt **`fenstern`** einzieht, sodass die Pipeline
+> `einlesen → obfuskieren → fenstern → auswerten → report` lautet; jeder Schritt ist ein
+> Outbox-Consumer. Dazu
+> **[ADR-0009](docs/adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md)**
+> (Rust-idiomatische Outbox-Verträge; sein Kernel-**Split** ist inzwischen wieder
+> zusammengeführt, s. u.). Alle verfeinern/supersedieren
+> [ADR-0001](docs/adr/0001-hexagonale-architektur.md)–[0007](docs/adr/0007-modularer-monolith-feature-slices.md)
+> (jedes Alt-ADR trägt oben einen Superseded-Banner mit kanonischem Verweis).
 >
-> **[ADR-0011](docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)** verfeinert
-> 0008/0009 als **entschiedener Plan (noch nicht gebaut):** der Slice wird eine reine
-> `Command → Domäne → Response`-Pipeline; Consumer-Rolle, Fehler-Taktik,
-> `UnitOfWork` und Envelope-Kenntnis wandern vollständig nach `io` (generische
-> `OutboxConsumer<H: Handler>`). Der Kernel-Schnitt aus 0009 **flippt**: `application_kernel`
-> wird der `io`-sichtbare Slice↔`io`-Vertrag, `shared_kernel` komplett `io`-privat, der
-> `<slice>_adapter` bindet nur noch `application_kernel`. **Dieser 0011-Umbau** (Outbox-
-> Mechanik + Kernel-Flip nach `io`) ist **noch nicht gebaut** — der Code unten beschreibt den
-> Stand **davor** (der `io`-Consumer klassifiziert heute noch `Warning`/`Retry`/`Critical`).
-> Das **0012-Slice-Muster** dagegen **ist gebaut**: `einlesen`/`obfuskierung` sind durchweg
+> **[ADR-0011](docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)** ist
+> **gebaut**: der Slice ist eine reine `Command → Domäne → Response`-Pipeline;
+> Consumer-Rolle, Fehler-Taktik, `UnitOfWork` und Envelope-Kenntnis leben **vollständig in
+> `io`** (generischer `TransactionalHandler`/Consumer; der Slice liefert nur den
+> Envelope-Decoder). Der Kernel-Schnitt aus 0009 ist **geflippt und zusammengeführt**:
+> `application_kernel` ist der **einzige** Slice↔`io`-Vertrag, die Outbox-Seams liegen
+> **`io`-privat** — die frühere Crate `shared_kernel` wurde **aufgelöst**
+> ([Issue 0032](docs/issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)).
+> Der `<slice>_adapter` bindet nur noch `application_kernel`.
+> Auch das **0012-Slice-Muster ist gebaut**: `einlesen`/`obfuskierung` sind durchweg
 > terminal mit fehlbarem read/store/publish und uniformem ID-Handoff (Issues 0028/0029,
 > gemerged).
 >
@@ -45,15 +49,19 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 
 **Docs-first** — read the docs before implementing:
 
-- [README.md](README.md) — source of truth for scope and architecture.
+- [README.md](README.md) — source of truth for **scope and the privacy promise** only
+  (deliberately free of architecture/crate detail so it cannot go stale); the architecture
+  is owned by [docs/adr/](docs/adr/) and this file.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — twelve ADRs (0008/0009 governing the pipeline/kernel — refined
-  by **0011**, the decided-but-not-yet-built plan to decouple each slice from the Outbox
-  mechanics and flip the kernel cut, and by **0012**, which fixes the pipeline to
+- [docs/adr/](docs/adr/) — thirteen ADRs (0008/0009 governing the pipeline/kernel — refined
+  by **0011** (built): each slice decoupled from the Outbox mechanics, kernel cut flipped and
+  merged into `application_kernel`; and by **0012**, which fixes the pipeline to
   **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
   and pins the **uniform ID handoff** (DB-assigned new ID as the published pointer, foreign
-  entities referenced by ID only); 0010 governing seed-based pseudonym stability; 0001–0007
-  each carry a superseded banner pointing at the canonical successor).
+  entities referenced by ID only). **0013** (*accepted*) adds the **`fenstern`** step and the
+  `auswerten` split — two analysis reaches, per-window and window-spanning; 0010 governing
+  seed-based pseudonym stability; 0001–0007 each carry a superseded banner pointing at the
+  canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
 
@@ -62,14 +70,19 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 **eight crates under `crates/`** plus the top-level validator crate
 [`architecture`](architecture):
 
-- **two thin, interface-only kernel crates** ([ADR-0009](docs/adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md)):
-  [`shared_kernel`](crates/shared_kernel) — the **io-facing** Outbox seams
-  (`OutboxMessage`/`OutboxCommand`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/
-  `UnitOfWork`), dependency-free; and [`application_kernel`](crates/application_kernel)
-  — the **slice-internal** handler-build conventions
-  (`Command`/`Handler`/`Publisher`/`TypedOutboxHandler`), bindable only by slice adapters;
+- **one thin, interface-only kernel crate** ([ADR-0009](docs/adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md),
+  cut flipped and merged by [ADR-0011](docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):
+  [`application_kernel`](crates/application_kernel) — the **only** slice↔`io` contract
+  (`Command`/`Handler`/`Publisher`/`PublishCommand`/`CommandDecoder`), dependency-free,
+  bound by the slice adapters and `io`;
 - two **feature-slice triads** `<slice>_domain`/`_adapter`/`_specs`:
   [`einlesen`](crates/einlesen_adapter), [`obfuskierung`](crates/obfuskierung_adapter);
+- [`io`](crates/io) — holds the **io-private Outbox seams**
+  (`OutboxMessage`/`OutboxCommand`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/
+  `UnitOfWork` — here since [Issue 0032](docs/issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)
+  dissolved the former `shared_kernel` crate), the generic transactional consumer +
+  dispatcher, and the per-slice wiring with in-memory doubles. The real `sqlx`/`csv`/`toml`
+  adapters are still deferred;
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
   (outside `crates/`) asserting dependency direction over `cargo_metadata`.
 
@@ -150,14 +163,15 @@ so a raw-IBAN register consumed at ingest no longer fits. The own-accounts confi
 is built.)
 
 **Status.** Green: `cargo build`/`test`/`clippy --all-targets`/`fmt --check` +
-`cargo test -p architecture`. Built: the two kernel crates + Outbox contracts, `einlesen`
-end-to-end against fakes, and the `obfuskieren` slice (seed-based, against fakes). Deferred:
-the `io` crate (`csv`/`toml`/`fs`/`sqlx` + real SQLite Outbox broker/stores + `Speicher`),
-the `report` presenter, the `auswerten` analysis/categorizer slice (incl. `Fingerabdruck`,
-`KategorieAnfrage`), the remaining egress-DTO `Serialize` guards, `ObfuskierterText`
+`cargo test -p architecture`. Built: `application_kernel` + the `io`-private Outbox seams,
+the generic transactional consumer/dispatcher in `io`, `einlesen` end-to-end against fakes,
+and the `obfuskieren` slice (seed-based, against fakes) — both wired through `io`. Deferred:
+the real `io` adapters (`csv`/`toml`/`fs`/`sqlx` + SQLite Outbox broker/stores + `Speicher`),
+the `report` presenter, the remaining egress-DTO `Serialize` guards, `ObfuskierterText`
 scrubbing (only trims/rejects-empty today), and persistent seed management
-([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). Next: the **`auswerten`
-analysis core**. No binary yet.
+([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). **Next: the `fenstern`
+slice and the `auswerten` split** ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md),
+accepted) — broken down into issues 0035–0045. No binary yet.
 
 ## Language convention
 
@@ -194,8 +208,9 @@ classification, cashflow per account/month, Pareto ranking, savings candidates, 
 category register with learned corrections. **Litmus test**: remove the LLM entirely and
 the program is still valuable — only automatic labels for unknown merchants are missing.
 
-**The pipeline ([ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md)):**
-`einlesen → obfuskieren → auswerten → report`. Each step is its own slice triad and an
+**The pipeline ([ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md), refined by
+[ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)):**
+`einlesen → obfuskieren → fenstern → auswerten → report`. Each step is its own slice triad and an
 **Outbox consumer** — handles one incoming command and writes, in **one transaction**,
 both its result table and an Outbox message for the next step (atomic, at-least-once,
 resumable). No synchronous next-call; coupling is the message alone. `obfuskieren` is
@@ -306,9 +321,10 @@ Two rules govern *what* to test — the codebase's test culture:
   TestApi).
 
 Concretely: **`*_specs` are pure black-box** over the slice's one public adapter surface
-(Fluent `*TestApi` + DTOs + the `shared_kernel` Outbox result shape), never internals, no
-DTO-constructor tests in the spec. They test real behaviour — happy path (line → command
-+ staged aggregate), fan-out, redaction, and the **rejections that are slice behaviour**
+(Fluent `*TestApi` + DTOs + the slice's own naked domain error, re-exported by the adapter —
+no Outbox types), never internals, no DTO-constructor tests in the spec. They test real
+behaviour — happy path (line → command + staged aggregate), fan-out, redaction, and the
+**rejections that are slice behaviour**
 (a missing mandatory field → batch-atomic terminal failure; an unknown currency) — but **not**
 rejection of pure `io` format-mechanics (unreadable date, sign-less amount). A wrapper VO
 with guaranteed-valid input (`From<NonEmptyString>` only) and a logicless port/fake get
@@ -316,24 +332,34 @@ with guaranteed-valid input (`From<NonEmptyString>` only) and a logicless port/f
 
 ## Build order (pipeline flow order)
 
-Build in flow order ([ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md));
+Build in flow order ([ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md),
+refined by [ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md));
 each step runnable/valuable against fakes, real `io` last:
 
-1. **Kernel + Outbox contracts** (`shared_kernel` + `application_kernel`) — **done**.
+1. **Kernel + Outbox contracts** (`application_kernel` + the `io`-private Outbox seams) — **done**.
 2. **`einlesen` slice** — `RawRecord → LineAggregate → Ingested`, batch in / one message
    per valid line, German date/number behind the `Calendar`/`Money` seams. **done** (fakes).
 3. **`obfuskieren` slice** — consume `Ingested`, assign seed-based `KONTO_x`/`PERSON_x`, scrub
    free text; the privacy boundary. **done** (fakes); still needs the `ObfuskierterText`
    scrubbing rules + persistent seed management
    ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)).
-4. **`auswerten` slice** — recurrence + fees + cashflow + Pareto (valuable without the LLM)
-   + the category register; calls `Kategorisierer` only for unknown fingerprints. Owns
-   `Gegenkonto::Eigen|Fremd` resolution, token-based (counter `KONTO_x` vs. the
-   seed-tokenised own-accounts set) — needs the own-accounts config (IBAN + role).
-5. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** crate
+4. **`fenstern` slice** — consume `StartAnalysis`/`AdvanceWindow`, paginate the obfuscated
+   history newest→oldest (`max(booking_day < from)`) and **materialise one
+   `Auswertungsfenster` aggregate per page**; publish `FensterGeschlossen` per page and
+   `HistorieVollständig` on exhaustion
+   ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).
+   **next** — issues 0036–0039.
+5. **`auswerten` slice** — **two single-purpose handlers**: per-window (fees + cashflow +
+   Pareto *within* one `Auswertungsfenster`) and window-spanning (recurrence as a **read-port
+   query over all windows of the run**, triggered by `HistorieVollständig` — no fold-log).
+   Owns `Fingerabdruck` and token-based `Gegenkonto::Eigen|Fremd` resolution (counter
+   `KONTO_x` vs. the seed-tokenised own-accounts set) — needs the own-accounts config
+   (IBAN + role). Calls `Kategorisierer` only for unknown fingerprints. Issues 0040–0045
+   plus the analyzer building blocks 0004–0007.
+6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
    (SQLite Outbox broker/stores, file/CSV parse) fulfilling the seams.
-6. **`report`** HTML output.
-7. **Iteration** — review together, learn corrections, name savings.
+7. **`report`** HTML output.
+8. **Iteration** — review together, learn corrections, name savings.
 
 Prerequisites before their step (see README "Offen" / PRD): a real CSV-CAMT-v8 sample file
 for a real `einlesen` run; a **stable config seed** + **scrubbing rules** for
