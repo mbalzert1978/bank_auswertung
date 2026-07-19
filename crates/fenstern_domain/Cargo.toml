@@ -1,0 +1,12 @@
+[package]
+name = "fenstern_domain"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+# Bewusst DEPENDENCY-FREI (ADR-0007): die Domäne kennt weder Fehler-Bibliotheken noch
+# serde noch eine Kalender-Crate. Der Tag-Stamp ist ein sortierbarer Integer
+# (ADR-0013, Entscheidung C), die Ports verlangt sie selbst, ihre Fehler sind
+# handgeschriebene `Display` + `std::error::Error`, die der Adapter mappt.

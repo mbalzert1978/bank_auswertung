@@ -1,0 +1,11 @@
+[package]
+name = "fenstern_adapter"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+fenstern_domain = { path = "../fenstern_domain" }
+application_kernel = { path = "../application_kernel" }
