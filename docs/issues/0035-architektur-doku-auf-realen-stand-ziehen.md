@@ -1,7 +1,7 @@
 ---
 id: "0035"
 title: Architektur-Doku auf den realen Stand ziehen (Prefactor)
-status: open
+status: closed
 ---
 
 # Architektur-Doku auf den realen Stand ziehen (Prefactor)
@@ -44,3 +44,28 @@ Schritte-Abschnitt. **Reine Doku — kein Code-Verhalten ändert sich.**
 ## Blocked by
 
 Keines — kann sofort starten.
+
+## Nachtrag (Umsetzung, 2026-07-16, PR #33)
+
+Erledigt in PR [#33](https://github.com/mbalzert1978/bank_auswertung/pull/33). Alle sechs
+Akzeptanzkriterien geprüft, die fünf Befehle grün. Die Umsetzung ging in **zwei Punkten
+bewusst über dieses Ticket hinaus** — hier festgehalten, weil es sonst keine Spur gäbe:
+
+**1. README auf ein drift-sicheres Minimum gekürzt** (Commit `docs(readme)`).
+Dieses Ticket repariert den *aktuellen* Drift; die Kürzung verhindert den *nächsten*. Die
+README trug Architektur-, Ports- und Baureihenfolge-Details, die ADRs/CLAUDE.md duplizierten —
+und veraltete genau daran. Sie führt jetzt nur noch **Zweck, Umfang, Datenschutz-Versprechen**
+plus eine Verweistabelle und nennt **keine Crates, Pipeline-Schritte oder
+Baureihenfolge-Nummern** mehr. Folgewirkungen mitgezogen: CLAUDE.md nennt die README nicht mehr
+als Quelle für „scope **and architecture**", das PRD nicht mehr als alleinige „Quelle der
+Wahrheit".
+
+**2. Tote `shared_kernel`-Verweise aus Doc-Comments entfernt** (Commit `docs(slices)`).
+Zehn Doc-Comments in neun Dateien nannten die mit [0032](0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)
+aufgelöste Crate; `application_kernel` wurde noch als „eine von zwei Geschwister-Crates"
+beschrieben. Mitgenommen: die von ADR-0012 überholte „Dead-Letter/Retry-Taktik" im selben Satz.
+
+> **Formale Abweichung:** AC6 dieses Tickets fordert „**keine Code-Änderung**". Punkt 2 fasst
+> `.rs`/`.toml` an — **inhaltlich** nur Kommentare (kein Verhalten, alle Checks unverändert
+> grün), **formal** eine Überschreitung. Deshalb als **eigener, isoliert revertierbarer
+> Commit** geführt statt in die Doku-Commits gemischt.

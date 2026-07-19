@@ -30,9 +30,12 @@ bleiben gültig und wurden nur neu verdrahtet.
 
 Prefactor:
 
-- [ ] **[0035-architektur-doku-auf-realen-stand-ziehen.md](0035-architektur-doku-auf-realen-stand-ziehen.md)**
-  Doku auf den realen Stand (kein `shared_kernel` mehr, `fenstern` in Pipeline + Baureihenfolge).
-  *Frei — kann sofort starten.*
+- [x] **[0035-architektur-doku-auf-realen-stand-ziehen.md](0035-architektur-doku-auf-realen-stand-ziehen.md)**
+  (2026-07-16, PR #33) Doku auf den realen Stand: kein `shared_kernel` mehr als existierende
+  Crate, `fenstern` in Pipeline + Baureihenfolge, ADR-0013 als akzeptiert, Status auf
+  `fenstern`/`auswerten`-Split. **Darüber hinaus** (siehe „Nachtrag" im Ticket): README auf ein
+  drift-sicheres Minimum gekürzt und tote `shared_kernel`-Verweise aus Doc-Comments entfernt.
+  → **0036 ist damit frei.**
 
 `fenstern`-Slice:
 
