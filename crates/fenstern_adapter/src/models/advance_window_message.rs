@@ -11,14 +11,17 @@ use crate::models::advance_window_command::CONSUMED_MESSAGE_TYPE;
 /// die **Lauf-Spanne** kennt, ohne Zustand zu halten oder erneut zu queren.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdvanceWindowMessage {
-    anchor: String,
+    /// Der **ganze** Schlüssel `"{anchor}:{run_top}"`, nicht nur der Anker — er wird als Einheit
+    /// gebaut und als Einheit gelesen; wer nur den Anker daraus will, muss ihn decodieren
+    /// (`AdvanceWindowCommandDecoder`).
+    partition_key: String,
 }
 
 impl AdvanceWindowMessage {
     /// Zeigt auf die nächste Seite: ihr Anker und der unveränderte Lauf-Gipfel.
     pub(crate) fn from_anchor(anchor: i64, run_top: i64) -> Self {
         Self {
-            anchor: format!("{anchor}:{run_top}"),
+            partition_key: format!("{anchor}:{run_top}"),
         }
     }
 }
@@ -29,6 +32,6 @@ impl PublishCommand for AdvanceWindowMessage {
     const MESSAGE_TYPE: &'static str = CONSUMED_MESSAGE_TYPE;
 
     fn partition_key(&self) -> &str {
-        &self.anchor
+        &self.partition_key
     }
 }

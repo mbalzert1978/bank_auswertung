@@ -3,6 +3,17 @@ use fenstern_domain::DayStamp;
 
 /// Der Dispatch-Key der **konsumierten** Nachricht — auf ihn löst `io`s Prozessor diesen Slice als
 /// Consumer auf. Prosa-Name im ADR: der **Fenster-Schritt**.
+///
+/// **Besonderheit dieses Slice:** er ist zugleich der Typ, den der Schritt **selbst publiziert**
+/// ([`AdvanceWindowMessage`](crate::AdvanceWindowMessage)) — der Pager reiht sein eigenes nächstes
+/// Kommando ein, bis die Historie versiegt (ADR-0013, Entscheidung B). Konsumiert und publiziert
+/// sind hier **derselbe** Nachrichtentyp; genau das *ist* die Selbst-Fortsetzung.
+///
+/// Der Name bleibt trotzdem `CONSUMED_MESSAGE_TYPE`: er ist **slice-übergreifende Konvention**
+/// (`einlesen`/`obfuskierung` tragen ihn ebenso, und `io` re-exportiert ihn je Slice unter genau
+/// diesem Namen, um den Dispatcher darauf zu registrieren). Ihn hier allein umzubenennen bräche die
+/// uniforme Auflösung, für die er existiert — die Doppelrolle ist eine Eigenschaft des Pagers, kein
+/// Namensfehler.
 pub const CONSUMED_MESSAGE_TYPE: &str = "AdvanceWindow";
 
 /// Das interne Kommando am Slice-Eingang: es trägt **immer** einen Anker (ADR-0013, Entscheidung B)
