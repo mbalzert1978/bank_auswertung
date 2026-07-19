@@ -185,3 +185,19 @@ fn ein_fehlendes_pflichtfeld_scheitert_terminal_und_redigiert() {
     assert!(!fehler.to_string().contains("buchung-mit-luecke"));
     api.assert_nothing_emitted();
 }
+
+#[test]
+fn eine_zeile_ohne_id_scheitert_terminal_statt_einen_leeren_zeiger_durchzulassen() {
+    // Der Fremdschlüssel ist das, was das Fenster einfriert — fehlt er, gibt es nichts zu
+    // referenzieren. Die Präsenz-Prüfung des Adapters weist ihn terminal ab, bevor eine leere ID
+    // ins Aggregat und von dort in einen publizierten Zeiger geraten kann.
+    let api = api().with_obfuscated(ANKER, zeile("", "EUR"));
+
+    let ergebnis = api.run(ANKER);
+
+    assert_eq!(
+        ergebnis,
+        Err(WindowError::MissingMandatoryField { field: "id" })
+    );
+    api.assert_nothing_emitted();
+}

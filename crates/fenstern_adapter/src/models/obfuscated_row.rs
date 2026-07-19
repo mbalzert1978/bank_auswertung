@@ -22,7 +22,7 @@ impl ObfuscatedRow {
     /// `WindowError::MissingMandatoryField` mappt (redigiert, statischer Feldname).
     pub(crate) fn to_booking(&self) -> Result<WindowedBooking, MissingMandatoryField> {
         Ok(WindowedBooking::hydrate(
-            BookingId::new(mandatory(&self.id, "id")?.as_str()),
+            BookingId::from(mandatory(&self.id, "id")?),
             Currency::from(mandatory(&self.currency, "currency")?),
         ))
     }
