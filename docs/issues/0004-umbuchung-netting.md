@@ -45,3 +45,5 @@ aufgelöst — dieser Slice matcht nur noch darauf).
 ## Blockiert durch
 
 - Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
+- Blockiert durch [0042](0042-eigene-konten-config-und-gegenkonto-auf-token.md) — das Netting
+  matcht auf `Gegenkonto::Eigen`, das dort token-orientiert aufgelöst wird.

@@ -50,3 +50,5 @@ nur Einzelbuchungen.
 - Blockiert durch [0004](0004-umbuchung-netting.md)
 - Blockiert durch [0005](0005-wiederkehr-erkennung.md)
 - Blockiert durch [0006](0006-gebuehren-klassifikation.md)
+- Blockiert durch [0040](0040-auswerten-triade-skelett-pro-fenster-reichweite.md) — Cashflow/Pareto
+  rechnen in der pro-Fenster-Reichweite; das Skelett liefert bereits den Monats-Cashflow.

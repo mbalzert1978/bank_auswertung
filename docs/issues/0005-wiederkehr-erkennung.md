@@ -56,3 +56,7 @@ Umbuchung an ein eigenes Konto zählt nicht als wiederkehrender Kosten-Treiber.
 
 - Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
 - Blockiert durch [0004](0004-umbuchung-netting.md)
+- Blockiert durch [0041](0041-fingerabdruck-als-domaenenfunktion.md) — die Wiederkehr schlüsselt
+  auf den Fingerabdruck.
+- Blockiert durch [0043](0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md) —
+  die Rhythmus-Logik läuft auf der fenster-übergreifenden Read-Port-Query.

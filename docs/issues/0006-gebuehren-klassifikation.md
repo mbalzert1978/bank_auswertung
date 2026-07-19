@@ -43,3 +43,5 @@ von „die Gebühr für die Umbuchung" trennen zu können.
 
 - Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
 - Blockiert durch [0004](0004-umbuchung-netting.md)
+- Blockiert durch [0040](0040-auswerten-triade-skelett-pro-fenster-reichweite.md) — rechnet in der
+  pro-Fenster-Reichweite von `auswerten`.
