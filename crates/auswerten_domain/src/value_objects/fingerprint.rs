@@ -8,14 +8,32 @@ use crate::value_objects::{NonEmptyString, Recipient};
 /// Durchleiter verklumpte seine Händler wieder — ein Fehler, der nichts fehlschlagen ließe, sondern
 /// nur ein falsches Ergebnis erzeugte.
 ///
-/// **Unvollständig:** hier steht bislang nur PayPal. Die Gläubiger-IDs von Klarna und Amazon
-/// Payments müssen aus echten Auszugsdaten ergänzt werden — bis dahin trägt sie allein der
-/// Namens-Marker unten.
-const INTERMEDIARY_CREDITOR_IDS: [&str; 1] = ["LU96ZZZ0000000000000000058"];
+/// **Herkunft (Issue 0047, HITL):** alle IDs stammen aus echten Auszugsdaten — vom Nutzer am
+/// 20.07.2026 aus den Detailansichten eigener Lastschrift-Buchungen abgelesen. Die PayPal-ID war in
+/// 0041 aus allgemeiner Kenntnis gesetzt und ist gegen dieselbe Quelle **verifiziert**. Dass auch
+/// Amazons Direkt-Firmierungen (Digital/EU) hier stehen, ist eine bewusste Analyse-Entscheidung:
+/// ihr Verwendungszweck trägt die *Art* (Prime vs. Kindle vs. Einkauf), die Firmierung nur den
+/// Kanal — ohne Aufspaltung verklumpte jede zu einem Sammelbecken.
+///
+/// **Rest-Lücke:** Klarna hat weiterhin keine ID — der Dienst wird nicht genutzt, echte Quelldaten
+/// existieren nicht, und eine aus allgemeiner Kenntnis gesetzte ID wäre schlimmer als keine (sie
+/// behandelte still die falsche Firma als Durchleiter). Bis echte Daten auftauchen, trägt Klarna
+/// allein der Namens-Marker unten.
+const INTERMEDIARY_CREDITOR_IDS: [&str; 4] = [
+    // PayPal Europe S.a.r.l. et Cie S.C.A.
+    "LU96ZZZ0000000000000000058",
+    // Amazon Payments Europe S.C.A. — der Einzieher der Marketplace-Käufe.
+    "DE94ZZZ00000561653",
+    // Amazon Digital Germany GmbH — Prime/Kindle & Co.
+    "DE96ZZZ00000594888",
+    // Amazon EU S.A R.L., Niederlassung Deutschland — der Direkteinkauf.
+    "DE24ZZZ00000561652",
+];
 
-/// Namens-Marker der Durchleiter — das **ergänzende** Signal, das greift, solange oben eine
-/// Gläubiger-ID fehlt. Sie stehen als Marker im **normalisierten** Namen, denn die Firmierung trägt
-/// Beiwerk („PayPal Europe S.a.r.l. et Cie S.C.A.").
+/// Namens-Marker der Durchleiter — das **nachgelagerte Auffangsignal** hinter der Gläubiger-ID:
+/// es trägt allein **Klarna** (dessen ID oben noch fehlt) und fängt sonst nur eine Firmierung auf,
+/// deren ID noch nicht hinterlegt ist. Die Marker stehen im **normalisierten** Namen, denn die
+/// Firmierung trägt Beiwerk („PayPal Europe S.a.r.l. et Cie S.C.A.").
 ///
 /// Beides ist **Fachwissen der Domäne**, keine Konfiguration: dass ein Durchleiter den Händler
 /// verdeckt, ist eine Aussage über die Analyse, nicht über die Umgebung.

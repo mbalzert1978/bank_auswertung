@@ -3,15 +3,16 @@
 //! hereinziehen. Erwartungsdaten sind test-seitig und gehören darum hierher, nicht in die
 //! Adapter-`TestApi`.
 //!
-//! Der Slice hat **zwei** Spec-Dateien — eine je Reichweite (ADR-0013, Entscheidung E) — und damit
-//! zwei Test-Binaries, in die dieses Modul **je vollständig** hineinkompiliert wird. Jede nutzt
-//! naturgemäß nur ihren Teil, was ohne das `allow` in beiden Binaries `dead_code` für die Helfer der
-//! jeweils anderen meldete. Das ist der bekannte Preis geteilter Test-Helfer, kein Hinweis auf
-//! ungenutzten Code: was hier steht, hat in genau einer der beiden Specs einen Aufrufer.
+//! Der Slice hat **mehrere** Spec-Dateien — eine je Reichweite (ADR-0013, Entscheidung E), plus die
+//! thematisch ausgegliederten Fingerabdruck-Specs — und damit je ein Test-Binary, in das dieses
+//! Modul **vollständig** hineinkompiliert wird. Jedes nutzt naturgemäß nur seinen Teil, was ohne
+//! das `allow` in jedem Binary `dead_code` für die Helfer der jeweils anderen meldete. Das ist der
+//! bekannte Preis geteilter Test-Helfer, kein Hinweis auf ungenutzten Code: was hier steht, hat in
+//! mindestens einer der Specs einen Aufrufer.
 #![allow(
     dead_code,
-    reason = "geteiltes Fixture-Modul: es wird in beide Spec-Binaries (eine je Reichweite) \
-              vollstaendig hineinkompiliert, jede nutzt nur ihren Teil"
+    reason = "geteiltes Fixture-Modul: es wird in jedes Spec-Binary vollstaendig hineinkompiliert, \
+              jedes nutzt nur seinen Teil"
 )]
 
 use auswerten_adapter::{
