@@ -5,11 +5,16 @@ use crate::value_objects::NonEmptyString;
 /// gefällt hat (CONTEXT.md „Firma vs. Privatperson"). Dieser Slice **liest** diese Deutung, er
 /// führt sie nicht erneut: eine zweite Kopie derselben Regel könnte divergieren.
 ///
-/// **Datenschutz:** keine Variante trägt einen strukturellen Identifikator. Eine Firma trägt ihren
-/// Klartext-Namen und die **Gläubiger-ID** — den öffentlichen Firmenschlüssel, der als
-/// Analyse-Anker eine bewusste Ausnahme ist (ADR-0008). Eine Privatperson trägt **nur** ihr
-/// seed-basiertes `PERSON_…`-Pseudonym; der Seed selbst bleibt in `obfuskieren` und erreicht diesen
-/// Slice nie (ADR-0010).
+/// **Datenschutz:** keine Variante trägt einen **strukturellen Identifikator** — der Begriff meint
+/// hier genau das, was CONTEXT.md („Obfuskierung") darunter fasst: eigene IBAN/Kontonr.,
+/// Gegen-IBAN, BIC. Die fallen stromaufwärts vollständig weg.
+///
+/// Was eine Firma trägt, ist ihr **Klartext-Name** (verbatim durchgereicht — das wichtigste
+/// Kategorie-Signal) und die **Gläubiger-ID**. Letztere ist keine *Ausnahme* von der Regel, sondern
+/// liegt außerhalb ihrer: sie identifiziert die **Firma, nicht den Kontoinhaber**, und ist darum
+/// als Analyse-Anker gewollt (ADR-0008). Eine Privatperson trägt **nur** ihr seed-basiertes
+/// `PERSON_…`-Pseudonym; der Seed selbst bleibt in `obfuskieren` und erreicht diesen Slice nie
+/// (ADR-0010).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Recipient {
     /// Sichere Firma (Gläubiger-ID vorhanden): Name im Klartext (falls geführt) + Anker.
