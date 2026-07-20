@@ -112,6 +112,25 @@ fn ein_monat_ohne_buchung_ergibt_keinen_bucket() {
     });
 }
 
+#[test]
+fn ein_absurder_buchungstag_beendet_den_lauf_ohne_panic() {
+    // Der Tag-Stamp kommt **roh aus io** — die Domäne hat keine Zusage, dass er plausibel ist. Ein
+    // Extremwert an beiden Enden des Wertebereichs darf die Kalender-Rekonstruktion nicht zum
+    // Überlauf bringen: im Debug-Build wäre das ein Panic, und die Pipeline kennt nur terminale
+    // Fehler, keine Abstürze. Ein absurder Tag ergibt einen absurden, aber **beschränkten** Monat.
+    let api = api().with_window(
+        FENSTER,
+        fenster(&[ausgang(i64::MAX, 100), eingang(i64::MIN, 200)]),
+    );
+
+    let ergebnis = api.run(FENSTER);
+
+    // Kein Panic, kein Fehler — der Lauf trägt die Extremwerte durch und legt ab. Welche Monate
+    // dabei herauskommen, ist bewusst nicht Gegenstand: für Müll-Eingaben gibt es keine richtige
+    // Antwort, nur eine ungefährliche.
+    assert_eq!(ergebnis, Ok(()));
+}
+
 // --- Ein Zeiger ins Leere endet terminal und redigiert -------------------------
 
 #[test]

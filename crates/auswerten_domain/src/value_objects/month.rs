@@ -31,7 +31,9 @@ impl Month {
     #[must_use]
     pub(crate) fn of(day: DayStamp) -> Self {
         let (year, month) = civil_year_month(day.0);
-        Self(year * 12 + month - 1)
+        // Sättigend aus demselben Grund wie in `civil_year_month`: der Tag-Stamp kommt roh aus io.
+        // `month − 1` liegt in `0..=11`, ist also für sich unkritisch.
+        Self(year.saturating_mul(12).saturating_add(month - 1))
     }
 
     /// Das Kalenderjahr (proleptisch gregorianisch).
@@ -53,17 +55,25 @@ impl Month {
 ///
 /// Es ist Howard Hinnants `civil_from_days`: es verschiebt den Nullpunkt auf den 1. März 0000, sodass
 /// der Schalttag ans **Ende** des Jahres rutscht und die Schaltjahr-Fallunterscheidung ganz entfällt.
-/// Danach ist alles ganzzahlige Division — **panikfrei und ohne Überlauf** im ganzen realen
-/// Wertebereich (Tag-Stamps aus Kontoauszügen), und **total**: jeder Tag-Stamp liefert ein Ergebnis,
-/// es gibt keinen Fehler-Ausgang. Der Tagesanteil wird nicht gebraucht und darum nicht berechnet.
+/// Danach ist alles ganzzahlige Division — und **total**: jeder Tag-Stamp liefert ein Ergebnis, es
+/// gibt keinen Fehler-Ausgang. Der Tagesanteil wird nicht gebraucht und darum nicht berechnet.
+///
+/// **Panikfrei für jeden `i64`, exakt im realen Wertebereich** (Tag-Stamps aus Kontoauszügen). Der
+/// Tag-Stamp kommt **roh aus io** — die Domäne hat keine Zusage, dass er plausibel ist —, darum
+/// sättigen die **zwei** Stellen, an denen ein extremer Eingabewert überhaupt überlaufen kann: die
+/// Nullpunkt-Verschiebung (nahe `i64::MAX`) und der Negativ-Zweig der Ära (nahe `i64::MIN`). Alles
+/// dazwischen ist **beweisbar beschränkt** — `day_of_era` liegt in `0..=146_096`, `year_of_era` in
+/// `0..=399`, `day_of_year` in `0..=365` —, dort wäre sättigende Arithmetik nur Rauschen ohne
+/// erreichbaren Fall. Ein absurder Tag-Stamp liefert so einen absurden, aber **beschränkten** Monat
+/// statt eines Panics im Debug-Build; dieselbe Taktik wie `fenstern_domain::WindowSpan::page`.
 fn civil_year_month(days: i64) -> (i64, i64) {
     // Nullpunkt auf den 1. März 0000 schieben (Epoche + 719_468 Tage).
-    let shifted = days + 719_468;
+    let shifted = days.saturating_add(719_468);
     // Die 400-Jahres-Ära (146_097 Tage) — der Zyklus, nach dem sich der Kalender exakt wiederholt.
     let era = if shifted >= 0 {
         shifted
     } else {
-        shifted - 146_096
+        shifted.saturating_sub(146_096)
     } / 146_097;
     let day_of_era = shifted - era * 146_097;
     let year_of_era =
