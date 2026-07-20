@@ -1,0 +1,38 @@
+/// Ein Geldbetrag als **vorzeichenlose** Menge in Cent — das Vorzeichen lebt allein in der
+/// [`Direction`], ein negativer Betrag ist dadurch unkonstruierbar (ADR-0005).
+///
+/// **Ohne Währung, bewusst:** anders als `einlesen`s `Amount` trägt dieser Betrag sie nicht mit. Die
+/// **eine** Währung steht einmal am Auswertungsfenster — `fenstern` hat sie **an der Konstruktion**
+/// des Fensters erzwungen. Sie an jedem Betrag zu wiederholen brächte keinen Beweis dazu, sondern
+/// nur einen „was, wenn sie abweichen"-Zweig, der per Konstruktion nie feuern kann.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Amount(u64);
+
+impl Amount {
+    #[must_use]
+    pub fn from_cent(cent: u64) -> Self {
+        Self(cent)
+    }
+
+    #[must_use]
+    pub fn cent(self) -> u64 {
+        self.0
+    }
+
+    /// Summiert zwei Beträge — die eine Rechenoperation des Bucketings. **Sättigend:** ein
+    /// Überlauf ist bei echten Kontoumsätzen unerreichbar, und ein sättigendes Maximum ist immer
+    /// noch besser als ein Panic im Debug-Build oder ein stiller Wrap im Release.
+    #[must_use]
+    pub(crate) fn plus(self, other: Self) -> Self {
+        Self(self.0.saturating_add(other.0))
+    }
+}
+
+/// Die Richtung eines Umsatzes — der einzige Ort, an dem das Vorzeichen lebt (ADR-0005), sodass ein
+/// negativer [`Amount`] unkonstruierbar ist. Sie entscheidet, in welche der beiden Spalten eines
+/// Monats-Buckets ein Betrag fließt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Incoming,
+    Outgoing,
+}
