@@ -11,8 +11,14 @@
 //! `FensterGeschlossen` (registriert auf [`CONSUMED_MESSAGE_TYPE`]) — die Nachricht trägt **nur die
 //! ID** des eingefrorenen Auswertungsfensters, einen **Zeiger** (uniformes ID-Handoff, ADR-0012).
 //! Er **liest** das Aggregat darüber, rechnet die periodische Kennzahl **innerhalb** des Fensters —
-//! heute den **Cashflow je Monat** — und **legt** das Ergebnis ab. Die zweite, fenster-übergreifende
-//! Reichweite (Wiederkehr, angestoßen von `HistorieVollständig`) kommt mit ihrem eigenen Handler.
+//! heute den **Cashflow je Monat** — samt den **distinkten Fingerabdrücken** der Buchungsarten des
+//! Fensters und **legt** das Ergebnis ab. Die zweite, fenster-übergreifende Reichweite (Wiederkehr,
+//! angestoßen von `HistorieVollständig`) kommt mit ihrem eigenen Handler.
+//!
+//! **Der Fingerabdruck ist Domänen-, keine Adapter-Sache** (ADR-0004, ADR-0013 Entscheidung F): der
+//! Adapter reicht nur die Zellen herein, aus denen er entsteht — die obfuskierte Gegenpartei
+//! ([`BookingRecipient`]) und den obfuskierten Verwendungszweck. Die Intermediär-Erkennung und die
+//! Bildung des Händler-Tokens liegen **in der Domäne**, nicht hier und nicht in `io`.
 //!
 //! **Reine Pipeline (ADR-0011, Entscheidung A):** `io`s generische `OutboxConsumer` fährt den
 //! Handler: sie extrahiert die Envelope, ruft den slice-gelieferten
@@ -35,9 +41,21 @@
 //! re-exportierte [`EvaluationError`]). Alles andere ist crate-privat. Die eingehende Nachricht
 //! trägt **nur die ID** — kein Wire-DTO, **kein serde** im Slice.
 //!
-//! **Datenschutz:** der Slice liegt **stromabwärts** der Obfuskierungs-Grenze — er sieht nur opake
-//! IDs, eine Währung, Tag-Stamps und Beträge, nie einen strukturellen Identifikator oder Freitext.
-//! Darum trägt er heute keinen eigenen `assert_not_impl_any!`-Guard: es gibt hier noch kein
+//! **Datenschutz:** der Slice liegt **stromabwärts** der Obfuskierungs-Grenze. Er sieht **nie einen
+//! strukturellen Identifikator** — im Sinn von CONTEXT.md („Obfuskierung"): eigene IBAN/Kontonr.,
+//! Gegen-IBAN, BIC — und **nie den Seed**; das seed-basierte Pseudonym kommt fertig aus
+//! `obfuskieren`, der Seed bleibt dort.
+//!
+//! Was er sieht, ist opake IDs, eine Währung, Tag-Stamps, Beträge, Konto-/Personen-**Token** und
+//! Freitext. Beim Freitext lohnt die Genauigkeit: Verwendungszweck und Buchungstext laufen durch den
+//! `ObfuskierterText`-Engpass, der **Firmenname** dagegen wird von `obfuskieren` **verbatim**
+//! durchgereicht — bewusst, denn er ist das wichtigste Kategorie-Signal (er benennt eine Firma, nicht
+//! eine Person). „Stromabwärts der Grenze" heißt also *tokenisiert und gescrubbt*, nicht *frei von
+//! Klartext*.
+//!
+//! Der **Fingerabdruck** schlüsselt darum auf der Gläubiger-ID, einem Pseudonym oder einem aus
+//! gescrubbtem Freitext gebildeten Token — nie auf einem Rohwert.
+//! Einen eigenen `assert_not_impl_any!`-Guard trägt der Slice heute nicht: es gibt hier noch kein
 //! Egress-DTO. Der Guard zieht ein, sobald die Reichweite eines bekommt (der `Kategorisierer`-Request
 //! und die Report-Ausgabe — dort verlassen Daten die Maschine).
 
@@ -52,8 +70,9 @@ pub use abstractions::{
 };
 pub use handler::WindowEvaluationHandler;
 pub use models::{
-    AnalysisWindowRow, BookingDirection, CONSUMED_MESSAGE_TYPE, EvaluateWindowCommand,
-    EvaluateWindowCommandDecoder, MonthlyCashflowRow, WindowBookingRow, WindowEvaluationRow,
+    AnalysisWindowRow, BookingDirection, BookingRecipient, CONSUMED_MESSAGE_TYPE,
+    EvaluateWindowCommand, EvaluateWindowCommandDecoder, MonthlyCashflowRow, WindowBookingRow,
+    WindowEvaluationRow,
 };
 pub use testapi::EvaluationTestApi;
 

@@ -10,16 +10,20 @@
 
 mod amount;
 mod currency;
+mod fingerprint;
 mod month;
 mod monthly_cashflow;
 mod non_empty_string;
+mod recipient;
 mod window_id;
 mod windowed_booking;
 
 pub use amount::{Amount, Direction};
 pub use currency::Currency;
+pub use fingerprint::Fingerprint;
 pub use month::{DayStamp, Month};
 pub use monthly_cashflow::MonthlyCashflow;
 pub use non_empty_string::NonEmptyString;
+pub use recipient::Recipient;
 pub use window_id::WindowId;
 pub use windowed_booking::WindowedBooking;

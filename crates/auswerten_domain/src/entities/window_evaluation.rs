@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::entities::AnalysisWindow;
-use crate::value_objects::{Currency, Month, MonthlyCashflow, WindowId};
+use crate::value_objects::{Currency, Fingerprint, Month, MonthlyCashflow, WindowId};
 
 /// Das **Pro-Fenster-Ergebnis** — was dieser Slice aus **einem** eingefrorenen Auswertungsfenster
 /// rechnet und ablegt (ADR-0013, Entscheidung E, Reichweite 1). Heute trägt es die erste periodische
@@ -15,6 +15,7 @@ pub struct WindowEvaluation {
     window: WindowId,
     currency: Currency,
     months: Vec<MonthlyCashflow>,
+    fingerprints: Vec<Fingerprint>,
 }
 
 impl WindowEvaluation {
@@ -40,10 +41,21 @@ impl WindowEvaluation {
                 *bucket = bucket.plus(booking.amount(), booking.direction());
                 buckets
             });
+        // Die **distinkten** Fingerabdrücke des Fensters: der Schlüssel steht für eine *Art* von
+        // Buchung, nicht für die einzelne — zwanzig Buchungen desselben Händlers sind **eine** Art.
+        // Das `BTreeSet` faltet sie darum zusammen und legt sie zugleich in einer stabilen,
+        // eingabe-unabhängigen Reihenfolge ab. Eine Buchung ohne Gegenpartei trägt keinen Schlüssel
+        // bei (`None`).
+        let fingerprints = snapshot
+            .bookings()
+            .iter()
+            .filter_map(|booking| Fingerprint::of(booking.recipient(), booking.purpose()))
+            .collect::<BTreeSet<_>>();
         Self {
             window,
             currency: snapshot.currency().clone(),
             months: months.into_values().collect(),
+            fingerprints: fingerprints.into_iter().collect(),
         }
     }
 
@@ -61,5 +73,13 @@ impl WindowEvaluation {
     #[must_use]
     pub fn months(&self) -> &[MonthlyCashflow] {
         &self.months
+    }
+
+    /// Die **distinkten** Fingerabdrücke der Buchungsarten dieses Fensters, in stabiler Reihenfolge
+    /// — der Andockpunkt für die Wiederkehr-Erkennung, die gelernten Korrekturen und die
+    /// Deduplizierung der Kategorisierer-Anfrage.
+    #[must_use]
+    pub fn fingerprints(&self) -> &[Fingerprint] {
+        &self.fingerprints
     }
 }

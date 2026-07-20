@@ -4,7 +4,8 @@
 //! Adapter-`TestApi`.
 
 use auswerten_adapter::{
-    AnalysisWindowRow, BookingDirection, EvaluationTestApi, MonthlyCashflowRow, WindowBookingRow,
+    AnalysisWindowRow, BookingDirection, BookingRecipient, EvaluationTestApi, MonthlyCashflowRow,
+    WindowBookingRow,
 };
 
 /// Die opake ID des eingefrorenen Auswertungsfensters, auf die das konsumierte
@@ -39,21 +40,80 @@ pub(crate) fn fenster(bookings: &[WindowBookingRow]) -> AnalysisWindowRow {
 }
 
 /// Ein **Abfluss** an einem Buchungstag (Betrag vorzeichenlos in Cent — das Vorzeichen lebt allein
-/// in der Richtung, ADR-0005).
+/// in der Richtung, ADR-0005) — **ohne Gegenpartei**, wie eine Entgeltzeile.
 pub(crate) fn ausgang(booking_day: i64, cent: u64) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
         amount_cent: cent,
         direction: BookingDirection::Outgoing,
+        ..WindowBookingRow::default()
     }
 }
 
-/// Ein **Zufluss** an einem Buchungstag.
+/// Ein **Zufluss** an einem Buchungstag — ebenfalls ohne Gegenpartei.
 pub(crate) fn eingang(booking_day: i64, cent: u64) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
         amount_cent: cent,
         direction: BookingDirection::Incoming,
+        ..WindowBookingRow::default()
+    }
+}
+
+/// Ein Abfluss an eine **sichere Firma** — so, wie `obfuskieren` sie ablegt: die Gläubiger-ID als
+/// öffentlicher Anker, der Firmenname im Klartext (bewusstes Kategorie-Signal) und der
+/// Verwendungszweck als obfuskierter Freitext.
+pub(crate) fn firma(
+    booking_day: i64,
+    cent: u64,
+    creditor_id: &str,
+    name: &str,
+    purpose: Option<&str>,
+) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_cent: cent,
+        direction: BookingDirection::Outgoing,
+        recipient: BookingRecipient::Company {
+            name: Some(name.to_string()),
+            creditor_id: creditor_id.to_string(),
+        },
+        purpose: purpose.map(str::to_string),
+    }
+}
+
+/// Ein Abfluss an eine Firma **ohne geführten Namen** — erreichbar, weil `recipient_name` von
+/// `einlesen` an durchweg optional ist, die Gläubiger-ID an einer Firma dagegen Pflicht.
+pub(crate) fn firma_ohne_namen(
+    booking_day: i64,
+    cent: u64,
+    creditor_id: &str,
+    purpose: Option<&str>,
+) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_cent: cent,
+        direction: BookingDirection::Outgoing,
+        recipient: BookingRecipient::Company {
+            name: None,
+            creditor_id: creditor_id.to_string(),
+        },
+        purpose: purpose.map(str::to_string),
+    }
+}
+
+/// Ein Abfluss an eine **fail-safe Privatperson** — sie trägt **nur** ihr seed-basiertes Pseudonym
+/// (`PERSON_…`), das `obfuskieren` vergeben hat. Ein anderer Seed ergibt stromaufwärts ein anderes
+/// Pseudonym; dieser Slice sieht den Seed nie (ADR-0010).
+pub(crate) fn person(booking_day: i64, cent: u64, pseudonym: &str) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_cent: cent,
+        direction: BookingDirection::Outgoing,
+        recipient: BookingRecipient::Person {
+            pseudonym: pseudonym.to_string(),
+        },
+        purpose: None,
     }
 }
 
