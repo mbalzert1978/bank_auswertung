@@ -24,11 +24,20 @@
 //! die **eine** Währung steht **einmal** am Fenster, nicht an jedem Betrag — `fenstern` hat sie an
 //! der Konstruktion des Fensters erzwungen, dieser Slice liest den Beweis.
 //!
+//! **Der [`Fingerprint`] lebt hier** (ADR-0013, Entscheidung F): die **reine Funktion**
+//! `Gegenpartei → Schlüssel einer Buchungs*art*`, ohne Port, Zustand oder I/O. Sie schlüsselt eine
+//! Firma über ihre Gläubiger-ID, einen **Zahlungsintermediär** zusätzlich über den Händler-Token
+//! des Verwendungszwecks (sonst verklumpte der Durchleiter alle Händler dahinter zu einer Art) und
+//! eine Privatperson über ihr **seed-basiertes Pseudonym** — das `obfuskieren` stromaufwärts
+//! vergeben hat, weshalb der Seed selbst diesen Slice nie erreicht (ADR-0010). Das
+//! Pro-Fenster-Ergebnis trägt die **distinkten** Fingerabdrücke seines Fensters; auf ihnen setzen
+//! die drei Nutzer auf, die noch kommen.
+//!
 //! **Noch nicht hier** (je eigenes Folge-Issue): die zweite, **fenster-übergreifende** Reichweite
 //! (Wiederkehr über alle Fenster eines Laufs, angestoßen von `HistorieVollständig`), die
-//! Fach-Analyzer (Netting, Gebühren-Klassifikation, Pareto), der `Fingerabdruck`, das
+//! Fach-Analyzer (Netting, Gebühren-Klassifikation, Pareto), die gelernten Korrekturen, das
 //! `Kategorisierer`-Orakel und die Gegenkonto-Auflösung. Dieser Stand ist das **Gerüst plus eine
-//! lauffähige Kennzahl** — der Pfad, an dem sie andocken.
+//! lauffähige Kennzahl und der Schlüssel** — der Pfad, an dem sie andocken.
 
 mod entities;
 mod error;
@@ -43,6 +52,6 @@ pub use handler::WindowEvaluationHandler;
 pub use models::EvaluateWindow;
 pub use ports::{AnalysisWindowSource, EvaluationRepository};
 pub use value_objects::{
-    Amount, Currency, DayStamp, Direction, Month, MonthlyCashflow, NonEmptyString, WindowId,
-    WindowedBooking,
+    Amount, Currency, DayStamp, Direction, Fingerprint, Month, MonthlyCashflow, NonEmptyString,
+    Recipient, WindowId, WindowedBooking,
 };

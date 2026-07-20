@@ -16,7 +16,8 @@ use auswerten_adapter::{AnalysisWindowRow, EvaluationError, WindowEvaluationRow}
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
 use fixtures::{
-    FEB_01, FEB_29, FENSTER, JAN_15, JAN_31, MAR_05, api, ausgang, eingang, fenster, monat,
+    FEB_01, FEB_29, FENSTER, JAN_15, JAN_31, MAR_05, api, ausgang, eingang, fenster, firma, monat,
+    person,
 };
 
 // --- Kern-Pfad: ID herein → Aggregat gelesen → Pro-Fenster-Ergebnis abgelegt ----
@@ -39,6 +40,8 @@ fn ein_geschlossenes_fenster_wird_per_id_gelesen_und_als_pro_fenster_ergebnis_ab
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 250_000, 4_200)],
+        // Buchungen ohne Gegenpartei (Entgeltzeilen) tragen keinen Fingerabdruck bei.
+        fingerprints: vec![],
     });
 }
 
@@ -57,6 +60,7 @@ fn der_handler_wertet_genau_das_fenster_aus_auf_das_der_zeiger_zeigt() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_100)],
+        fingerprints: vec![],
     });
 }
 
@@ -91,6 +95,7 @@ fn der_cashflow_wird_je_monat_innerhalb_des_fensters_gebucketet() {
             monat(2024, 2, 5_000, 2_000),
             monat(2024, 3, 0, 300),
         ],
+        fingerprints: vec![],
     });
 }
 
@@ -109,6 +114,7 @@ fn ein_monat_ohne_buchung_ergibt_keinen_bucket() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 700), monat(2024, 3, 0, 900)],
+        fingerprints: vec![],
     });
 }
 
@@ -129,6 +135,170 @@ fn ein_absurder_buchungstag_beendet_den_lauf_ohne_panic() {
     // dabei herauskommen, ist bewusst nicht Gegenstand: für Müll-Eingaben gibt es keine richtige
     // Antwort, nur eine ungefährliche.
     assert_eq!(ergebnis, Ok(()));
+}
+
+// --- Der Fingerabdruck: der stabile Schlüssel einer *Art* von Buchung ----------
+
+#[test]
+fn zwei_buchungen_desselben_haendlers_ergeben_denselben_fingerabdruck() {
+    // Derselbe Händler an zwei Tagen, mit zwei **verschiedenen** Verwendungszwecken. Der
+    // Fingerabdruck identifiziert die *Art* der Buchung, nicht die einzelne Buchung — sonst hinge
+    // die Wiederkehr-Erkennung an einem Schlüssel, der sich je Zeile ändert.
+    let api = api().with_window(
+        FENSTER,
+        fenster(&[
+            firma(
+                JAN_15,
+                1_999,
+                "DE98ZZZ09999999999",
+                "Netflix",
+                Some("Abo Januar"),
+            ),
+            firma(
+                FEB_29,
+                1_999,
+                "DE98ZZZ09999999999",
+                "Netflix",
+                Some("Abo Februar"),
+            ),
+        ]),
+    );
+
+    api.run(FENSTER)
+        .expect("zwei Buchungen desselben Haendlers");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_999), monat(2024, 2, 0, 1_999)],
+        // **Ein** Eintrag, nicht zwei: die zwei Buchungen sind eine Art.
+        fingerprints: vec!["COMPANY:DE98ZZZ09999999999".to_string()],
+    });
+}
+
+#[test]
+fn verschiedene_haendler_hinter_demselben_intermediaer_ergeben_verschiedene_fingerabdruecke() {
+    // Beide Buchungen tragen **dieselbe** Gegenpartei — den Zahlungsintermediär PayPal, mit seiner
+    // einen Gläubiger-ID. Schlüsselte der Fingerabdruck nur auf sie, fasste der Durchleiter alle
+    // dahinterliegenden Händler zu einem Klumpen zusammen und die Wiederkehr hinge am falschen
+    // Schlüssel. Der Händler steckt hier allein im Verwendungszweck.
+    let api = api().with_window(
+        FENSTER,
+        fenster(&[
+            firma(
+                JAN_15,
+                4_235,
+                "LU96ZZZ0000000000000000058",
+                "PayPal Europe S.a.r.l. et Cie S.C.A.",
+                Some("PP.4711.PP . REWE Markt, Ihr Einkauf"),
+            ),
+            firma(
+                JAN_31,
+                999,
+                "LU96ZZZ0000000000000000058",
+                "PayPal Europe S.a.r.l. et Cie S.C.A.",
+                Some("PP.4712.PP . Spotify AB, Ihr Einkauf"),
+            ),
+        ]),
+    );
+
+    api.run(FENSTER).expect("zwei Haendler hinter PayPal");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 5_234)],
+        // **Zwei** Arten, nicht eine: der Händler-Token des Verwendungszwecks trennt sie.
+        fingerprints: vec![
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT-IHR-EINKAUF".to_string(),
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB-IHR-EINKAUF".to_string(),
+        ],
+    });
+}
+
+#[test]
+fn derselbe_haendler_hinter_einem_intermediaer_ueberlebt_die_wechselnde_referenznummer() {
+    // Die Kehrseite: der Verwendungszweck eines Durchleiters trägt eine **je Buchung wechselnde**
+    // Referenznummer. Ginge sie in den Token ein, bekäme jede einzelne Buchung ihren eigenen
+    // Schlüssel — der Fingerabdruck identifizierte dann die Buchung statt ihrer Art, und die
+    // Wiederkehr-Erkennung fände nie zwei Vorkommen desselben Händlers.
+    let api = api().with_window(
+        FENSTER,
+        fenster(&[
+            firma(
+                JAN_15,
+                1_200,
+                "LU96ZZZ0000000000000000058",
+                "PayPal",
+                Some("PP.4711.PP . REWE Markt"),
+            ),
+            firma(
+                FEB_01,
+                1_200,
+                "LU96ZZZ0000000000000000058",
+                "PayPal",
+                Some("PP.9902.PP . REWE Markt"),
+            ),
+        ]),
+    );
+
+    api.run(FENSTER)
+        .expect("derselbe Haendler, zwei Referenzen");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_200), monat(2024, 2, 0, 1_200)],
+        fingerprints: vec![
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
+        ],
+    });
+}
+
+#[test]
+fn dieselbe_privatperson_ergibt_bei_gleichem_seed_denselben_fingerabdruck() {
+    // **Zwei getrennte Läufe = zwei Importe.** Derselbe Seed hat stromaufwärts in `obfuskieren`
+    // dasselbe `PERSON_…` vergeben (ADR-0010) — und weil der Fingerabdruck auf dem Pseudonym
+    // schlüsselt, bleibt die Dauerauftrags-Art über Importe hinweg dieselbe. Dieser Slice sieht den
+    // Seed dabei **nie**; er sieht nur dessen Wirkung.
+    let erster_import = api().with_window(FENSTER, fenster(&[person(JAN_15, 25_000, "PERSON_7")]));
+    let zweiter_import = api().with_window(FENSTER, fenster(&[person(MAR_05, 25_000, "PERSON_7")]));
+
+    erster_import.run(FENSTER).expect("erster Import");
+    zweiter_import.run(FENSTER).expect("zweiter Import");
+
+    erster_import.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 25_000)],
+        fingerprints: vec!["PERSON:PERSON_7".to_string()],
+    });
+    zweiter_import.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 3, 0, 25_000)],
+        // **Derselbe** Schlüssel wie im ersten Import — trotz anderen Monats und anderem Lauf.
+        fingerprints: vec!["PERSON:PERSON_7".to_string()],
+    });
+}
+
+#[test]
+fn ein_anderer_seed_aendert_den_fingerabdruck_der_privatperson() {
+    // Die Kehrseite von ADR-0010: ein instabiler Seed tokenisiert alles neu — `obfuskieren` vergibt
+    // derselben Person ein anderes Pseudonym, und damit ändert sich ihr Fingerabdruck. Das ist
+    // keine Schwäche des Schlüssels, sondern die Begründung dafür, warum der Seed stabil bleiben
+    // muss.
+    let api = api().with_window(FENSTER, fenster(&[person(JAN_15, 25_000, "PERSON_42")]));
+
+    api.run(FENSTER).expect("Import mit anderem Seed");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 25_000)],
+        // Ein **anderer** Schlüssel als `PERSON:PERSON_7` derselben Person oben.
+        fingerprints: vec!["PERSON:PERSON_42".to_string()],
+    });
 }
 
 // --- Ein Zeiger ins Leere endet terminal und redigiert -------------------------
@@ -175,6 +345,47 @@ fn ein_fehlendes_pflichtfeld_scheitert_terminal_und_redigiert() {
     assert_eq!(
         fehler.to_string(),
         "mandatory field missing in analysis window: currency"
+    );
+    api.assert_nothing_stored();
+}
+
+#[test]
+fn eine_firma_ohne_glaeubiger_id_scheitert_terminal_und_redigiert() {
+    // Die Schlüssel-Zelle der Gegenpartei ist ein **Pflichtfeld**: ohne sie hätte der Fingerabdruck
+    // keinen Schlüssel, über den er stabil bliebe, und stillschweigend auf einen leeren Schlüssel
+    // auszuweichen verklumpte alle solchen Buchungen zu einer Art. Die Begründung trägt **nur** den
+    // statischen Feldnamen, nie den Rohwert.
+    let api = api().with_window(
+        FENSTER,
+        fenster(&[firma(JAN_15, 1_999, "", "Netflix", Some("Abo"))]),
+    );
+
+    let fehler = api.run(FENSTER).expect_err("erwartet terminalen Fehler");
+
+    assert_eq!(
+        fehler,
+        EvaluationError::MissingMandatoryField {
+            field: "creditor_id"
+        }
+    );
+    assert_eq!(
+        fehler.to_string(),
+        "mandatory field missing in analysis window: creditor_id"
+    );
+    api.assert_nothing_stored();
+}
+
+#[test]
+fn eine_privatperson_ohne_pseudonym_scheitert_terminal_und_redigiert() {
+    // Dieselbe Regel auf der anderen Seite des Summentyps — und hier zusätzlich datenschutzrelevant:
+    // eine Person **ohne** Pseudonym wäre eine Person, die `obfuskieren` nicht tokenisiert hat.
+    let api = api().with_window(FENSTER, fenster(&[person(JAN_15, 25_000, "  ")]));
+
+    let fehler = api.run(FENSTER).expect_err("erwartet terminalen Fehler");
+
+    assert_eq!(
+        fehler,
+        EvaluationError::MissingMandatoryField { field: "pseudonym" }
     );
     api.assert_nothing_stored();
 }

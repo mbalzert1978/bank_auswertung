@@ -14,6 +14,10 @@ pub struct WindowEvaluationRow {
     pub currency: String,
     /// Die Monats-Buckets in **chronologischer** Reihenfolge.
     pub months: Vec<MonthlyCashflowRow>,
+    /// Die **distinkten** Fingerabdrücke der Buchungsarten des Fensters, in stabiler Reihenfolge —
+    /// der Schlüssel, auf dem Wiederkehr-Erkennung, gelernte Korrekturen und die Deduplizierung der
+    /// Kategorisierer-Anfrage später aufsetzen.
+    pub fingerprints: Vec<String>,
 }
 
 /// Ein **Monats-Bucket** des Cashflows als Zeile: Jahr und Monat des *Zeitraums* (nicht des
@@ -44,6 +48,11 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
                     incoming_cent: cashflow.incoming().cent(),
                     outgoing_cent: cashflow.outgoing().cent(),
                 })
+                .collect(),
+            fingerprints: evaluation
+                .fingerprints()
+                .iter()
+                .map(|fingerprint| fingerprint.as_str().to_string())
                 .collect(),
         }
     }

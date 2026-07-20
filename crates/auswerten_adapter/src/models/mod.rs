@@ -14,7 +14,9 @@ mod analysis_window_row;
 mod evaluate_window_command;
 mod window_evaluation_row;
 
-pub use analysis_window_row::{AnalysisWindowRow, BookingDirection, WindowBookingRow};
+pub use analysis_window_row::{
+    AnalysisWindowRow, BookingDirection, BookingRecipient, WindowBookingRow,
+};
 pub use evaluate_window_command::{
     CONSUMED_MESSAGE_TYPE, EvaluateWindowCommand, EvaluateWindowCommandDecoder,
 };
