@@ -24,7 +24,7 @@ pub struct CategoryRequestRow {
 }
 
 /// Projiziert die Domänen-Anfrage auf die Zeile — die einzige Stelle, an der sie die Adapter-Grenze
-/// nach außen überquert (die [`CategorizerBridge`](crate::adapter::CategorizerBridge) ruft sie).
+/// nach außen überquert (die `CategorizerBridge` ruft sie).
 impl From<&CategoryRequest> for CategoryRequestRow {
     fn from(request: &CategoryRequest) -> Self {
         Self {

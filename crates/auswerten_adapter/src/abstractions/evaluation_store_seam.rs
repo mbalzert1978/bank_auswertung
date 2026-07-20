@@ -8,7 +8,7 @@ use crate::models::WindowEvaluationRow;
 /// verspricht darum nur, was gebraucht wird.
 ///
 /// **Fehlbar und terminal:** ein Scheitern ist ein seam-lokaler [`StoreUnavailable`]; die
-/// [`RepositoryBridge`](crate::adapter::RepositoryBridge) mappt ihn „außen → innen" auf den
+/// `RepositoryBridge` mappt ihn „außen → innen" auf den
 /// terminalen Domänen-Fehler (ACL).
 pub trait EvaluationStoreSeam {
     /// Legt die Ergebnis-Zeile ab; `Err` = der Zugriff scheiterte terminal.

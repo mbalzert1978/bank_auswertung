@@ -3,7 +3,7 @@
 /// sind Primitive, sodass IO (mit `chrono`) diesen Seam ohne Domänen-Kenntnis erfüllen kann;
 /// Format-/Kalenderprüfung liegt bei der Implementierung. Vorbild `ISftpPuller` der
 /// C#-Referenz: ein öffentlicher, roh-typisierter Seam, den nur IO erfüllt — die
-/// [`CalendarBridge`](crate::adapter::CalendarBridge) mappt ihn auf den internen
+/// `CalendarBridge` mappt ihn auf den internen
 /// Domänen-Port `einlesen_domain::Calendar`, den der Handler verlangt.
 pub trait CalendarSeam {
     /// Deutet den rohen Datumswert zu seinen Bestandteilen, oder `None`, wenn er kein gültiges

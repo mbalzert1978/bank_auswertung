@@ -18,7 +18,7 @@ use crate::value_objects::{DayStamp, WindowDays, WindowSpan};
 /// 3. daraus **ein** [`AnalysisWindow`] **bauen** (die Invarianten entstehen an der Konstruktion),
 /// 4. es **ablegen** ([`AnalysisWindowRepository`], das die **neue ID** vergibt),
 /// 5. **diese neue ID** als Zeiger **publizieren** ([`WindowClosedPublisher`]),
-/// 6. die Kette **fortsetzen oder abschließen** — siehe [`continuation`](Self::continuation).
+/// 6. die Kette **fortsetzen oder abschließen** — siehe `continuation`.
 ///
 /// Schritt 6 ist die **Selbst-Fortsetzung** (ADR-0013, Entscheidung B, Präzisierung 2): **ein**
 /// Mechanismus, `max(booking_day < from)` über den [`WindowAnchor`]-Port, trägt Fortsetzung **und**

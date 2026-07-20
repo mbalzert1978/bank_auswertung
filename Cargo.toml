@@ -18,6 +18,13 @@ members = [
     "architecture",
 ]
 
+[workspace.lints.rustdoc]
+# Regression guard (Issue 0048): public docs must not link to private or
+# non-existent items. `deny` turns the warning into a hard failure so
+# `cargo doc` acts as a gate and the pattern doesn't keep growing.
+private_intra_doc_links = "deny"
+broken_intra_doc_links = "deny"
+
 [workspace.lints.clippy]
 # Don't Panic - prevent panics from unwraps and unsafe slicing or indexing
 string_slice = "warn"

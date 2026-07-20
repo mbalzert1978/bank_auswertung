@@ -5,7 +5,7 @@ use crate::models::RawRecord;
 /// „source seam": beschafft den rohen Batch der Quelle. **io erfüllt ihn** (CSV-CAMT-v8 ist
 /// **eine** Eingabeform dahinter; XML-camt/MT940 später = weitere io-Adapter, kein neuer
 /// Slice) — roh-typisiert, ohne Domänen-Kenntnis, spricht extern das [`RawRecord`]-DTO. Die
-/// [`SourceBridge`](crate::adapter::SourceBridge) mappt den von der Domäne verlangten Port
+/// `SourceBridge` mappt den von der Domäne verlangten Port
 /// `einlesen_domain::RawLineSource` darauf (Records → Domänen-`RawLine`s, Präsenz-Prüfung).
 ///
 /// Ein Fehlschlag der Beschaffung ist **nie Abwesenheit**, sondern ein terminaler Fehler —

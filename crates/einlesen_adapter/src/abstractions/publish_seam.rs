@@ -4,7 +4,7 @@ use crate::models::IngestedMessage;
 /// ([`IngestedMessage`] — nur die ID als Zeiger) beim nachgelagerten Slice ein. **io erfüllt ihn**
 /// (der letzte Outbox-Hop) — roh-typisiert, ohne Domänen-Kenntnis. Er ist **fehlbar** und
 /// **terminal**: ein misslungenes Einreihen ist ein [`PublishUnavailable`]. Die
-/// [`IngestedPublisher`](crate::adapter::IngestedPublisher) mappt ihn auf den internen Domänen-Port
+/// `IngestedPublisher` mappt ihn auf den internen Domänen-Port
 /// `einlesen_domain::EventSink`, indem sie die ID auf das [`IngestedMessage`] setzt und den Fehler
 /// in den Domänen-Fehler hüllt.
 pub trait PublishSeam {

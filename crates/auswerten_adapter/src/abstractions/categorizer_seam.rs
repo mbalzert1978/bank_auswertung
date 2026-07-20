@@ -9,7 +9,7 @@ use crate::models::{CategoryAnswerRow, CategoryRequestRow};
 /// eigenen Austausch zu führen wäre nicht dieselbe Sache in klein.
 ///
 /// **Fehlbar und terminal:** ein Scheitern ist ein seam-lokaler [`CategorizerUnavailable`]; die
-/// [`CategorizerBridge`](crate::adapter::CategorizerBridge) mappt ihn „außen → innen" auf den
+/// `CategorizerBridge` mappt ihn „außen → innen" auf den
 /// terminalen Domänen-Fehler (ACL).
 pub trait CategorizerSeam {
     /// Fragt die Kategorien an; `Err` = der Zugriff scheiterte terminal.

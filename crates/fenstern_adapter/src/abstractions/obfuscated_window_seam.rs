@@ -3,7 +3,7 @@ use crate::models::ObfuscatedRow;
 /// Der öffentliche **Lese-Seam** auf die `obfuskiert`-Ablage: liefert die Zeilen einer Seite
 /// (io: `WHERE booking_day BETWEEN from AND to`, auf dem sortierbaren Tag-Stamp aus ADR-0013,
 /// Entscheidung C). **io erfüllt ihn** — roh-typisiert (`i64`), ohne Domänen-Kenntnis. Die
-/// [`SourceBridge`](crate::adapter::SourceBridge) mappt den von der Domäne verlangten Port
+/// `SourceBridge` mappt den von der Domäne verlangten Port
 /// `fenstern_domain::ObfuscatedWindowSource` darauf.
 ///
 /// **Fehlbar und terminal:** ein Fehlschlag der Beschaffung ist **nie Abwesenheit**, sondern ein

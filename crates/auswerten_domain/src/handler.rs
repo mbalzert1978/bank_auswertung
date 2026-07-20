@@ -14,7 +14,7 @@ use crate::value_objects::{CategoryAnswer, OwnAccounts};
 /// 1. das eingefrorene Auswertungsfenster **per ID lesen** ([`AnalysisWindowSource`]) — herein kam
 ///    ein **Zeiger**, kein eingebettetes Aggregat (ADR-0012),
 /// 2. die **unbekannten** Buchungsarten beim Orakel anfragen ([`CategoryRegistry`] +
-///    [`Categorizer`], siehe [`categorise`](Self::categorise)),
+///    [`Categorizer`], siehe `categorise`),
 /// 3. daraus die periodische Kennzahl **innerhalb** des Fensters rechnen (Cashflow je Monat),
 /// 4. das Ergebnis **ablegen** ([`EvaluationRepository`]).
 ///

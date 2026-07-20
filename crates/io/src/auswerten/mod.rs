@@ -14,7 +14,7 @@
 //! idempotentes Lesen bleibt **außerhalb** der Transaktion und weitet sie nicht.
 //!
 //! **Dieser Slice publiziert nichts.** Er ist das **Ende** der Pipeline (bis der `report` gebaut
-//! wird): keine der beiden Reichweiten stößt etwas stromabwärts an. Der [`PublishingPort`] der
+//! wird): keine der beiden Reichweiten stößt etwas stromabwärts an. Der [`PublishingPort`](crate::PublishingPort) der
 //! Unit bleibt darum ungenutzt — die Arbeitseinheit ist deshalb aber keine andere. Sie umspannt
 //! weiterhin Ack und Ablage, und weil sie derselbe Commit-Rand ist wie überall, wächst ein späterer
 //! Publish (der `report`-Anstoß) ohne Umbau hinein.

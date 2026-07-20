@@ -6,7 +6,7 @@ use crate::models::WindowBookingRow;
 /// (beide Grenzen einschließlich), die `fenstern` im `HistorieVollständig`-Signal mitträgt
 /// (ADR-0013, Entscheidung E). **io erfüllt ihn** — roh-typisiert, ohne Domänen-Kenntnis; in den
 /// Specs trägt ihn ein Fake. Die
-/// [`OccurrenceBridge`](crate::adapter::OccurrenceBridge) mappt den von der Domäne verlangten Port
+/// `OccurrenceBridge` mappt den von der Domäne verlangten Port
 /// `auswerten_domain::OccurrenceSource` darauf.
 ///
 /// **Das Scoping lebt hier, nicht im Handler:** dass io die Spanne als `WHERE`-Klausel über die

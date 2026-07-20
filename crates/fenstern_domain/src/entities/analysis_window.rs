@@ -11,7 +11,7 @@ use crate::value_objects::{BookingId, Currency, WindowSpan};
 /// **eigene** Identität vergibt die Persistenz beim Ablegen.
 ///
 /// **Die Invarianten sitzen an der Konstruktion, nicht in einer Prüfung danach** (ADR-0005):
-/// [`open`](AnalysisWindow::open) ist der **einzige** Weg herein, die Felder sind privat — wer ein
+/// `open` ist der **einzige** Weg herein, die Felder sind privat — wer ein
 /// `AnalysisWindow` in der Hand hält, hält damit den Beweis, dass es **nicht leer** ist und **eine
 /// einzige Währung** trägt. Ein leeres oder währungsgemischtes Fenster ist unkonstruierbar.
 #[derive(Debug, Clone, PartialEq, Eq)]
