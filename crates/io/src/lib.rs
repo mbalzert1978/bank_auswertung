@@ -35,6 +35,7 @@
 
 mod common;
 
+pub mod auswerten;
 pub mod einlesen;
 pub mod fenstern;
 pub mod obfuskierung;
