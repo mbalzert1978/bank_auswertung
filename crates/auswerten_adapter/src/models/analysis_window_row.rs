@@ -94,7 +94,7 @@ impl WindowBookingRow {
     /// Deutet die rohe Buchungs-Zeile in die Domänen-Sicht. Buchungstag, Betrag und Richtung sind
     /// schon im Typ vollständig; **fehlbar** ist die Zeile allein über ihre Gegenpartei, deren
     /// Schlüssel-Zelle der Adapter hier auf Präsenz prüft (ACL).
-    fn to_booking(&self) -> Result<WindowedBooking, MissingMandatoryField> {
+    pub(crate) fn to_booking(&self) -> Result<WindowedBooking, MissingMandatoryField> {
         Ok(WindowedBooking::hydrate(
             DayStamp::new(self.booking_day),
             Amount::from_cent(self.amount_cent),

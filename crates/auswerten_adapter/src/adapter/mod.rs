@@ -4,8 +4,10 @@
 //! (rohe Zeile → Aggregat, Seam-Fehler → terminaler Domänen-Fehler) und „innen → außen" (Aggregat →
 //! Zeile).
 
+mod occurrence_bridge;
 mod repository_bridge;
 mod source_bridge;
 
+pub(crate) use occurrence_bridge::OccurrenceBridge;
 pub(crate) use repository_bridge::RepositoryBridge;
 pub(crate) use source_bridge::SourceBridge;
