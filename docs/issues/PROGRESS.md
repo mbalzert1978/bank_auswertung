@@ -73,6 +73,13 @@ Prefactor:
 Neu verdrahtete Fach-Analyzer (bestehende Issues): 0004 ← 0042 · 0006 ← 0040, 0004 ·
 0005 ← 0041, 0043, 0004 · 0007 ← 0040, 0004, 0005, 0006.
 
+Abschluss:
+
+- [ ] **[0046-doku-drift-nach-den-merges-0036-0045-auf-den-realen-stand-ziehen.md](0046-doku-drift-nach-den-merges-0036-0045-auf-den-realen-stand-ziehen.md)**
+  Doku **einmal am Ende** auf den realen Stand: Issue-Status, `PROGRESS.md`, Crate-Liste und
+  Status-Abschnitt in CLAUDE.md, ADR-0013-Kopf. Gegenstück zum Prefactor 0035.
+  *Blockiert durch 0045.*
+
 ## Erledigt
 
 - [x] **[0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md](0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)** (2026-07-15, PR #25)
