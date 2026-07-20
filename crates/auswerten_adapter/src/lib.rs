@@ -15,6 +15,15 @@
 //! Fensters und **legt** das Ergebnis ab. Die zweite, fenster-übergreifende Reichweite (Wiederkehr,
 //! angestoßen von `HistorieVollständig`) kommt mit ihrem eigenen Handler.
 //!
+//! **Das Gegenkonto wird auf Token eingeordnet** (ADR-0013, Entscheidung F): der Adapter nimmt die
+//! **token-orientierte** Eigene-Konten-Config ([`OwnAccountsConfig`]) als **Wert** entgegen — io
+//! verdrahtet sie beim Bau, der Slice liest **keine Datei**. Ihre Deutung „außen → innen" ist die
+//! **ACL-Stelle, an der eine fehlerhafte Config abgelehnt wird**: eine unbekannte Rolle oder ein
+//! leeres Token sind terminal, nie still übersprungen. Die **IBAN prüft dieser Slice nicht** — sie
+//! ist hier nicht mehr vorhanden; ihre Gültigkeit hat der Loader
+//! ([Issue 0002](../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)) **vor** der
+//! Tokenisierung geführt, und das Token trägt den Beweis (_parse, don't validate_).
+//!
 //! **Der Fingerabdruck ist Domänen-, keine Adapter-Sache** (ADR-0004, ADR-0013 Entscheidung F): der
 //! Adapter reicht nur die Zellen herein, aus denen er entsteht — die obfuskierte Gegenpartei
 //! ([`BookingRecipient`]) und den obfuskierten Verwendungszweck. Die Intermediär-Erkennung und die
@@ -35,7 +44,8 @@
 //!
 //! **Öffentliche Fläche:** die Fluent-[`EvaluationTestApi`], das gelesene Fenster
 //! ([`AnalysisWindowRow`]/[`WindowBookingRow`]/[`BookingDirection`]), das abgelegte Ergebnis
-//! ([`WindowEvaluationRow`]/[`MonthlyCashflowRow`]), die von `io` erfüllten Seams samt ihren
+//! ([`WindowEvaluationRow`]/[`MonthlyCashflowRow`]/[`CounterAccountRow`]), die
+//! Eigene-Konten-Config ([`OwnAccountsConfig`]/[`OwnAccountRow`]), die von `io` erfüllten Seams samt ihren
 //! Seam-Fehlern und der von `io` verdrahtete Slice-Vertrag ([`WindowEvaluationHandler`],
 //! [`EvaluateWindowCommand`]/[`EvaluateWindowCommandDecoder`], [`CONSUMED_MESSAGE_TYPE`], der
 //! re-exportierte [`EvaluationError`]). Alles andere ist crate-privat. Die eingehende Nachricht
@@ -71,8 +81,8 @@ pub use abstractions::{
 pub use handler::WindowEvaluationHandler;
 pub use models::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, CONSUMED_MESSAGE_TYPE,
-    EvaluateWindowCommand, EvaluateWindowCommandDecoder, MonthlyCashflowRow, WindowBookingRow,
-    WindowEvaluationRow,
+    CounterAccountRow, EvaluateWindowCommand, EvaluateWindowCommandDecoder, MonthlyCashflowRow,
+    OwnAccountRow, OwnAccountsConfig, WindowBookingRow, WindowEvaluationRow,
 };
 pub use testapi::EvaluationTestApi;
 

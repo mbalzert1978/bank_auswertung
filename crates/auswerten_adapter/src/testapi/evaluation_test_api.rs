@@ -3,7 +3,9 @@ use auswerten_domain::EvaluationError;
 
 use super::fakes::{FakeAnalysisWindowSource, FakeEvaluationStore};
 use crate::handler::WindowEvaluationHandler;
-use crate::models::{AnalysisWindowRow, EvaluateWindowCommandDecoder, WindowEvaluationRow};
+use crate::models::{
+    AnalysisWindowRow, EvaluateWindowCommandDecoder, OwnAccountsConfig, WindowEvaluationRow,
+};
 
 /// Fluent-TestApi des auswerten-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
 /// [ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)): die
@@ -25,6 +27,7 @@ use crate::models::{AnalysisWindowRow, EvaluateWindowCommandDecoder, WindowEvalu
 pub struct EvaluationTestApi {
     source: FakeAnalysisWindowSource,
     store: FakeEvaluationStore,
+    own_accounts: OwnAccountsConfig,
 }
 
 impl EvaluationTestApi {
@@ -34,7 +37,19 @@ impl EvaluationTestApi {
         Self {
             source: FakeAnalysisWindowSource::default(),
             store: FakeEvaluationStore::default(),
+            // Ohne Arrangement: **keine** eigenen Konten. Jedes Gegenkonto ist dann fremd — eine
+            // gültige Lage, kein Sonderfall.
+            own_accounts: OwnAccountsConfig::default(),
         }
+    }
+
+    /// Reicht die **Eigene-Konten-Config als Wert** herein — genau die Lage des Handlers in
+    /// Produktion: io verdrahtet sie beim Bau, der Slice liest **keine Datei**. Die Token sind
+    /// bereits mit demselben Seed gebildet wie die Gegenkonto-Token der Buchungen.
+    #[must_use]
+    pub fn with_own_accounts(mut self, own_accounts: OwnAccountsConfig) -> Self {
+        self.own_accounts = own_accounts;
+        self
     }
 
     /// Arrangiert ein eingefrorenes Auswertungsfenster unter seiner ID in der (Fake-)Fenster-Ablage
@@ -68,7 +83,8 @@ impl EvaluationTestApi {
     pub fn run(&self, window_id: &str) -> Result<(), EvaluationError> {
         let command =
             EvaluateWindowCommandDecoder::decode(window_id, "").expect("Fenster-ID als Zeiger");
-        WindowEvaluationHandler::new(&self.source, &self.store).handle(command)
+        WindowEvaluationHandler::new(&self.source, &self.store, self.own_accounts.clone())
+            .handle(command)
     }
 
     // --- Validierung des Ergebnisses ---------------------------------------------------------

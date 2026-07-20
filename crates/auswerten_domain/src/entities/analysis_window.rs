@@ -1,4 +1,4 @@
-use crate::value_objects::{Currency, WindowedBooking};
+use crate::value_objects::{Currency, SeedMarker, WindowedBooking};
 
 /// Das **eingefrorene Auswertungsfenster**, wie dieser Slice es **per ID** zurückliest — die
 /// Einheit, über die die periodische Auswertung **innerhalb** rechnet (ADR-0013, Entscheidung E,
@@ -12,14 +12,29 @@ use crate::value_objects::{Currency, WindowedBooking};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalysisWindow {
     currency: Currency,
+    /// Das Kennzeichen der Tokenisierung, unter der die Token dieses Fensters entstanden sind —
+    /// `obfuskieren` hat sie vergeben, io reicht das Etikett mit.
+    seed_marker: SeedMarker,
     bookings: Vec<WindowedBooking>,
 }
 
 impl AnalysisWindow {
     /// **Hydratisiert** das Fenster aus dem, was der Lese-Port zur ID geliefert hat.
     #[must_use]
-    pub fn rehydrate(currency: Currency, bookings: Vec<WindowedBooking>) -> Self {
-        Self { currency, bookings }
+    pub fn rehydrate(
+        currency: Currency,
+        seed_marker: SeedMarker,
+        bookings: Vec<WindowedBooking>,
+    ) -> Self {
+        Self {
+            currency,
+            seed_marker,
+            bookings,
+        }
+    }
+
+    pub(crate) fn seed_marker(&self) -> &SeedMarker {
+        &self.seed_marker
     }
 
     pub(crate) fn currency(&self) -> &Currency {

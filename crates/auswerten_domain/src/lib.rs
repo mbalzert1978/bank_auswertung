@@ -33,11 +33,25 @@
 //! Pro-Fenster-Ergebnis trägt die **distinkten** Fingerabdrücke seines Fensters; auf ihnen setzen
 //! die drei Nutzer auf, die noch kommen.
 //!
+//! **Das Gegenkonto ordnet dieser Slice auf Token ein** (ADR-0013, Entscheidung F): das
+//! `KONTO_…`-Token einer Buchung wird gegen die [`OwnAccounts`] geprüft — die
+//! **token-orientierte** Eigene-Konten-Config, die als **Wert** hereingereicht wird (die Domäne
+//! liest keine Datei). Heraus kommt der Summentyp [`CounterAccount`]: `Own(`[`AccountRole`]`)` oder
+//! `Foreign` — „Fremd mit Rolle" ist unkonstruierbar, nicht geprüft (ADR-0005). Die **Rolle trägt
+//! die Deutung**: ein Zufluss aufs Spar-Konto ist Sparen, nicht Konsum. Eine **rohe IBAN** erreicht
+//! diesen Slice dabei zu keinem Zeitpunkt — sie existiert nur vor der Tokenisierung, beim Loader.
+//!
+//! Dass beide Seiten aus **derselben** Tokenisierung stammen, sichert der [`SeedMarker`] ab: ein
+//! opakes Etikett (nicht der Seed), das Fenster und Config je tragen. Stimmen sie nicht überein,
+//! endet der Lauf terminal — sonst liefe jede Umbuchung **lautlos** als „fremd" durch und der
+//! Bericht wiese sie als Konsum aus, ohne dass irgendetwas fehlschlüge.
+//!
 //! **Noch nicht hier** (je eigenes Folge-Issue): die zweite, **fenster-übergreifende** Reichweite
 //! (Wiederkehr über alle Fenster eines Laufs, angestoßen von `HistorieVollständig`), die
-//! Fach-Analyzer (Netting, Gebühren-Klassifikation, Pareto), die gelernten Korrekturen, das
-//! `Kategorisierer`-Orakel und die Gegenkonto-Auflösung. Dieser Stand ist das **Gerüst plus eine
-//! lauffähige Kennzahl und der Schlüssel** — der Pfad, an dem sie andocken.
+//! Fach-Analyzer (**Umbuchungs-Netting** auf der Einordnung oben — Issue 0004 —,
+//! Gebühren-Klassifikation, Pareto), die gelernten Korrekturen und das `Kategorisierer`-Orakel.
+//! Dieser Stand ist das **Gerüst plus zwei lauffähige Kennzahlen und der Schlüssel** — der Pfad, an
+//! dem sie andocken.
 
 mod entities;
 mod error;
@@ -52,6 +66,7 @@ pub use handler::WindowEvaluationHandler;
 pub use models::EvaluateWindow;
 pub use ports::{AnalysisWindowSource, EvaluationRepository};
 pub use value_objects::{
-    Amount, Currency, DayStamp, Direction, Fingerprint, Month, MonthlyCashflow, NonEmptyString,
-    Recipient, WindowId, WindowedBooking,
+    AccountRole, AccountToken, Amount, CounterAccount, Currency, DayStamp, Direction, Fingerprint,
+    Month, MonthlyCashflow, NonEmptyString, OwnAccounts, Recipient, SeedMarker, WindowId,
+    WindowedBooking,
 };
