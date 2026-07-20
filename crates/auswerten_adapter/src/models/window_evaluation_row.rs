@@ -26,7 +26,9 @@ pub struct WindowEvaluationRow {
     /// irgendwo sonst in diesem Slice.
     pub counter_accounts: Vec<CounterAccountRow>,
     /// Was das **Orakel** zu den zuvor **unbekannten** Buchungsarten dieses Fensters beigetragen
-    /// hat — je Eintrag Fingerabdruck → Kategorie, in stabiler Reihenfolge. Bereits Bekanntes steht
+    /// hat — eine **Abbildung** Fingerabdruck → Kategorie: je Schlüssel höchstens ein Etikett, in
+    /// stabiler Reihenfolge (ein widersprüchlich gedeuteter Schlüssel trägt gar keines, die Domäne
+    /// erfindet keine Auflösung). Bereits Bekanntes steht
     /// hier **nicht**: das führt das Kategorie-Register, und es an jedes Fenster zu heften hieße,
     /// die gelernte Wahrheit zu duplizieren.
     pub categories: Vec<CategoryRow>,

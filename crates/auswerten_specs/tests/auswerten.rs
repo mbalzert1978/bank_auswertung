@@ -922,6 +922,64 @@ fn ein_etikett_zu_einem_nie_gefragten_schluessel_wird_verworfen() {
 }
 
 #[test]
+fn zwei_widersprechende_etiketten_zu_einer_art_ergeben_gar_kein_etikett() {
+    // Das Ergebnis ist eine **Abbildung** Fingerabdruck → Kategorie. Schickt das Orakel zu **einer**
+    // Art zwei **verschiedene** Etiketten, hat es die Art nicht gedeutet, sondern sich
+    // widersprochen — und aus einem Widerspruch eines auszuwählen hieße, eine Deutung zu erfinden,
+    // die niemand vorgenommen hat. Sie landete anschließend als *gelernte* Kategorie im Register.
+    //
+    // Also: kein Etikett. Die Art bleibt unbekannt und darf im nächsten Lauf erneut gefragt werden —
+    // lieber gar kein Ergebnis als ein falsches, das sich richtig liest (dieselbe Linie wie beim
+    // Seed-Mismatch). Terminal ist es **nicht**: die Auswertung hängt nicht an der Auskunftsfreude
+    // eines LLM.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Lebensmittel")])
+        .with_rogue_oracle_answers(&[(&schluessel, "Mobilität")])
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        );
+
+    api.run(FENSTER).expect("ein widerspruechliches Orakel");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_299)],
+        fingerprints: vec![schluessel],
+        counter_accounts: vec![],
+        categories: vec![],
+    });
+}
+
+#[test]
+fn dasselbe_etikett_zweimal_bleibt_ein_etikett() {
+    // Die Gegenprobe zum Widerspruch oben: **dieselbe** Deutung doppelt geschickt ist kein
+    // Widerspruch, sondern eine Wiederholung. Sie fällt zu **einem** Eintrag zusammen und geht
+    // nicht etwa mit verloren — sonst bestrafte die Regel oben eine bloß redundante Antwort.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Spiel & Spaß")])
+        .with_rogue_oracle_answers(&[(&schluessel, "Spiel & Spaß")])
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        );
+
+    api.run(FENSTER).expect("eine doppelte, gleiche Antwort");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_299)],
+        fingerprints: vec![schluessel.clone()],
+        counter_accounts: vec![],
+        categories: vec![kategorie(&schluessel, "Spiel & Spaß")],
+    });
+}
+
+#[test]
 fn ein_fehlschlag_des_kategorie_registers_beendet_den_lauf_terminal() {
     // Terminal statt still weiterlaufen: hielte der Lauf bei ausgefallener Auskunft einfach alles
     // für unbekannt, ginge jede bereits gelernte Korrektur erneut ans Orakel — und dessen Antwort
