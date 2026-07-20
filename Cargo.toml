@@ -19,9 +19,9 @@ members = [
 ]
 
 [workspace.lints.rustdoc]
-# Regressionssperre (Issue 0048): öffentliche Doku darf nicht auf private oder
-# nicht existierende Items verlinken. `deny` macht aus der Warnung einen harten
-# Fehlschlag, damit `cargo doc` als Gate greift und das Muster nicht weiterwächst.
+# Regression guard (Issue 0048): public docs must not link to private or
+# non-existent items. `deny` turns the warning into a hard failure so
+# `cargo doc` acts as a gate and the pattern doesn't keep growing.
 private_intra_doc_links = "deny"
 broken_intra_doc_links = "deny"
 

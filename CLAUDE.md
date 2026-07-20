@@ -228,7 +228,7 @@ cargo build                      # compile
 cargo test                       # all tests
 cargo test <name>                # single test by name match
 cargo clippy --all-targets       # lint
-cargo fmt                        # format
+cargo fmt                        # format (gate: cargo fmt --check)
 cargo doc --no-deps --workspace  # docs — sixth gate: rustdoc-Warnungen sind harte Fehler
 ```
 
