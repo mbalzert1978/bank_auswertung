@@ -12,15 +12,15 @@
 //! Bucketing-Zeitraum (CONTEXT.md, „Fenster vs. Zeitraum") — ein Fenster deckt viele Monate ab.
 
 use auswerten_adapter::{
-    AnalysisWindowRow, CounterAccountRow, EvaluationError, WindowEvaluationRow,
+    AnalysisWindowRow, CounterAccountRow, EvaluationError, WindowBookingRow, WindowEvaluationRow,
 };
 
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
 use fixtures::{
-    FEB_01, FEB_29, FENSTER, JAN_15, JAN_31, MAR_05, SEED_MARKER, api, ausgang, eigen,
-    eigene_konten, eigene_konten_mit_marker, eingang, fenster, fenster_mit_marker, firma,
-    firma_ohne_namen, gegenkonto, monat, person,
+    FEB_01, FEB_29, FENSTER, HAENDLER, JAN_15, JAN_31, MAR_05, SEED_MARKER, anfrage, api, ausgang,
+    eigen, eigene_konten, eigene_konten_mit_marker, eingang, fenster, fenster_mit_marker,
+    fingerabdruck, firma, firma_ohne_namen, gegenkonto, kategorie, monat, person,
 };
 
 // --- Kern-Pfad: ID herein → Aggregat gelesen → Pro-Fenster-Ergebnis abgelegt ----
@@ -46,6 +46,7 @@ fn ein_geschlossenes_fenster_wird_per_id_gelesen_und_als_pro_fenster_ergebnis_ab
         // Buchungen ohne Gegenpartei (Entgeltzeilen) tragen keinen Fingerabdruck bei.
         fingerprints: vec![],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -66,6 +67,7 @@ fn der_handler_wertet_genau_das_fenster_aus_auf_das_der_zeiger_zeigt() {
         months: vec![monat(2024, 1, 0, 1_100)],
         fingerprints: vec![],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -102,6 +104,7 @@ fn der_cashflow_wird_je_monat_innerhalb_des_fensters_gebucketet() {
         ],
         fingerprints: vec![],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -122,6 +125,7 @@ fn ein_monat_ohne_buchung_ergibt_keinen_bucket() {
         months: vec![monat(2024, 1, 0, 700), monat(2024, 3, 0, 900)],
         fingerprints: vec![],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -181,6 +185,7 @@ fn zwei_buchungen_desselben_haendlers_ergeben_denselben_fingerabdruck() {
         // **Ein** Eintrag, nicht zwei: die zwei Buchungen sind eine Art.
         fingerprints: vec!["COMPANY:DE98ZZZ09999999999".to_string()],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -222,6 +227,7 @@ fn verschiedene_haendler_hinter_demselben_intermediaer_ergeben_verschiedene_fing
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB-IHR-EINKAUF".to_string(),
         ],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -262,6 +268,7 @@ fn derselbe_haendler_hinter_einem_intermediaer_ueberlebt_die_wechselnde_referenz
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
         ],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -301,6 +308,7 @@ fn ein_intermediaer_ohne_gefuehrten_namen_verklumpt_seine_haendler_nicht() {
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB".to_string(),
         ],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -322,6 +330,7 @@ fn dieselbe_privatperson_ergibt_bei_gleichem_seed_denselben_fingerabdruck() {
         months: vec![monat(2024, 1, 0, 25_000)],
         fingerprints: vec!["PERSON:PERSON_7".to_string()],
         counter_accounts: vec![],
+        categories: vec![],
     });
     zweiter_import.assert_stored(WindowEvaluationRow {
         window_id: FENSTER.to_string(),
@@ -330,6 +339,7 @@ fn dieselbe_privatperson_ergibt_bei_gleichem_seed_denselben_fingerabdruck() {
         // **Derselbe** Schlüssel wie im ersten Import — trotz anderen Monats und anderem Lauf.
         fingerprints: vec!["PERSON:PERSON_7".to_string()],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -350,6 +360,7 @@ fn ein_anderer_seed_aendert_den_fingerabdruck_der_privatperson() {
         // Ein **anderer** Schlüssel als `PERSON:PERSON_7` derselben Person oben.
         fingerprints: vec!["PERSON:PERSON_42".to_string()],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -373,6 +384,7 @@ fn ein_gegenkonto_aus_der_eigen_menge_wird_als_eigen_samt_rolle_aufgeloest() {
         months: vec![monat(2024, 1, 0, 50_000)],
         fingerprints: vec![],
         counter_accounts: vec![eigen("spar")],
+        categories: vec![],
     });
 }
 
@@ -399,6 +411,7 @@ fn jedes_gegenkonto_ausserhalb_der_eigen_menge_wird_als_fremd_aufgeloest() {
         fingerprints: vec![],
         // **Ein** Eintrag, nicht zwei: die Einordnung ist eine Art, keine Buchungs-Identität.
         counter_accounts: vec![CounterAccountRow::Foreign],
+        categories: vec![],
     });
 }
 
@@ -419,6 +432,7 @@ fn eine_buchung_ohne_gegenkonto_traegt_keine_einordnung_bei() {
         months: vec![monat(2024, 1, 0, 450)],
         fingerprints: vec![],
         counter_accounts: vec![],
+        categories: vec![],
     });
 }
 
@@ -436,6 +450,7 @@ fn ohne_eigene_konten_ist_jedes_gegenkonto_fremd() {
         months: vec![monat(2024, 1, 0, 3_000)],
         fingerprints: vec![],
         counter_accounts: vec![CounterAccountRow::Foreign],
+        categories: vec![],
     });
 }
 
@@ -528,6 +543,7 @@ fn dieselbe_tokenisierung_ordnet_ueber_importe_hinweg_stabil_zu() {
         months: vec![monat(2024, 1, 0, 20_000)],
         fingerprints: vec![],
         counter_accounts: vec![eigen("spar")],
+        categories: vec![],
     });
     zweiter_import.assert_stored(WindowEvaluationRow {
         window_id: FENSTER.to_string(),
@@ -536,6 +552,7 @@ fn dieselbe_tokenisierung_ordnet_ueber_importe_hinweg_stabil_zu() {
         fingerprints: vec![],
         // **Dieselbe** Einordnung wie im ersten Import — trotz anderen Monats und anderem Lauf.
         counter_accounts: vec![eigen("spar")],
+        categories: vec![],
     });
 }
 
@@ -689,6 +706,320 @@ fn ein_fehlschlag_beim_ablegen_beendet_den_lauf_terminal() {
         ergebnis,
         Err(EvaluationError::StorageUnavailable {
             reason: "Tabelle gesperrt".to_string()
+        })
+    );
+    api.assert_nothing_stored();
+}
+
+// --- Das Kategorisierer-Orakel: nur für Unbekanntes (Issue 0044) ---------------
+
+#[test]
+fn eine_unbekannte_buchungsart_wird_angefragt_und_ihre_antwort_am_fingerabdruck_zugeordnet() {
+    // Der Kern von ADR-0004: die **Domäne entscheidet**, wann sie fragt — das LLM ist ein Orakel
+    // hinter einem Port, kein Pipeline-Schritt. Kennt sie diese Art nicht, geht **eine** Anfrage
+    // hinaus, und die Antwort findet über den **Fingerabdruck** zurück, nie über den Text.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Spiel & Spaß")])
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        );
+
+    api.run(FENSTER).expect("die Auswertung des Fensters");
+
+    api.assert_asked(vec![anfrage(&schluessel, "Netflix")]);
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_299)],
+        fingerprints: vec![schluessel.clone()],
+        counter_accounts: vec![],
+        categories: vec![kategorie(&schluessel, "Spiel & Spaß")],
+    });
+}
+
+#[test]
+fn eine_bereits_bekannte_buchungsart_erreicht_das_orakel_nicht() {
+    // Der Lackmustest von ADR-0004: **die Domäne entscheidet, was sie fragen muss**. Kennt das
+    // Kategorie-Register die Art schon, bleibt der Chat stumm — auch wenn das Orakel eine Antwort
+    // parat hätte. Sie erneut zu erfragen stellte die gelernte Korrektur zur Disposition, die
+    // gerade deshalb gelernt wurde, weil das Orakel danebenlag.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_known_categories(&[&schluessel])
+        .with_oracle(&[(&schluessel, "Spiel & Spaß")])
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        );
+
+    api.run(FENSTER).expect("die Auswertung des Fensters");
+
+    api.assert_nothing_asked();
+    // Und das Ergebnis trägt **kein** Etikett: was das Register führt, gehört ihm — es an jedes
+    // Fenster zu heften hieße, die gelernte Wahrheit zu duplizieren.
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_299)],
+        fingerprints: vec![schluessel],
+        counter_accounts: vec![],
+        categories: vec![],
+    });
+}
+
+#[test]
+fn mehrere_buchungen_derselben_art_erzeugen_genau_eine_anfrage() {
+    // Der Fingerabdruck steht für eine *Art*, nicht für die einzelne Buchung — also ist er auch die
+    // Achse der **Deduplizierung**. Drei Buchungen desselben Händlers sind **eine** Frage; sonst
+    // wüchse der Chat-Payload mit der Zahl der Buchungen statt mit der Zahl der Arten, und das
+    // Orakel bekäme dieselbe Frage dreimal.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Spiel & Spaß")])
+        .with_window(
+            FENSTER,
+            fenster(&[
+                firma(JAN_15, 1_299, HAENDLER, "Netflix", None),
+                firma(JAN_31, 1_299, HAENDLER, "Netflix", None),
+                firma(FEB_29, 1_299, HAENDLER, "Netflix", None),
+            ]),
+        );
+
+    api.run(FENSTER).expect("drei Buchungen derselben Art");
+
+    api.assert_asked(vec![anfrage(&schluessel, "Netflix")]);
+}
+
+#[test]
+fn zwei_arten_mit_demselben_text_bekommen_je_ihre_eigene_antwort() {
+    // Der Beleg, dass die Antwort auf den **Fingerabdruck** schlüsselt und **nicht auf den Text**:
+    // zwei verschiedene Firmen tragen hier denselben Namen, also denselben Anfrage-Text — und
+    // bekommen trotzdem je ihr eigenes Etikett. Liefe die Zuordnung über den Text, wäre sie hier
+    // mehrdeutig; über den Schlüssel ist sie es nicht, und ein Rückweg vom Etikett auf den Freitext
+    // existiert gar nicht erst.
+    let eine = fingerabdruck("DE11ZZZ00000000001");
+    let andere = fingerabdruck("DE22ZZZ00000000002");
+    let api = api()
+        .with_oracle(&[(&eine, "Lebensmittel"), (&andere, "Mobilität")])
+        .with_window(
+            FENSTER,
+            fenster(&[
+                firma(JAN_15, 1_000, "DE11ZZZ00000000001", "Kolibri", None),
+                firma(JAN_31, 2_000, "DE22ZZZ00000000002", "Kolibri", None),
+            ]),
+        );
+
+    api.run(FENSTER).expect("zwei Arten mit demselben Text");
+
+    // Zwei Anfragen mit **identischem** Text, aber verschiedenen Schlüsseln.
+    api.assert_asked(vec![anfrage(&eine, "Kolibri"), anfrage(&andere, "Kolibri")]);
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 3_000)],
+        fingerprints: vec![eine.clone(), andere.clone()],
+        counter_accounts: vec![],
+        categories: vec![
+            kategorie(&eine, "Lebensmittel"),
+            kategorie(&andere, "Mobilität"),
+        ],
+    });
+}
+
+#[test]
+fn die_anfrage_traegt_weder_kontotoken_noch_pseudonym_noch_seed() {
+    // **Datenschutz am einzigen Punkt, an dem Daten die Maschine verlassen.** Die Buchung führt ein
+    // Gegenkonto-Token; die Anfrage trägt es nicht — sie hat kein Feld dafür. Was hinausgeht, ist
+    // der Schlüssel (ein Derivat der öffentlichen Gläubiger-ID) und der obfuskierte Text, sonst
+    // nichts. Die „kein `Serialize`"-Sperre auf dem Egress-DTO greift zur **Compile-Zeit**; dieser
+    // Test hält den **Inhalt** fest, den sie schützt.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Lebensmittel")])
+        .with_window(
+            FENSTER,
+            fenster(&[WindowBookingRow {
+                counter_account: Some("KONTO_9".to_string()),
+                ..firma(JAN_15, 4_200, HAENDLER, "Edeka", Some("Sagt Danke"))
+            }]),
+        );
+
+    api.run(FENSTER).expect("eine Buchung mit Gegenkonto");
+
+    api.assert_asked(vec![anfrage(&schluessel, "Edeka Sagt Danke")]);
+}
+
+#[test]
+fn eine_buchung_ohne_kategorie_signal_wird_nicht_angefragt() {
+    // Eine Entgeltzeile hat keine Gegenpartei und damit keinen Fingerabdruck; eine Firma ohne Namen
+    // und ohne Verwendungszweck hat einen Schlüssel, aber **nichts zu deuten**. Beide Male gibt es
+    // nichts zu fragen — und eine leere Frage zu stellen wäre Egress ohne Erkenntnis.
+    let api = api().with_window(
+        FENSTER,
+        fenster(&[
+            ausgang(JAN_15, 500),
+            firma_ohne_namen(JAN_31, 900, HAENDLER, None),
+        ]),
+    );
+
+    api.run(FENSTER).expect("nichts zu fragen");
+
+    api.assert_nothing_asked();
+}
+
+#[test]
+fn ohne_etwas_zu_fragen_wird_auch_das_register_nicht_befragt() {
+    // Gibt es **keine** Anfrage, gibt es auch nichts abzugleichen — dann darf das Register gar nicht
+    // erst angefasst werden. Der Beleg dafür ist ein **ausgefallenes** Register: ein Fenster ohne
+    // Kategorie-Signal läuft trotzdem durch. Andernfalls beendete eine Auskunft, auf die es nicht
+    // ankam, einen Lauf, der nichts von ihr wollte — ein Fehlschlag ohne Ursache in der Sache.
+    let api = api()
+        .with_window(FENSTER, fenster(&[ausgang(JAN_15, 500)]))
+        .with_failing_registry("Register-Tabelle gesperrt");
+
+    let ergebnis = api.run(FENSTER);
+
+    assert_eq!(ergebnis, Ok(()));
+    api.assert_nothing_asked();
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 500)],
+        fingerprints: vec![],
+        counter_accounts: vec![],
+        categories: vec![],
+    });
+}
+
+#[test]
+fn ein_etikett_zu_einem_nie_gefragten_schluessel_wird_verworfen() {
+    // Der Fingerabdruck ist **Domänenwissen** (ADR-0004), keine Absprache über Zeichenketten. Ein
+    // Orakel, das ein Etikett zu einem Schlüssel schickt, nach dem niemand gefragt hat, behauptet
+    // etwas — es antwortet nicht. Die Behauptung fällt weg; sie **beendet** den Lauf aber nicht,
+    // denn die Auswertung darf nicht von der Auskunftsfreude eines LLM abhängen.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Spiel & Spaß")])
+        .with_rogue_oracle_answers(&[("COMPANY:NIE-GEFRAGT", "Erfundenes")])
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        );
+
+    api.run(FENSTER).expect("die Auswertung des Fensters");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_299)],
+        fingerprints: vec![schluessel.clone()],
+        counter_accounts: vec![],
+        // Nur das erfragte Etikett — der erfundene Schlüssel hat es nicht hereingeschafft.
+        categories: vec![kategorie(&schluessel, "Spiel & Spaß")],
+    });
+}
+
+#[test]
+fn zwei_widersprechende_etiketten_zu_einer_art_ergeben_gar_kein_etikett() {
+    // Das Ergebnis ist eine **Abbildung** Fingerabdruck → Kategorie. Schickt das Orakel zu **einer**
+    // Art zwei **verschiedene** Etiketten, hat es die Art nicht gedeutet, sondern sich
+    // widersprochen — und aus einem Widerspruch eines auszuwählen hieße, eine Deutung zu erfinden,
+    // die niemand vorgenommen hat. Sie landete anschließend als *gelernte* Kategorie im Register.
+    //
+    // Also: kein Etikett. Die Art bleibt unbekannt und darf im nächsten Lauf erneut gefragt werden —
+    // lieber gar kein Ergebnis als ein falsches, das sich richtig liest (dieselbe Linie wie beim
+    // Seed-Mismatch). Terminal ist es **nicht**: die Auswertung hängt nicht an der Auskunftsfreude
+    // eines LLM.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Lebensmittel")])
+        .with_rogue_oracle_answers(&[(&schluessel, "Mobilität")])
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        );
+
+    api.run(FENSTER).expect("ein widerspruechliches Orakel");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_299)],
+        fingerprints: vec![schluessel],
+        counter_accounts: vec![],
+        categories: vec![],
+    });
+}
+
+#[test]
+fn dasselbe_etikett_zweimal_bleibt_ein_etikett() {
+    // Die Gegenprobe zum Widerspruch oben: **dieselbe** Deutung doppelt geschickt ist kein
+    // Widerspruch, sondern eine Wiederholung. Sie fällt zu **einem** Eintrag zusammen und geht
+    // nicht etwa mit verloren — sonst bestrafte die Regel oben eine bloß redundante Antwort.
+    let schluessel = fingerabdruck(HAENDLER);
+    let api = api()
+        .with_oracle(&[(&schluessel, "Spiel & Spaß")])
+        .with_rogue_oracle_answers(&[(&schluessel, "Spiel & Spaß")])
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        );
+
+    api.run(FENSTER).expect("eine doppelte, gleiche Antwort");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 1_299)],
+        fingerprints: vec![schluessel.clone()],
+        counter_accounts: vec![],
+        categories: vec![kategorie(&schluessel, "Spiel & Spaß")],
+    });
+}
+
+#[test]
+fn ein_fehlschlag_des_kategorie_registers_beendet_den_lauf_terminal() {
+    // Terminal statt still weiterlaufen: hielte der Lauf bei ausgefallener Auskunft einfach alles
+    // für unbekannt, ginge jede bereits gelernte Korrektur erneut ans Orakel — und dessen Antwort
+    // überschriebe womöglich genau die Korrektur, die sie hervorgebracht hat. Kein Dead-Letter,
+    // kein Retry im Slice (ADR-0012).
+    let api = api()
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        )
+        .with_failing_registry("Register-Tabelle gesperrt");
+
+    let ergebnis = api.run(FENSTER);
+
+    assert_eq!(
+        ergebnis,
+        Err(EvaluationError::RegistryUnavailable {
+            reason: "Register-Tabelle gesperrt".to_string()
+        })
+    );
+    // Und **vor** dem Orakel: ohne zu wissen, was bekannt ist, darf nichts hinausgehen.
+    api.assert_nothing_asked();
+    api.assert_nothing_stored();
+}
+
+#[test]
+fn ein_fehlschlag_des_orakels_beendet_den_lauf_terminal() {
+    let api = api()
+        .with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 1_299, HAENDLER, "Netflix", None)]),
+        )
+        .with_failing_categorizer("Chat-Payload nicht zustellbar");
+
+    let ergebnis = api.run(FENSTER);
+
+    assert_eq!(
+        ergebnis,
+        Err(EvaluationError::CategorizerUnavailable {
+            reason: "Chat-Payload nicht zustellbar".to_string()
         })
     );
     api.assert_nothing_stored();

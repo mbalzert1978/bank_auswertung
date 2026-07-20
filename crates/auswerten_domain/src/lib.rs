@@ -75,9 +75,11 @@ pub use error::EvaluationError;
 pub use handler::WindowEvaluationHandler;
 pub use history_handler::HistoryEvaluationHandler;
 pub use models::{EvaluateHistory, EvaluateWindow};
-pub use ports::{AnalysisWindowSource, EvaluationRepository, OccurrenceSource};
+pub use ports::{
+    AnalysisWindowSource, Categorizer, CategoryRegistry, EvaluationRepository, OccurrenceSource,
+};
 pub use value_objects::{
-    AccountRole, AccountToken, Amount, CounterAccount, Currency, DayStamp, Direction, Fingerprint,
-    Month, MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts, Recipient, RunSpan,
-    SeedMarker, WindowId, WindowedBooking,
+    AccountRole, AccountToken, Amount, Category, CategoryAnswer, CategoryRequest, CounterAccount,
+    Currency, DayStamp, Direction, Fingerprint, Month, MonthlyCashflow, NonEmptyString, Occurrence,
+    OwnAccounts, Recipient, RunSpan, SeedMarker, WindowId, WindowedBooking,
 };

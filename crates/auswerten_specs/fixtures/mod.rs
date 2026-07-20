@@ -15,9 +15,9 @@
 )]
 
 use auswerten_adapter::{
-    AnalysisWindowRow, BookingDirection, BookingRecipient, CounterAccountRow, EvaluationTestApi,
-    HistoryTestApi, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig,
-    WindowBookingRow,
+    AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRequestRow, CategoryRow,
+    CounterAccountRow, EvaluationTestApi, HistoryTestApi, MonthlyCashflowRow, OccurrenceRow,
+    OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -250,5 +250,35 @@ pub(crate) fn vorkommen(
         booking_day,
         amount_cent: cent,
         direction,
+    }
+}
+
+// --- Das Kategorisierer-Orakel (Issue 0044) ------------------------------------
+
+/// Der **Fingerabdruck** einer Firmen-Buchungsart, so wie die Domäne ihn bildet — der Schlüssel,
+/// auf dem die Anfrage dedupliziert und die Antwort zugeordnet wird. Die Specs schreiben ihn
+/// **selbst** aus, statt ihn vom Slice zu erfragen: der Schlüssel ist Teil der beobachteten
+/// Zusage, nicht ein Zwischenwert, den man ihm glauben müsste.
+pub(crate) fn fingerabdruck(creditor_id: &str) -> String {
+    format!("COMPANY:{creditor_id}")
+}
+
+/// Eine erwartete **Anfrage ans Orakel** — das Egress-DTO: der Fingerabdruck als Schlüssel und der
+/// obfuskierte Text als das, woran das LLM die Kategorie erraten soll (CONTEXT.md „Kategorie":
+/// Empfänger + Verwendungszweck). Mehr steht nicht drin; ein struktureller Identifikator kann hier
+/// gar nicht auftauchen.
+pub(crate) fn anfrage(fingerprint: &str, text: &str) -> CategoryRequestRow {
+    CategoryRequestRow {
+        fingerprint: fingerprint.to_string(),
+        text: text.to_string(),
+    }
+}
+
+/// Eine erwartete **zugeordnete Kategorie** im abgelegten Ergebnis — die Antwort des Orakels,
+/// verschlüsselt auf den **Fingerabdruck**, nie auf den Text.
+pub(crate) fn kategorie(fingerprint: &str, category: &str) -> CategoryRow {
+    CategoryRow {
+        fingerprint: fingerprint.to_string(),
+        category: category.to_string(),
     }
 }

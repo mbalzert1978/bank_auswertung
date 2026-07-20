@@ -10,6 +10,11 @@
 //! `partition_key`, Form `"{from}:{to}"`, wie `fenstern` sie setzt) und die [`OccurrenceRow`] als
 //! **Ausgangs**-DTO — zurückgegeben, **nicht** abgelegt (kein Vorkommens-/Fold-Log).
 //!
+//! Das **Kategorisierer-Orakel** bringt drei mit: die [`CategoryRequestRow`] als **Egress-DTO**
+//! (hinaus — sie trägt die compilerfeste „kein `Serialize`"-Sperre), die [`CategoryAnswerRow`]
+//! (herein) und die [`CategoryRow`] als Zelle des abgelegten Ergebnisses. Frage und Antwort sind
+//! **je ein eigenes** schmales DTO, nie ein gemeinsames (ADR-0002).
+//!
 //! **Keine ausgehende Nachricht:** keine der beiden Reichweiten publiziert etwas. Die pro-Fenster
 //! legt ab; die fenster-übergreifende gibt zurück und hängt an `fenstern`s `HistorieVollständig`,
 //! nicht an ihr.
@@ -18,6 +23,7 @@
 
 mod account_role_vocabulary;
 mod analysis_window_row;
+mod category_exchange;
 mod evaluate_history_command;
 mod evaluate_window_command;
 mod occurrence_row;
@@ -27,6 +33,7 @@ mod window_evaluation_row;
 pub use analysis_window_row::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, WindowBookingRow,
 };
+pub use category_exchange::{CategoryAnswerRow, CategoryRequestRow, CategoryRow};
 pub use evaluate_history_command::{
     CONSUMED_HISTORY_MESSAGE_TYPE, EvaluateHistoryCommand, EvaluateHistoryCommandDecoder,
 };

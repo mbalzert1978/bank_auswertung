@@ -43,6 +43,16 @@ pub enum EvaluationError {
     ///
     /// Trägt **keinen** der beiden Marker — sie benennt die Lage, nicht die Werte.
     SeedMismatch,
+    /// Das **Kategorie-Register** ließ sich nicht befragen. Terminal, weil das Gegenteil still
+    /// falsch wäre: hielte der Lauf bei ausgefallener Auskunft einfach alles für unbekannt, ginge
+    /// jede bereits gelernte Korrektur erneut ans Orakel — und dessen Antwort überschriebe womöglich
+    /// genau die Korrektur, die sie hervorgebracht hat.
+    ///
+    /// Trägt die io-Diagnose (Zugriffs-Mechanik, nie Zeilen-/Feldinhalt).
+    RegistryUnavailable { reason: String },
+    /// Das **Orakel** war nicht erreichbar oder hat nicht verwertbar geantwortet. Trägt die
+    /// io-Diagnose der Zugriffs-Mechanik — **nie** den angefragten Text und nie die Antwort selbst.
+    CategorizerUnavailable { reason: String },
 }
 
 impl fmt::Display for EvaluationError {
@@ -67,6 +77,12 @@ impl fmt::Display for EvaluationError {
                 f,
                 "own-accounts configuration and analysis window were tokenised under different seeds"
             ),
+            EvaluationError::RegistryUnavailable { reason } => {
+                write!(f, "could not query the category register: {reason}")
+            }
+            EvaluationError::CategorizerUnavailable { reason } => {
+                write!(f, "could not ask the categorizer: {reason}")
+            }
         }
     }
 }

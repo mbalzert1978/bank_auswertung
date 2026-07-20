@@ -1,10 +1,13 @@
 use application_kernel::{CommandDecoder, Handler};
 use auswerten_domain::EvaluationError;
 
-use super::fakes::{FakeAnalysisWindowSource, FakeEvaluationStore};
+use super::fakes::{
+    FakeAnalysisWindowSource, FakeCategorizer, FakeCategoryRegistry, FakeEvaluationStore,
+};
 use crate::handler::WindowEvaluationHandler;
 use crate::models::{
-    AnalysisWindowRow, EvaluateWindowCommandDecoder, OwnAccountsConfig, WindowEvaluationRow,
+    AnalysisWindowRow, CategoryRequestRow, EvaluateWindowCommandDecoder, OwnAccountsConfig,
+    WindowEvaluationRow,
 };
 
 /// Fluent-TestApi des auswerten-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
@@ -27,6 +30,8 @@ use crate::models::{
 pub struct EvaluationTestApi {
     source: FakeAnalysisWindowSource,
     store: FakeEvaluationStore,
+    registry: FakeCategoryRegistry,
+    categorizer: FakeCategorizer,
     own_accounts: OwnAccountsConfig,
 }
 
@@ -46,8 +51,31 @@ impl EvaluationTestApi {
         Self {
             source: FakeAnalysisWindowSource::default(),
             store: FakeEvaluationStore::default(),
+            registry: FakeCategoryRegistry::default(),
+            categorizer: FakeCategorizer::default(),
             own_accounts: OwnAccountsConfig::default(),
         }
+    }
+
+    /// Arrangiert Fingerabdrücke als der Domäne **bereits bekannt** — als hätte ein früherer Lauf
+    /// ihr Etikett gelernt. Genau sie dürfen das Orakel nicht mehr erreichen.
+    #[must_use]
+    pub fn with_known_categories(mut self, fingerprints: &[&str]) -> Self {
+        for fingerprint in fingerprints {
+            self.registry.insert(fingerprint);
+        }
+        self
+    }
+
+    /// Arrangiert das **Vokabular des Orakels**: welche Kategorie es zu welchem Fingerabdruck
+    /// liefern würde. Wonach nicht gefragt wird, kann es nicht beantworten — und wonach gefragt
+    /// wird, ohne dass es hier steht, bleibt unbeantwortet.
+    #[must_use]
+    pub fn with_oracle(mut self, vocabulary: &[(&str, &str)]) -> Self {
+        for (fingerprint, category) in vocabulary {
+            self.categorizer.knows(fingerprint, category);
+        }
+        self
     }
 
     /// Reicht die **Eigene-Konten-Config als Wert** herein — genau die Lage des Handlers in
@@ -85,6 +113,31 @@ impl EvaluationTestApi {
         self
     }
 
+    /// Arrangiert Etiketten, die das Orakel **ungefragt** mitschickt — zu Fingerabdrücken, nach
+    /// denen nie gefragt wurde. Damit lässt sich das übergriffige Orakel spielen: eines, das
+    /// Schlüssel *erfindet* statt zu antworten.
+    #[must_use]
+    pub fn with_rogue_oracle_answers(mut self, answers: &[(&str, &str)]) -> Self {
+        for (fingerprint, category) in answers {
+            self.categorizer.answers_unasked(fingerprint, category);
+        }
+        self
+    }
+
+    /// Lässt die Auskunft des **Kategorie-Registers** terminal scheitern.
+    #[must_use]
+    pub fn with_failing_registry(mut self, message: &str) -> Self {
+        self.registry.fail_with(message);
+        self
+    }
+
+    /// Lässt die Anfrage ans **Orakel** terminal scheitern.
+    #[must_use]
+    pub fn with_failing_categorizer(mut self, message: &str) -> Self {
+        self.categorizer.fail_with(message);
+        self
+    }
+
     /// Fährt die echte Kette (Decoder → Handler) für **eine** Fenster-ID und gibt das
     /// Handler-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` = terminaler [`EvaluationError`]).
     ///
@@ -94,8 +147,14 @@ impl EvaluationTestApi {
     pub fn run(&self, window_id: &str) -> Result<(), EvaluationError> {
         let command =
             EvaluateWindowCommandDecoder::decode(window_id, "").expect("Fenster-ID als Zeiger");
-        WindowEvaluationHandler::new(&self.source, &self.store, self.own_accounts.clone())
-            .handle(command)
+        WindowEvaluationHandler::new(
+            &self.source,
+            &self.store,
+            &self.registry,
+            &self.categorizer,
+            self.own_accounts.clone(),
+        )
+        .handle(command)
     }
 
     // --- Validierung des Ergebnisses ---------------------------------------------------------
@@ -111,6 +170,23 @@ impl EvaluationTestApi {
         assert!(
             self.store.evaluations().is_empty(),
             "es wurde ein Ergebnis abgelegt"
+        );
+    }
+
+    /// Prüft, dass **genau diese** Anfragen ans Orakel gingen — in Reihenfolge und vollständig.
+    ///
+    /// Der Vergleich ist bewusst **die ganze Liste** statt einer Enthaltensein-Prüfung: nur so
+    /// belegt er zugleich, dass **nichts darüber hinaus** hinausging — und das ist bei dem einen
+    /// DTO, das die Maschine verlässt, die interessantere Hälfte der Zusage.
+    pub fn assert_asked(&self, expected: Vec<CategoryRequestRow>) {
+        assert_eq!(self.categorizer.asked(), expected);
+    }
+
+    /// Prüft, dass das Orakel **gar nicht** behelligt wurde — kein Egress, kein Chat.
+    pub fn assert_nothing_asked(&self) {
+        assert!(
+            self.categorizer.asked().is_empty(),
+            "es ging eine Anfrage ans Orakel"
         );
     }
 }

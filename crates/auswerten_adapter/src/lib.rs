@@ -93,9 +93,12 @@
 //!
 //! Der **Fingerabdruck** schlüsselt darum auf der Gläubiger-ID, einem Pseudonym oder einem aus
 //! gescrubbtem Freitext gebildeten Token — nie auf einem Rohwert.
-//! Einen eigenen `assert_not_impl_any!`-Guard trägt der Slice heute nicht: es gibt hier noch kein
-//! Egress-DTO. Der Guard zieht ein, sobald die Reichweite eines bekommt (der `Kategorisierer`-Request
-//! und die Report-Ausgabe — dort verlassen Daten die Maschine).
+//!
+//! **Der Guard ist eingezogen:** seit dem Kategorisierer-Orakel hat der Slice ein **Egress-DTO**,
+//! die [`CategoryRequestRow`] — der eine Punkt, an dem Daten die Maschine verlassen. Der
+//! `assert_not_impl_any!`-„kein `Serialize`"-Guard liegt auf ihr, dieselbe Linie, die
+//! `obfuskierung` auf `ObfuscatedBooking` zieht. Die Report-Ausgabe bekommt ihren eigenen, wenn sie
+//! gebaut wird.
 
 mod abstractions;
 mod adapter;
@@ -105,16 +108,17 @@ mod models;
 mod testapi;
 
 pub use abstractions::{
-    AnalysisWindowSeam, EvaluationStoreSeam, OccurrenceSeam, SourceUnavailable, StoreUnavailable,
+    AnalysisWindowSeam, CategorizerSeam, CategorizerUnavailable, CategoryRegistrySeam,
+    EvaluationStoreSeam, OccurrenceSeam, RegistryUnavailable, SourceUnavailable, StoreUnavailable,
 };
 pub use handler::WindowEvaluationHandler;
 pub use history_handler::HistoryEvaluationHandler;
 pub use models::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, CONSUMED_HISTORY_MESSAGE_TYPE,
-    CONSUMED_MESSAGE_TYPE, CounterAccountRow, EvaluateHistoryCommand,
-    EvaluateHistoryCommandDecoder, EvaluateWindowCommand, EvaluateWindowCommandDecoder,
-    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
-    WindowEvaluationRow,
+    CONSUMED_MESSAGE_TYPE, CategoryAnswerRow, CategoryRequestRow, CategoryRow, CounterAccountRow,
+    EvaluateHistoryCommand, EvaluateHistoryCommandDecoder, EvaluateWindowCommand,
+    EvaluateWindowCommandDecoder, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow,
+    OwnAccountsConfig, WindowBookingRow, WindowEvaluationRow,
 };
 pub use testapi::{EvaluationTestApi, HistoryTestApi};
 
@@ -124,3 +128,16 @@ pub use testapi::{EvaluationTestApi, HistoryTestApi};
 /// Datenwert, sondern der Redaktions-Vertrag selbst: seine `Display` ist der **alleinige**
 /// Eigentümer des Meldungssatzes, ein Re-Deklarat wäre ein Satz-Duplikat über Crates.
 pub use auswerten_domain::EvaluationError;
+
+#[cfg(test)]
+mod datenschutz {
+    use super::CategoryRequestRow;
+    use serde::{Deserialize, Serialize};
+    use static_assertions::assert_not_impl_any;
+
+    // Die Anfrage ans Orakel ist das **Egress-DTO** dieses Slice — hier verlassen Daten die
+    // Maschine. Sie darf **nie** serialisieren: einen strukturellen Identifikator in etwas
+    // einzubetten, das hinausgeht, muss ein **Compile-Fehler** sein, keine Review-Beobachtung.
+    // Dieselbe Linie, die `obfuskierung` an der Datenschutz-Grenze auf `ObfuscatedBooking` zieht.
+    assert_not_impl_any!(CategoryRequestRow: Serialize, Deserialize<'static>);
+}
