@@ -6,8 +6,10 @@ use super::outbox::{OutboxError, OutboxHandler, OutboxMessage};
 /// löst eine Nachricht über ihren [`message_type`](super::outbox::OutboxMessage::message_type) auf
 /// den registrierten Consumer auf und übergibt sie. Ein [`OutboxConsumer`](crate::OutboxConsumer)
 /// wird als `dyn OutboxHandler` registriert; so hält der Dispatcher heterogene Slice-Consumer
-/// uniform. Verdrahtet sind `einlesen` und `obfuskierung` — dieselbe generische Maschinerie über
-/// zwei Slices (ADR-0011/Issues 0020, 0021).
+/// uniform. Verdrahtet sind `einlesen`, `obfuskierung` und `fenstern` — dieselbe generische
+/// Maschinerie über drei Slices (ADR-0011/Issues 0020, 0021, 0039). `fenstern` registriert dabei
+/// **zwei** Consumer (Anstoß und Fenster-Schritt): dass ein Slice mehr als einen Kommandotyp
+/// konsumiert, ist für die Auflösung kein Sonderfall — sie kennt nur `message_type → Consumer`.
 ///
 /// Der Lebensdauer-Parameter `'a` bindet die registrierten Consumer an die Seams, die sie borgen
 /// (heute die Test-Fakes; später die realen io-Adapter).

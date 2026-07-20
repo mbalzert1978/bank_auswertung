@@ -9,4 +9,5 @@ workspace = true
 [dependencies]
 application_kernel = { path = "../application_kernel" }
 einlesen_adapter = { path = "../einlesen_adapter" }
+fenstern_adapter = { path = "../fenstern_adapter" }
 obfuskierung_adapter = { path = "../obfuskierung_adapter" }
