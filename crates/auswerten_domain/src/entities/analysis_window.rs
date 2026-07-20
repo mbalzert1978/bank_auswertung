@@ -65,8 +65,12 @@ impl AnalysisWindow {
     pub(crate) fn category_requests(&self) -> Vec<CategoryRequest> {
         self.bookings
             .iter()
+            // `?` statt `zip`: der Schlüssel entscheidet **zuerst**, und für eine Buchung ohne ihn
+            // (Entgeltzeile) wird der Text gar nicht erst gebaut. `Option::zip` wertet sein Argument
+            // eifrig aus und hätte ihn auch dort zusammengesetzt, wo er niemanden interessiert.
             .filter_map(|booking| {
-                Fingerprint::of(booking.recipient(), booking.purpose()).zip(category_text(booking))
+                let fingerprint = Fingerprint::of(booking.recipient(), booking.purpose())?;
+                Some((fingerprint, category_text(booking)?))
             })
             // `or_insert` statt Überschreiben: der **erste** Text einer Art gewinnt. Welcher es ist,
             // darf nicht davon abhängen, in welcher Reihenfolge die Ablage die Zeilen liefert.
