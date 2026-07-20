@@ -81,7 +81,7 @@ impl fmt::Display for EvaluationError {
                 write!(f, "could not query the category register: {reason}")
             }
             EvaluationError::CategorizerUnavailable { reason } => {
-                write!(f, "could not ask the categoriser: {reason}")
+                write!(f, "could not ask the categorizer: {reason}")
             }
         }
     }
