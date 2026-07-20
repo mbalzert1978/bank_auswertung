@@ -31,14 +31,21 @@ pub struct EvaluationTestApi {
 }
 
 impl EvaluationTestApi {
-    /// Neue TestApi mit leerer Fenster-Ablage und leerer Ergebnis-Tabelle.
+    /// Neue TestApi mit leerer Fenster-Ablage, leerer Ergebnis-Tabelle und **noch nicht
+    /// arrangierter** Eigene-Konten-Config.
+    ///
+    /// **[`with_own_accounts`](Self::with_own_accounts) ist Pflicht, nicht Kür.** Die Nullwert-Config
+    /// trägt keinen Seed-Marker, und ein fehlender Marker ist ein fehlendes Pflichtfeld — ein
+    /// [`run`](Self::run) darauf scheitert terminal, **bevor** irgendetwas gelesen wird. Das ist
+    /// gewollt: eine Eigen-Menge ohne Kennzeichen ihrer Tokenisierung ist keine gültige Eingabe,
+    /// und die TestApi darf sie nicht zu einer machen. (Dieselbe Linie zieht
+    /// [`AnalysisWindowRow`]`::default()` mit ihrer leeren Währung — ein `Default` ist hier der
+    /// **Nullwert** des DTOs, nicht ein gültiger Wert.)
     #[must_use]
     pub fn new() -> Self {
         Self {
             source: FakeAnalysisWindowSource::default(),
             store: FakeEvaluationStore::default(),
-            // Ohne Arrangement: **keine** eigenen Konten. Jedes Gegenkonto ist dann fremd — eine
-            // gültige Lage, kein Sonderfall.
             own_accounts: OwnAccountsConfig::default(),
         }
     }
@@ -46,6 +53,10 @@ impl EvaluationTestApi {
     /// Reicht die **Eigene-Konten-Config als Wert** herein — genau die Lage des Handlers in
     /// Produktion: io verdrahtet sie beim Bau, der Slice liest **keine Datei**. Die Token sind
     /// bereits mit demselben Seed gebildet wie die Gegenkonto-Token der Buchungen.
+    ///
+    /// Ihr **Seed-Marker muss der des arrangierten Fensters sein** — sonst endet der Lauf terminal
+    /// mit `SeedMismatch`, und genau das ist der Zweck des Markers. Eine Config **ohne** eigene
+    /// Konten (aber **mit** Marker) ist dagegen eine gültige Lage: dann ist jedes Gegenkonto fremd.
     #[must_use]
     pub fn with_own_accounts(mut self, own_accounts: OwnAccountsConfig) -> Self {
         self.own_accounts = own_accounts;

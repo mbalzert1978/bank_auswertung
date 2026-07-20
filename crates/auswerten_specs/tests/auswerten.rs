@@ -483,6 +483,27 @@ fn eine_config_mit_leerem_token_wird_terminal_abgelehnt() {
     api.assert_nothing_stored();
 }
 
+#[test]
+fn eine_config_ohne_seed_marker_wird_terminal_abgelehnt() {
+    // Der Marker ist **Pflicht**, nicht Kür: eine Eigen-Menge ohne Kennzeichen ihrer Tokenisierung
+    // ließe sich gegen kein Fenster prüfen — der Vergleich, der die ganze Auflösung trägt, wäre
+    // unbelegt. Sie durchzulassen hieße, genau die Absicherung zu umgehen, für die der Marker da
+    // ist. Redigiert: **nur** der statische Feldname.
+    let api = api()
+        .with_own_accounts(eigene_konten_mit_marker("  ", &[("KONTO_1", "giro")]))
+        .with_window(FENSTER, fenster(&[gegenkonto(JAN_15, 3_000, "KONTO_1")]));
+
+    let fehler = api.run(FENSTER).expect_err("erwartet terminalen Fehler");
+
+    assert_eq!(
+        fehler,
+        EvaluationError::MissingMandatoryField {
+            field: "seed_marker"
+        }
+    );
+    api.assert_nothing_stored();
+}
+
 // --- Derselbe Seed trägt die Zuordnung; ein anderer bricht sie sichtbar --------
 
 #[test]
