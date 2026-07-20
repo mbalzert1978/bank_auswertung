@@ -276,9 +276,16 @@ fn wird_konsumiert(message_type: &str) -> bool {
 /// Nachricht dead-lettern bzw. retryen, statt die Kette fortzusetzen).
 ///
 /// Die Schleife ist **bewusst gedeckelt**: terminierte die Selbst-Fortsetzung nicht, hinge der Test
-/// nicht endlos, sondern bräche nach [`MAX_RUNDEN`] ab — woraufhin die Nachrichten-Assertion des
-/// Aufrufers scheitert, weil dann Nachschub übrig geblieben ist. Der Deckel braucht darum keine
-/// eigene Zusicherung; die Terminierung prüft der Test dort, wo er die ganze Kette vergleicht.
+/// nicht endlos, sondern bräche nach [`MAX_RUNDEN`] ab. Der Deckel **meldet sich dabei laut** — sonst
+/// liefe ein Nicht-Terminieren als `Ok(())` durch und fiele nur denjenigen Tests auf, die die
+/// **ganze** Outbox-Kette vergleichen; ein künftiger Test, der das nicht tut, würde den Regress
+/// stillschweigend bestehen.
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test-Fixture: ein nicht terminierender Pager ist ein Regress der Selbst-Fortsetzung \
+              und muss den Test hart scheitern lassen, nicht als Err durch die Assertions reisen — \
+              der Rückgabewert gehört allein der Disposition der Nachrichtenverarbeitung"
+)]
 pub(crate) fn fahre_lauf(dispatcher: &Dispatcher<'_>, db: &FakeDb) -> Result<(), OutboxError> {
     let mut offen = VecDeque::from([envelope(io::fenstern::START_MESSAGE_TYPE, "")]);
     let mut gelesen = 0;
@@ -296,6 +303,11 @@ pub(crate) fn fahre_lauf(dispatcher: &Dispatcher<'_>, db: &FakeDb) -> Result<(),
                 .map(|(typ, key)| envelope(typ, key)),
         );
     }
+    assert!(
+        offen.is_empty(),
+        "Broker-Schleife erreichte MAX_RUNDEN ({MAX_RUNDEN}) ohne Terminierung; noch {} Nachricht(en) offen",
+        offen.len()
+    );
     Ok(())
 }
 

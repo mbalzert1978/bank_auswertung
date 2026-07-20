@@ -110,11 +110,11 @@ impl<F: UnitFactory> TransactionalHandler for StartTransactionalHandler<'_, F> {
 
 /// Steckt den **Fenster-Schritt** zu einem [`OutboxConsumer`] zusammen (registrieren unter
 /// [`CONSUMED_MESSAGE_TYPE`]).
-pub fn consumer<F: UnitFactory>(
+pub fn consumer<'a, F: UnitFactory>(
     window_days: NonZeroU32,
-    source: &dyn ObfuscatedWindowSeam,
+    source: &'a dyn ObfuscatedWindowSeam,
     units: F,
-) -> OutboxConsumer<WindowingTransactionalHandler<'_, F>> {
+) -> OutboxConsumer<WindowingTransactionalHandler<'a, F>> {
     OutboxConsumer::new(WindowingTransactionalHandler {
         window_days,
         source,
@@ -124,9 +124,9 @@ pub fn consumer<F: UnitFactory>(
 
 /// Steckt den **Anstoß** zu einem [`OutboxConsumer`] zusammen (registrieren unter
 /// [`START_MESSAGE_TYPE`]).
-pub fn start_consumer<F: UnitFactory>(
-    source: &dyn ObfuscatedWindowSeam,
+pub fn start_consumer<'a, F: UnitFactory>(
+    source: &'a dyn ObfuscatedWindowSeam,
     units: F,
-) -> OutboxConsumer<StartTransactionalHandler<'_, F>> {
+) -> OutboxConsumer<StartTransactionalHandler<'a, F>> {
     OutboxConsumer::new(StartTransactionalHandler { source, units })
 }
