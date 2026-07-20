@@ -1,5 +1,7 @@
 use auswerten_domain::{AccountRole, AccountToken, NonEmptyString, OwnAccounts, SeedMarker};
 
+use crate::models::account_role_vocabulary::parse_role;
+
 /// Die **token-orientierte Eigene-Konten-Config**, wie sie dem Slice als **Wert** hereingereicht
 /// wird (ADR-0013, Entscheidung F). Reines Eingangs-DTO an der Adapter-Grenze; die Abbildung
 /// „außen → innen" auf die Domänen-[`OwnAccounts`] lebt hier (ACL).
@@ -62,20 +64,8 @@ impl OwnAccountRow {
     fn to_entry(&self) -> Result<(AccountToken, AccountRole), ConfigRejected> {
         let token = NonEmptyString::new(&self.token)
             .ok_or(ConfigRejected::MissingMandatoryField { field: "token" })?;
-        Ok((AccountToken::from(token), parse_role(&self.role)?))
-    }
-}
-
-/// Deutet die rohe Rollen-Zelle auf den geschlossenen Summentyp. Getrimmt und
-/// groß-/kleinschreibungs-tolerant — das ist **Mechanik** am Rand (wie das Trimmen des
-/// `NonEmptyString`), keine fachliche Entscheidung; welche vier Rollen es gibt, sagt die Domäne.
-fn parse_role(raw: &str) -> Result<AccountRole, ConfigRejected> {
-    match raw.trim().to_lowercase().as_str() {
-        "giro" => Ok(AccountRole::Giro),
-        "haushalt" => Ok(AccountRole::Haushalt),
-        "spar" => Ok(AccountRole::Spar),
-        "vorlauf" => Ok(AccountRole::Vorlauf),
-        _ => Err(ConfigRejected::UnknownAccountRole),
+        let role = parse_role(&self.role).ok_or(ConfigRejected::UnknownAccountRole)?;
+        Ok((AccountToken::from(token), role))
     }
 }
 

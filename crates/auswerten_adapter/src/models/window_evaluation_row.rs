@@ -1,4 +1,6 @@
-use auswerten_domain::{AccountRole, CounterAccount, WindowEvaluation};
+use auswerten_domain::{CounterAccount, WindowEvaluation};
+
+use crate::models::account_role_vocabulary::role_label;
 
 /// Das **abgelegte Pro-Fenster-Ergebnis** als Zeile der eigenen Tabelle des Slice — das Ausgangs-DTO,
 /// das die [`RepositoryBridge`](crate::adapter::RepositoryBridge) in den Speicher-Seam staged. Es
@@ -45,13 +47,7 @@ impl From<&CounterAccount> for CounterAccountRow {
     fn from(counter_account: &CounterAccount) -> Self {
         match counter_account {
             CounterAccount::Own(role) => CounterAccountRow::Own {
-                role: match role {
-                    AccountRole::Giro => "giro",
-                    AccountRole::Haushalt => "haushalt",
-                    AccountRole::Spar => "spar",
-                    AccountRole::Vorlauf => "vorlauf",
-                }
-                .to_string(),
+                role: role_label(*role).to_string(),
             },
             CounterAccount::Foreign => CounterAccountRow::Foreign,
         }

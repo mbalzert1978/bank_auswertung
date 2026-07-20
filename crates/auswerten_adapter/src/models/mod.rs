@@ -10,6 +10,7 @@
 //!
 //! Alle sprechen nur `application_kernel`-Verträge; die Outbox-Mechanik lebt in `io` (ADR-0011).
 
+mod account_role_vocabulary;
 mod analysis_window_row;
 mod evaluate_window_command;
 mod own_accounts_config;
