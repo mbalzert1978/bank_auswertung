@@ -2,8 +2,8 @@
 //! die io-privaten Outbox-Seams selbst ([`outbox`]), der generische [`OutboxConsumer`] über
 //! jeden [`TransactionalHandler`], der letzte Outbox-Hop [`PublishingPort`] und der
 //! [`Dispatcher`], der eine Nachricht per `message_type` auf ihren Consumer auflöst. Die
-//! feature-spezifische Verdrahtung liegt daneben in [`einlesen`](crate::einlesen) und
-//! [`obfuskierung`](crate::obfuskierung).
+//! feature-spezifische Verdrahtung liegt daneben in [`einlesen`](crate::einlesen),
+//! [`obfuskierung`](crate::obfuskierung) und [`fenstern`](crate::fenstern).
 
 pub mod outbox;
 
