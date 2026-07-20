@@ -3,7 +3,7 @@ use auswerten_domain::{EvaluateWindow, EvaluationError, WindowEvaluationHandler 
 
 use crate::abstractions::{AnalysisWindowSeam, EvaluationStoreSeam};
 use crate::adapter::{RepositoryBridge, SourceBridge};
-use crate::models::EvaluateWindowCommand;
+use crate::models::{ConfigRejected, EvaluateWindowCommand, OwnAccountsConfig};
 
 /// Der **`application_kernel::Handler` des Slice** für die **pro-Fenster**-Reichweite: die reine
 /// `Command → Domäne → Response`-Pipeline, über die `io`s generische `OutboxConsumer` den Slice
@@ -21,6 +21,10 @@ use crate::models::EvaluateWindowCommand;
 pub struct WindowEvaluationHandler<'a> {
     source: SourceBridge<'a>,
     repository: RepositoryBridge<'a>,
+    /// Die Eigene-Konten-Config — als **Wert** verdrahtet, nicht als Port: sie steht beim Bau fest
+    /// und gilt für den ganzen Lauf. Sie liegt hier noch als rohes DTO; gedeutet wird sie je
+    /// `handle` (die Deutung ist **fehlbar**, ein Konstruktor wäre es nicht).
+    own_accounts: OwnAccountsConfig,
 }
 
 impl<'a> WindowEvaluationHandler<'a> {
@@ -28,10 +32,12 @@ impl<'a> WindowEvaluationHandler<'a> {
     pub fn new(
         source: &'a dyn AnalysisWindowSeam,
         repository: &'a dyn EvaluationStoreSeam,
+        own_accounts: OwnAccountsConfig,
     ) -> Self {
         Self {
             source: SourceBridge { seam: source },
             repository: RepositoryBridge { seam: repository },
+            own_accounts,
         }
     }
 }
@@ -42,7 +48,18 @@ impl Handler for WindowEvaluationHandler<'_> {
     type Error = EvaluationError;
 
     fn handle(&self, command: EvaluateWindowCommand) -> Result<(), EvaluationError> {
-        DomainHandler::new(&self.source, &self.repository)
+        // **Zuerst** die Config deuten: eine fehlerhafte Config ist terminal, **bevor** irgendetwas
+        // gelesen oder abgelegt wird — sie beträfe jede Buchung des Fensters, nicht eine.
+        let own_accounts =
+            self.own_accounts
+                .to_own_accounts()
+                .map_err(|rejected| match rejected {
+                    ConfigRejected::MissingMandatoryField { field } => {
+                        EvaluationError::MissingMandatoryField { field }
+                    }
+                    ConfigRejected::UnknownAccountRole => EvaluationError::UnknownAccountRole,
+                })?;
+        DomainHandler::new(&self.source, &self.repository, &own_accounts)
             .handle(EvaluateWindow::new(command.window()))
     }
 }

@@ -4,9 +4,15 @@
 //! Adapter-`TestApi`.
 
 use auswerten_adapter::{
-    AnalysisWindowRow, BookingDirection, BookingRecipient, EvaluationTestApi, MonthlyCashflowRow,
-    WindowBookingRow,
+    AnalysisWindowRow, BookingDirection, BookingRecipient, CounterAccountRow, EvaluationTestApi,
+    MonthlyCashflowRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
 };
+
+/// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
+/// Seed tokenisiert, also tragen beide dieses Etikett. Es ist **nicht** der Seed — nur ein nicht
+/// umkehrbares Kennzeichen seiner Identität, das io beiden Seiten mitgibt (ADR-0010: der Seed selbst
+/// erreicht diesen Slice nie).
+pub(crate) const SEED_MARKER: &str = "marker-a";
 
 /// Die opake ID des eingefrorenen Auswertungsfensters, auf die das konsumierte
 /// `FensterGeschlossen` zeigt — die **Ablage von `fenstern`** hat sie vergeben (uniformes
@@ -26,15 +32,28 @@ pub(crate) const FEB_29: i64 = 19_782;
 /// 2024-03-05
 pub(crate) const MAR_05: i64 = 19_787;
 
-/// Eine TestApi mit leerer Fenster-Ablage.
+/// Eine TestApi mit leerer Fenster-Ablage und **leerer** Eigene-Konten-Config unter dem
+/// Normalfall-Seed-Marker — die Lage „ich führe keine eigenen Konten", in der jedes Gegenkonto
+/// fremd ist. Wer die Eigen-Menge braucht, arrangiert sie mit `with_own_accounts`.
 pub(crate) fn api() -> EvaluationTestApi {
-    EvaluationTestApi::new()
+    EvaluationTestApi::new().with_own_accounts(eigene_konten(&[]))
 }
 
-/// Ein eingefrorenes Auswertungsfenster in Euro, wie der Lese-Seam es zur ID liefert.
+/// Ein eingefrorenes Auswertungsfenster in Euro, wie der Lese-Seam es zur ID liefert — unter dem
+/// **Normalfall-Seed-Marker**.
 pub(crate) fn fenster(bookings: &[WindowBookingRow]) -> AnalysisWindowRow {
+    fenster_mit_marker(SEED_MARKER, bookings)
+}
+
+/// Dasselbe Fenster unter einem **frei gewählten** Seed-Marker — für den Fall, dass Fenster und
+/// Config aus verschiedenen Tokenisierungen stammen.
+pub(crate) fn fenster_mit_marker(
+    seed_marker: &str,
+    bookings: &[WindowBookingRow],
+) -> AnalysisWindowRow {
     AnalysisWindowRow {
         currency: "EUR".to_string(),
+        seed_marker: seed_marker.to_string(),
         bookings: bookings.to_vec(),
     }
 }
@@ -79,6 +98,7 @@ pub(crate) fn firma(
             creditor_id: creditor_id.to_string(),
         },
         purpose: purpose.map(str::to_string),
+        counter_account: None,
     }
 }
 
@@ -99,6 +119,7 @@ pub(crate) fn firma_ohne_namen(
             creditor_id: creditor_id.to_string(),
         },
         purpose: purpose.map(str::to_string),
+        counter_account: None,
     }
 }
 
@@ -114,6 +135,53 @@ pub(crate) fn person(booking_day: i64, cent: u64, pseudonym: &str) -> WindowBook
             pseudonym: pseudonym.to_string(),
         },
         purpose: None,
+        counter_account: None,
+    }
+}
+
+/// Ein Abfluss auf ein **Gegenkonto**, das nur als Token vorliegt (`KONTO_…`) — so, wie
+/// `obfuskieren` es an der Datenschutz-Grenze abgelegt hat. Genau dieses Token prüft die Auflösung
+/// gegen die Eigen-Menge; eine rohe IBAN erreicht diesen Slice nie (ADR-0013, Entscheidung F).
+pub(crate) fn gegenkonto(booking_day: i64, cent: u64, token: &str) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_cent: cent,
+        direction: BookingDirection::Outgoing,
+        counter_account: Some(token.to_string()),
+        ..WindowBookingRow::default()
+    }
+}
+
+/// Die **token-orientierte Eigene-Konten-Config**, wie sie dem Handler als **Wert** hereingereicht
+/// wird: je eigenem Konto sein `KONTO_…`-Token (vom Loader mit **demselben** Seed tokenisiert wie
+/// die Gegenkonto-Token) und seine Rolle. Erfundene Werte — die echte Config bleibt HITL (0002).
+pub(crate) fn eigene_konten(accounts: &[(&str, &str)]) -> OwnAccountsConfig {
+    eigene_konten_mit_marker(SEED_MARKER, accounts)
+}
+
+/// Dieselbe Config unter einem **frei gewählten** Seed-Marker — so lässt sich eine Eigen-Menge
+/// arrangieren, die aus einer **anderen** Tokenisierung stammt als das Fenster.
+pub(crate) fn eigene_konten_mit_marker(
+    seed_marker: &str,
+    accounts: &[(&str, &str)],
+) -> OwnAccountsConfig {
+    OwnAccountsConfig {
+        seed_marker: seed_marker.to_string(),
+        accounts: accounts
+            .iter()
+            .map(|(token, role)| OwnAccountRow {
+                token: (*token).to_string(),
+                role: (*role).to_string(),
+            })
+            .collect(),
+    }
+}
+
+/// Ein erwartetes **eigenes** Gegenkonto samt seiner Rolle — die Rolle trägt die Deutung (ein
+/// Zufluss aufs Spar-Konto ist Sparen, nicht Konsum).
+pub(crate) fn eigen(role: &str) -> CounterAccountRow {
+    CounterAccountRow::Own {
+        role: role.to_string(),
     }
 }
 

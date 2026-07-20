@@ -1,4 +1,6 @@
-use auswerten_domain::WindowEvaluation;
+use auswerten_domain::{CounterAccount, WindowEvaluation};
+
+use crate::models::account_role_vocabulary::role_label;
 
 /// Das **abgelegte Pro-Fenster-Ergebnis** als Zeile der eigenen Tabelle des Slice — das Ausgangs-DTO,
 /// das die [`RepositoryBridge`](crate::adapter::RepositoryBridge) in den Speicher-Seam staged. Es
@@ -18,6 +20,38 @@ pub struct WindowEvaluationRow {
     /// der Schlüssel, auf dem Wiederkehr-Erkennung, gelernte Korrekturen und die Deduplizierung der
     /// Kategorisierer-Anfrage später aufsetzen.
     pub fingerprints: Vec<String>,
+    /// Die **distinkten** Einordnungen der Gegenkonten des Fensters, in stabiler Reihenfolge — je
+    /// eigen (samt Rolle) oder fremd. Aufgelöst **auf Token**; eine IBAN steht hier so wenig wie
+    /// irgendwo sonst in diesem Slice.
+    pub counter_accounts: Vec<CounterAccountRow>,
+}
+
+/// Ein **eingeordnetes Gegenkonto** als Zeile — **adapter-eigener** DTO-Typ, bewusst re-deklariert
+/// statt aus der Domäne re-exportiert (dieselbe Linie, die der Slice bei `BookingDirection` und
+/// `BookingRecipient` zieht): kein Domänen-Internum überquert die Grenze.
+///
+/// Er bleibt ein **Summentyp**: „Fremd **mit** Rolle" ist auch als DTO unkonstruierbar, nicht
+/// „geprüft" (ADR-0005) — ein Flag plus Optionalfeld hätte genau diesen illegalen Zustand
+/// wieder aufgemacht.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CounterAccountRow {
+    /// Ein **eigenes** Konto samt seiner Rolle (`giro` | `haushalt` | `spar` | `vorlauf`).
+    Own { role: String },
+    /// Ein **fremdes** Konto — es hat keine Rolle, und es kann keine tragen.
+    Foreign,
+}
+
+/// Projiziert die Domänen-Einordnung auf das DTO. Die Rolle wird dabei auf **dasselbe Vokabular**
+/// abgebildet, das die Config hereinreicht — so lesen Ein- und Ausgang dieselbe Sprache.
+impl From<&CounterAccount> for CounterAccountRow {
+    fn from(counter_account: &CounterAccount) -> Self {
+        match counter_account {
+            CounterAccount::Own(role) => CounterAccountRow::Own {
+                role: role_label(*role).to_string(),
+            },
+            CounterAccount::Foreign => CounterAccountRow::Foreign,
+        }
+    }
 }
 
 /// Ein **Monats-Bucket** des Cashflows als Zeile: Jahr und Monat des *Zeitraums* (nicht des
@@ -53,6 +87,11 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
                 .fingerprints()
                 .iter()
                 .map(|fingerprint| fingerprint.as_str().to_string())
+                .collect(),
+            counter_accounts: evaluation
+                .counter_accounts()
+                .iter()
+                .map(CounterAccountRow::from)
                 .collect(),
         }
     }

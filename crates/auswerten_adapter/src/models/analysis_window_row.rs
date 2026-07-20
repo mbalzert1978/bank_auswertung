@@ -1,6 +1,6 @@
 use auswerten_domain::{
-    Amount, AnalysisWindow, Currency, DayStamp, Direction, NonEmptyString, Recipient,
-    WindowedBooking,
+    AccountToken, Amount, AnalysisWindow, Currency, DayStamp, Direction, NonEmptyString, Recipient,
+    SeedMarker, WindowedBooking,
 };
 
 /// Das **eingefrorene Auswertungsfenster**, wie der Lese-Seam es zu einer ID liefert: die eine
@@ -13,6 +13,10 @@ use auswerten_domain::{
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AnalysisWindowRow {
     pub currency: String,
+    /// Das **opake Kennzeichen der Tokenisierung**, unter der die Token dieses Fensters entstanden
+    /// sind — **nicht** der Seed. io reicht es mit, damit die Eigene-Konten-Config dagegen geprüft
+    /// werden kann (ADR-0010: der Seed selbst erreicht diesen Slice nie).
+    pub seed_marker: String,
     pub bookings: Vec<WindowBookingRow>,
 }
 
@@ -30,6 +34,9 @@ pub struct WindowBookingRow {
     pub recipient: BookingRecipient,
     /// Der obfuskierte Verwendungszweck — leer/fehlend ist zulässig (nicht jede Zeile führt einen).
     pub purpose: Option<String>,
+    /// Das **Gegenkonto als Token** (`KONTO_…`), wie `obfuskieren` es abgelegt hat — **nie** eine
+    /// IBAN. Echt optional: eine Entgeltzeile hat keine Gegenseite.
+    pub counter_account: Option<String>,
 }
 
 /// Die **Gegenpartei** als adapter-eigener DTO-Typ. Wie [`BookingDirection`] bewusst
@@ -71,8 +78,10 @@ impl AnalysisWindowRow {
     /// vollständig (ADR-0005 — illegale Zustände unkonstruierbar, nicht „geprüft").
     pub(crate) fn to_window(&self) -> Result<AnalysisWindow, MissingMandatoryField> {
         let currency = Currency::from(mandatory(&self.currency, "currency")?);
+        let seed_marker = SeedMarker::from(mandatory(&self.seed_marker, "seed_marker")?);
         Ok(AnalysisWindow::rehydrate(
             currency,
+            seed_marker,
             self.bookings
                 .iter()
                 .map(WindowBookingRow::to_booking)
@@ -96,6 +105,12 @@ impl WindowBookingRow {
             self.recipient.to_recipient()?,
             // Echt optional: ein leerer Zweck ist ein fehlender Zweck, kein Fehler.
             self.purpose.as_deref().and_then(NonEmptyString::new),
+            // Ebenso echt optional — und **kein** Präsenz-Pflichtfeld: „keine Gegenseite" ist eine
+            // gültige Aussage über eine Entgeltzeile, nicht eine fehlende Angabe.
+            self.counter_account
+                .as_deref()
+                .and_then(NonEmptyString::new)
+                .map(AccountToken::from),
         ))
     }
 }

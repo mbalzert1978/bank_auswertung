@@ -27,6 +27,22 @@ pub enum EvaluationError {
     /// Die Ablage des Pro-Fenster-Ergebnisses ist gescheitert. Trägt die io-Diagnose
     /// (Zugriffs-Mechanik).
     StorageUnavailable { reason: String },
+    /// Die **Eigene-Konten-Config** führt eine Rolle, die es nicht gibt. Terminal statt still
+    /// übersprungen: ein eigenes Konto klammheimlich als *fremd* zu führen, ließe die Umbuchung
+    /// darauf wie Konsum aussehen, ohne dass irgendetwas fehlschlüge.
+    ///
+    /// Trägt **nichts** — eine verrutschte Config-Zelle kann beliebigen Inhalt führen, und ihn
+    /// zurückzuspiegeln wäre genau das Leck, das dieser Slice ausschließt.
+    UnknownAccountRole,
+    /// Die **Eigene-Konten-Config** stammt aus einer **anderen** Tokenisierung als das Fenster —
+    /// ihre Seed-Marker stimmen nicht überein.
+    ///
+    /// Terminal, weil das Gegenteil der **stille** Fehler wäre: kein Token matchte, jede Umbuchung
+    /// liefe lautlos als „fremd" durch, und der Bericht wiese sie als Konsum aus, ohne dass
+    /// irgendetwas fehlschlüge. Lieber gar kein Ergebnis als ein falsches, das sich richtig liest.
+    ///
+    /// Trägt **keinen** der beiden Marker — sie benennt die Lage, nicht die Werte.
+    SeedMismatch,
 }
 
 impl fmt::Display for EvaluationError {
@@ -44,6 +60,13 @@ impl fmt::Display for EvaluationError {
             EvaluationError::StorageUnavailable { reason } => {
                 write!(f, "could not store the window evaluation: {reason}")
             }
+            EvaluationError::UnknownAccountRole => {
+                write!(f, "unknown account role in the own-accounts configuration")
+            }
+            EvaluationError::SeedMismatch => write!(
+                f,
+                "own-accounts configuration and analysis window were tokenised under different seeds"
+            ),
         }
     }
 }

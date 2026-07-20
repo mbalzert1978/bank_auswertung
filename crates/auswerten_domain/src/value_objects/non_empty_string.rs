@@ -2,7 +2,7 @@
 /// garantiert nicht-leer (_parse, don't validate_ — ADR-0005). Alles, was darauf aufbaut
 /// ([`Currency`](crate::Currency)), wird per `From` daraus gebaut und hat die Prüfung damit
 /// **hinter** sich; sie wiederholt sich nirgends.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NonEmptyString(String);
 
 impl NonEmptyString {

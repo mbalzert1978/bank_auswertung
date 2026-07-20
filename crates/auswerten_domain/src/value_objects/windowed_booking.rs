@@ -1,4 +1,4 @@
-use crate::value_objects::{Amount, DayStamp, Direction, NonEmptyString, Recipient};
+use crate::value_objects::{AccountToken, Amount, DayStamp, Direction, NonEmptyString, Recipient};
 
 /// Eine **Buchung des eingefrorenen Fensters**, wie der Lese-Port
 /// [`AnalysisWindowSource`](crate::AnalysisWindowSource) sie liefert — genau das, was dieser Slice
@@ -16,6 +16,9 @@ pub struct WindowedBooking {
     direction: Direction,
     recipient: Recipient,
     purpose: Option<NonEmptyString>,
+    /// Das Gegenkonto als **Token** — echt optional: eine Entgeltzeile hat keine Gegenseite, und
+    /// „kein Gegenkonto" ist etwas anderes als „ein fremdes Gegenkonto".
+    counter_account: Option<AccountToken>,
 }
 
 impl WindowedBooking {
@@ -28,6 +31,7 @@ impl WindowedBooking {
         direction: Direction,
         recipient: Recipient,
         purpose: Option<NonEmptyString>,
+        counter_account: Option<AccountToken>,
     ) -> Self {
         Self {
             day,
@@ -35,7 +39,12 @@ impl WindowedBooking {
             direction,
             recipient,
             purpose,
+            counter_account,
         }
+    }
+
+    pub(crate) fn counter_account(&self) -> Option<&AccountToken> {
+        self.counter_account.as_ref()
     }
 
     pub(crate) fn recipient(&self) -> &Recipient {

@@ -11,13 +11,16 @@
 //! den **Cashflow je Monat**. Das Fenster ist dabei die **Seitengröße** des Pagers, **nicht** der
 //! Bucketing-Zeitraum (CONTEXT.md, „Fenster vs. Zeitraum") — ein Fenster deckt viele Monate ab.
 
-use auswerten_adapter::{AnalysisWindowRow, EvaluationError, WindowEvaluationRow};
+use auswerten_adapter::{
+    AnalysisWindowRow, CounterAccountRow, EvaluationError, WindowEvaluationRow,
+};
 
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
 use fixtures::{
-    FEB_01, FEB_29, FENSTER, JAN_15, JAN_31, MAR_05, api, ausgang, eingang, fenster, firma,
-    firma_ohne_namen, monat, person,
+    FEB_01, FEB_29, FENSTER, JAN_15, JAN_31, MAR_05, SEED_MARKER, api, ausgang, eigen,
+    eigene_konten, eigene_konten_mit_marker, eingang, fenster, fenster_mit_marker, firma,
+    firma_ohne_namen, gegenkonto, monat, person,
 };
 
 // --- Kern-Pfad: ID herein → Aggregat gelesen → Pro-Fenster-Ergebnis abgelegt ----
@@ -42,6 +45,7 @@ fn ein_geschlossenes_fenster_wird_per_id_gelesen_und_als_pro_fenster_ergebnis_ab
         months: vec![monat(2024, 1, 250_000, 4_200)],
         // Buchungen ohne Gegenpartei (Entgeltzeilen) tragen keinen Fingerabdruck bei.
         fingerprints: vec![],
+        counter_accounts: vec![],
     });
 }
 
@@ -61,6 +65,7 @@ fn der_handler_wertet_genau_das_fenster_aus_auf_das_der_zeiger_zeigt() {
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_100)],
         fingerprints: vec![],
+        counter_accounts: vec![],
     });
 }
 
@@ -96,6 +101,7 @@ fn der_cashflow_wird_je_monat_innerhalb_des_fensters_gebucketet() {
             monat(2024, 3, 0, 300),
         ],
         fingerprints: vec![],
+        counter_accounts: vec![],
     });
 }
 
@@ -115,6 +121,7 @@ fn ein_monat_ohne_buchung_ergibt_keinen_bucket() {
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 700), monat(2024, 3, 0, 900)],
         fingerprints: vec![],
+        counter_accounts: vec![],
     });
 }
 
@@ -173,6 +180,7 @@ fn zwei_buchungen_desselben_haendlers_ergeben_denselben_fingerabdruck() {
         months: vec![monat(2024, 1, 0, 1_999), monat(2024, 2, 0, 1_999)],
         // **Ein** Eintrag, nicht zwei: die zwei Buchungen sind eine Art.
         fingerprints: vec!["COMPANY:DE98ZZZ09999999999".to_string()],
+        counter_accounts: vec![],
     });
 }
 
@@ -213,6 +221,7 @@ fn verschiedene_haendler_hinter_demselben_intermediaer_ergeben_verschiedene_fing
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT-IHR-EINKAUF".to_string(),
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB-IHR-EINKAUF".to_string(),
         ],
+        counter_accounts: vec![],
     });
 }
 
@@ -252,6 +261,7 @@ fn derselbe_haendler_hinter_einem_intermediaer_ueberlebt_die_wechselnde_referenz
         fingerprints: vec![
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
         ],
+        counter_accounts: vec![],
     });
 }
 
@@ -290,6 +300,7 @@ fn ein_intermediaer_ohne_gefuehrten_namen_verklumpt_seine_haendler_nicht() {
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB".to_string(),
         ],
+        counter_accounts: vec![],
     });
 }
 
@@ -310,6 +321,7 @@ fn dieselbe_privatperson_ergibt_bei_gleichem_seed_denselben_fingerabdruck() {
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 25_000)],
         fingerprints: vec!["PERSON:PERSON_7".to_string()],
+        counter_accounts: vec![],
     });
     zweiter_import.assert_stored(WindowEvaluationRow {
         window_id: FENSTER.to_string(),
@@ -317,6 +329,7 @@ fn dieselbe_privatperson_ergibt_bei_gleichem_seed_denselben_fingerabdruck() {
         months: vec![monat(2024, 3, 0, 25_000)],
         // **Derselbe** Schlüssel wie im ersten Import — trotz anderen Monats und anderem Lauf.
         fingerprints: vec!["PERSON:PERSON_7".to_string()],
+        counter_accounts: vec![],
     });
 }
 
@@ -336,7 +349,222 @@ fn ein_anderer_seed_aendert_den_fingerabdruck_der_privatperson() {
         months: vec![monat(2024, 1, 0, 25_000)],
         // Ein **anderer** Schlüssel als `PERSON:PERSON_7` derselben Person oben.
         fingerprints: vec!["PERSON:PERSON_42".to_string()],
+        counter_accounts: vec![],
     });
+}
+
+// --- Gegenkonto: Eigen(Rolle) oder Fremd, aufgelöst auf Token ------------------
+
+#[test]
+fn ein_gegenkonto_aus_der_eigen_menge_wird_als_eigen_samt_rolle_aufgeloest() {
+    // Die Auflösung arbeitet **auf Token** (ADR-0013, Entscheidung F): das Gegenkonto-Token der
+    // Buchung wird gegen die mit **demselben Seed** tokenisierte Eigen-Menge geprüft. Die Rolle
+    // bleibt dabei erhalten, weil sie die Deutung trägt — ein Zufluss aufs Spar-Konto ist Sparen,
+    // nicht Konsum. Eine rohe IBAN sieht dieser Slice zu keinem Zeitpunkt.
+    let api = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_1", "spar")]))
+        .with_window(FENSTER, fenster(&[gegenkonto(JAN_15, 50_000, "KONTO_1")]));
+
+    api.run(FENSTER).expect("Umbuchung aufs eigene Sparkonto");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 50_000)],
+        fingerprints: vec![],
+        counter_accounts: vec![eigen("spar")],
+    });
+}
+
+#[test]
+fn jedes_gegenkonto_ausserhalb_der_eigen_menge_wird_als_fremd_aufgeloest() {
+    // Die Kehrseite: alles, was nicht in der Eigen-Menge steht, ist fremd — auch ein Token, das
+    // einem eigenen **ähnlich** sieht. Verglichen wird das ganze Token, nicht ein Präfix.
+    let api = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_1", "giro")]))
+        .with_window(
+            FENSTER,
+            fenster(&[
+                gegenkonto(JAN_15, 3_000, "KONTO_2"),
+                gegenkonto(JAN_31, 4_000, "KONTO_11"),
+            ]),
+        );
+
+    api.run(FENSTER).expect("zwei fremde Gegenkonten");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 7_000)],
+        fingerprints: vec![],
+        // **Ein** Eintrag, nicht zwei: die Einordnung ist eine Art, keine Buchungs-Identität.
+        counter_accounts: vec![CounterAccountRow::Foreign],
+    });
+}
+
+#[test]
+fn eine_buchung_ohne_gegenkonto_traegt_keine_einordnung_bei() {
+    // Eine Entgeltzeile hat **keine** Gegenseite. Sie als „fremd" zu führen wäre eine Behauptung
+    // über ein Konto, das es nicht gibt — „keine Gegenseite" und „eine fremde Gegenseite" sind
+    // nicht dasselbe (dieselbe Linie, die der Fingerabdruck bei fehlender Gegenpartei zieht).
+    let api = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_1", "giro")]))
+        .with_window(FENSTER, fenster(&[ausgang(JAN_15, 450)]));
+
+    api.run(FENSTER).expect("eine Entgeltzeile");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 450)],
+        fingerprints: vec![],
+        counter_accounts: vec![],
+    });
+}
+
+#[test]
+fn ohne_eigene_konten_ist_jedes_gegenkonto_fremd() {
+    // Eine **leere** Eigen-Menge ist zulässig und kein Fehler: wer keine eigenen Konten führt, hat
+    // schlicht nur fremde Gegenkonten. Das ist eine Aussage, keine Lücke.
+    let api = api().with_window(FENSTER, fenster(&[gegenkonto(JAN_15, 3_000, "KONTO_1")]));
+
+    api.run(FENSTER).expect("leere Eigen-Menge");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 3_000)],
+        fingerprints: vec![],
+        counter_accounts: vec![CounterAccountRow::Foreign],
+    });
+}
+
+// --- Eine fehlerhafte Eigene-Konten-Config wird abgelehnt ----------------------
+
+#[test]
+fn eine_config_mit_unbekannter_rolle_wird_terminal_abgelehnt() {
+    // Kein stillschweigendes Überspringen: eine Zeile mit unbekannter Rolle zu ignorieren führte
+    // das eigene Konto klammheimlich als *fremd* — die Umbuchung darauf sähe wie Konsum aus, und
+    // niemand erführe davon. Die Rolle trägt die Deutung, also ist ihr Fehlen terminal.
+    let api = api()
+        .with_own_accounts(eigene_konten(&[
+            ("KONTO_1", "giro"),
+            ("KONTO_2", "tagesgeld"),
+        ]))
+        .with_window(FENSTER, fenster(&[gegenkonto(JAN_15, 3_000, "KONTO_1")]));
+
+    let fehler = api.run(FENSTER).expect_err("erwartet terminalen Fehler");
+
+    assert_eq!(fehler, EvaluationError::UnknownAccountRole);
+    // Die Begründung trägt **keinen** Rohwert — auch nicht die verrutschte Rollen-Zelle selbst:
+    // sie kann beliebigen Inhalt führen (im schlimmsten Fall eine dorthin verirrte IBAN).
+    assert_eq!(
+        fehler.to_string(),
+        "unknown account role in the own-accounts configuration"
+    );
+    api.assert_nothing_stored();
+}
+
+#[test]
+fn eine_config_mit_leerem_token_wird_terminal_abgelehnt() {
+    // Dieselbe Regel auf der anderen Zelle: ein eigenes Konto **ohne** Token wäre ein Eintrag, gegen
+    // den nie etwas matchen kann — eine Eigen-Menge, die stillschweigend eines ihrer Konten
+    // verliert. Redigiert: **nur** der statische Feldname.
+    let api = api()
+        .with_own_accounts(eigene_konten(&[("  ", "giro")]))
+        .with_window(FENSTER, fenster(&[gegenkonto(JAN_15, 3_000, "KONTO_1")]));
+
+    let fehler = api.run(FENSTER).expect_err("erwartet terminalen Fehler");
+
+    assert_eq!(
+        fehler,
+        EvaluationError::MissingMandatoryField { field: "token" }
+    );
+    api.assert_nothing_stored();
+}
+
+#[test]
+fn eine_config_ohne_seed_marker_wird_terminal_abgelehnt() {
+    // Der Marker ist **Pflicht**, nicht Kür: eine Eigen-Menge ohne Kennzeichen ihrer Tokenisierung
+    // ließe sich gegen kein Fenster prüfen — der Vergleich, der die ganze Auflösung trägt, wäre
+    // unbelegt. Sie durchzulassen hieße, genau die Absicherung zu umgehen, für die der Marker da
+    // ist. Redigiert: **nur** der statische Feldname.
+    let api = api()
+        .with_own_accounts(eigene_konten_mit_marker("  ", &[("KONTO_1", "giro")]))
+        .with_window(FENSTER, fenster(&[gegenkonto(JAN_15, 3_000, "KONTO_1")]));
+
+    let fehler = api.run(FENSTER).expect_err("erwartet terminalen Fehler");
+
+    assert_eq!(
+        fehler,
+        EvaluationError::MissingMandatoryField {
+            field: "seed_marker"
+        }
+    );
+    api.assert_nothing_stored();
+}
+
+// --- Derselbe Seed trägt die Zuordnung; ein anderer bricht sie sichtbar --------
+
+#[test]
+fn dieselbe_tokenisierung_ordnet_ueber_importe_hinweg_stabil_zu() {
+    // **Zwei getrennte Läufe = zwei Importe.** Derselbe Seed hat stromaufwärts dasselbe `KONTO_…`
+    // vergeben (ADR-0010) — und weil die Auflösung auf genau diesem Token vergleicht, bleibt das
+    // eigene Sparkonto über Importe hinweg dasselbe eigene Sparkonto. Der Seed selbst erreicht
+    // diesen Slice dabei nie; er sieht nur dessen Wirkung.
+    let erster_import = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_9", "spar")]))
+        .with_window(FENSTER, fenster(&[gegenkonto(JAN_15, 20_000, "KONTO_9")]));
+    let zweiter_import = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_9", "spar")]))
+        .with_window(FENSTER, fenster(&[gegenkonto(MAR_05, 20_000, "KONTO_9")]));
+
+    erster_import.run(FENSTER).expect("erster Import");
+    zweiter_import.run(FENSTER).expect("zweiter Import");
+
+    erster_import.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 20_000)],
+        fingerprints: vec![],
+        counter_accounts: vec![eigen("spar")],
+    });
+    zweiter_import.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 3, 0, 20_000)],
+        fingerprints: vec![],
+        // **Dieselbe** Einordnung wie im ersten Import — trotz anderen Monats und anderem Lauf.
+        counter_accounts: vec![eigen("spar")],
+    });
+}
+
+#[test]
+fn eine_eigen_menge_aus_einem_anderen_seed_bricht_den_lauf_sichtbar_ab() {
+    // Der Kern der Absicherung: wäre die Eigen-Menge mit einem **anderen** Seed tokenisiert,
+    // matchte kein einziges Token — und jede Umbuchung liefe **lautlos** als „fremd" durch. Genau
+    // das wäre der stille Datenfehler, den niemand bemerkt: ein Bericht, der Umbuchungen als
+    // Konsum ausweist, ohne dass irgendetwas fehlschlägt.
+    //
+    // Darum tragen Fenster und Config je einen **opaken Seed-Marker** — nicht den Seed, sondern
+    // ein nicht umkehrbares Etikett seiner Identität. Stimmen sie nicht überein, bricht der Lauf
+    // **terminal** ab, statt ein falsches Ergebnis abzulegen.
+    let api = api()
+        .with_own_accounts(eigene_konten_mit_marker("marker-b", &[("KONTO_9", "spar")]))
+        .with_window(
+            FENSTER,
+            fenster_mit_marker("marker-a", &[gegenkonto(JAN_15, 20_000, "KONTO_9")]),
+        );
+
+    let fehler = api.run(FENSTER).expect_err("erwartet terminalen Fehler");
+
+    assert_eq!(fehler, EvaluationError::SeedMismatch);
+    // Die Begründung trägt **keinen** der beiden Marker — sie benennt die Lage, nicht die Werte.
+    assert_eq!(
+        fehler.to_string(),
+        "own-accounts configuration and analysis window were tokenised under different seeds"
+    );
+    api.assert_nothing_stored();
 }
 
 // --- Ein Zeiger ins Leere endet terminal und redigiert -------------------------
@@ -370,6 +598,7 @@ fn ein_fehlendes_pflichtfeld_scheitert_terminal_und_redigiert() {
         FENSTER,
         AnalysisWindowRow {
             currency: String::new(),
+            seed_marker: SEED_MARKER.to_string(),
             bookings: vec![ausgang(JAN_15, 4_200)],
         },
     );

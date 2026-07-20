@@ -10,8 +10,10 @@
 //!
 //! Alle sprechen nur `application_kernel`-Verträge; die Outbox-Mechanik lebt in `io` (ADR-0011).
 
+mod account_role_vocabulary;
 mod analysis_window_row;
 mod evaluate_window_command;
+mod own_accounts_config;
 mod window_evaluation_row;
 
 pub use analysis_window_row::{
@@ -20,4 +22,6 @@ pub use analysis_window_row::{
 pub use evaluate_window_command::{
     CONSUMED_MESSAGE_TYPE, EvaluateWindowCommand, EvaluateWindowCommandDecoder,
 };
-pub use window_evaluation_row::{MonthlyCashflowRow, WindowEvaluationRow};
+pub(crate) use own_accounts_config::ConfigRejected;
+pub use own_accounts_config::{OwnAccountRow, OwnAccountsConfig};
+pub use window_evaluation_row::{CounterAccountRow, MonthlyCashflowRow, WindowEvaluationRow};
