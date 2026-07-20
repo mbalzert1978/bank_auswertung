@@ -62,6 +62,9 @@ Prefactor:
   (2026-07-20, PR #42) `Kategorisierer`-Port nur für unbekannte Fingerabdrücke, Egress-DTO ohne `Serialize`.
 - [x] **[0045-io-auswerten-end-to-end.md](0045-io-auswerten-end-to-end.md)**
   (2026-07-20, PR #43) `auswerten` in `io` verdrahtet; volle Pipeline gegen Fakes.
+- [x] **[0047-glaeubiger-ids-der-zahlungsintermediaere-aus-echten-auszugsdaten-ergaenzen.md](0047-glaeubiger-ids-der-zahlungsintermediaere-aus-echten-auszugsdaten-ergaenzen.md)**
+  (2026-07-20) Durchleiter-IDs aus echtem Auszug (HITL): PayPal verifiziert, drei
+  Amazon-Firmierungen neu; Klarna bewusst offen (ungenutzt); Ablage als Domänen-Konstante.
 
 Neu verdrahtete Fach-Analyzer (bestehende Issues): 0004 ← 0042 · 0006 ← 0040, 0004 ·
 0005 ← 0041, 0043, 0004 · 0007 ← 0040, 0004, 0005, 0006.

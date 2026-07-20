@@ -52,7 +52,10 @@ _Avoid_: Tag, Label, Gruppe
 Ein Empfänger, der Zahlungen nur durchleitet (PayPal, Klarna, Amazon Payments).
 Der echte Händler — und damit die Kategorie — steckt hier **nicht** im Empfänger,
 sondern im Verwendungszweck. Kategorisierung darf bei Intermediären nicht am
-Empfänger-Namen festgemacht werden.
+Empfänger-Namen festgemacht werden. Seit Issue 0047 werden auch Amazons
+Direkt-Firmierungen (Digital/EU) bewusst so behandelt — eine Analyse-Entscheidung:
+ihr Verwendungszweck trägt die _Art_ (Prime vs. Kindle vs. Einkauf), die
+Firmierung nur den Kanal.
 _Avoid_: Zahlungsdienstleister (zu breit)
 
 **Wiederkehrender Abfluss**:
