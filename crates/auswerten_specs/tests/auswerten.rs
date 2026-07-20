@@ -16,8 +16,8 @@ use auswerten_adapter::{AnalysisWindowRow, EvaluationError, WindowEvaluationRow}
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
 use fixtures::{
-    FEB_01, FEB_29, FENSTER, JAN_15, JAN_31, MAR_05, api, ausgang, eingang, fenster, firma, monat,
-    person,
+    FEB_01, FEB_29, FENSTER, JAN_15, JAN_31, MAR_05, api, ausgang, eingang, fenster, firma,
+    firma_ohne_namen, monat, person,
 };
 
 // --- Kern-Pfad: ID herein → Aggregat gelesen → Pro-Fenster-Ergebnis abgelegt ----
@@ -251,6 +251,44 @@ fn derselbe_haendler_hinter_einem_intermediaer_ueberlebt_die_wechselnde_referenz
         months: vec![monat(2024, 1, 0, 1_200), monat(2024, 2, 0, 1_200)],
         fingerprints: vec![
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
+        ],
+    });
+}
+
+#[test]
+fn ein_intermediaer_ohne_gefuehrten_namen_verklumpt_seine_haendler_nicht() {
+    // Der Firmenname ist **optional** (`recipient_name` ist von `einlesen` an durchweg `Option`),
+    // die Gläubiger-ID an einer Firma dagegen Pflicht. Hinge die Intermediär-Erkennung allein am
+    // Namen, fiele sie bei einer namenlosen Zeile still aus — und genau der Klumpen, den dieses
+    // Ticket verhindert, wäre zurück, ohne dass irgendetwas fehlschlüge.
+    let api = api().with_window(
+        FENSTER,
+        fenster(&[
+            firma_ohne_namen(
+                JAN_15,
+                4_235,
+                "LU96ZZZ0000000000000000058",
+                Some("PP.4711.PP . REWE Markt"),
+            ),
+            firma_ohne_namen(
+                JAN_31,
+                999,
+                "LU96ZZZ0000000000000000058",
+                Some("PP.4712.PP . Spotify AB"),
+            ),
+        ]),
+    );
+
+    api.run(FENSTER).expect("namenloser Intermediaer");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 5_234)],
+        // Zwei Arten — erkannt über die **Gläubiger-ID**, die immer da ist.
+        fingerprints: vec![
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB".to_string(),
         ],
     });
 }

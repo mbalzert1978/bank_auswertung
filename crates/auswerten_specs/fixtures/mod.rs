@@ -82,6 +82,26 @@ pub(crate) fn firma(
     }
 }
 
+/// Ein Abfluss an eine Firma **ohne geführten Namen** — erreichbar, weil `recipient_name` von
+/// `einlesen` an durchweg optional ist, die Gläubiger-ID an einer Firma dagegen Pflicht.
+pub(crate) fn firma_ohne_namen(
+    booking_day: i64,
+    cent: u64,
+    creditor_id: &str,
+    purpose: Option<&str>,
+) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_cent: cent,
+        direction: BookingDirection::Outgoing,
+        recipient: BookingRecipient::Company {
+            name: None,
+            creditor_id: creditor_id.to_string(),
+        },
+        purpose: purpose.map(str::to_string),
+    }
+}
+
 /// Ein Abfluss an eine **fail-safe Privatperson** — sie trägt **nur** ihr seed-basiertes Pseudonym
 /// (`PERSON_…`), das `obfuskieren` vergeben hat. Ein anderer Seed ergibt stromaufwärts ein anderes
 /// Pseudonym; dieser Slice sieht den Seed nie (ADR-0010).

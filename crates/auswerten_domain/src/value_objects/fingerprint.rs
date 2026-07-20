@@ -1,12 +1,25 @@
 use crate::value_objects::{NonEmptyString, Recipient};
 
-/// Die **Zahlungsintermediäre** — Durchleiter, die im Kontoauszug als Gegenpartei erscheinen,
-/// obwohl der eigentliche Händler dahinter steckt. Sie stehen hier als Marker im **normalisierten**
-/// Firmennamen, denn ihre Firmierung trägt Beiwerk („PayPal Europe S.a.r.l. et Cie S.C.A.").
+/// Die **Gläubiger-IDs** bekannter Durchleiter — das **verlässliche** Erkennungssignal, denn die
+/// Gläubiger-ID ist an einer Firma **Pflichtfeld** (der Adapter erzwingt ihre Präsenz), während der
+/// Firmenname optional ist.
 ///
-/// Das ist **Fachwissen der Domäne**, keine Konfiguration: dass ein Durchleiter den Händler
+/// Hinge die Erkennung allein am Namen, fiele sie bei einer namenlosen Zeile **still** aus und der
+/// Durchleiter verklumpte seine Händler wieder — ein Fehler, der nichts fehlschlagen ließe, sondern
+/// nur ein falsches Ergebnis erzeugte.
+///
+/// **Unvollständig:** hier steht bislang nur PayPal. Die Gläubiger-IDs von Klarna und Amazon
+/// Payments müssen aus echten Auszugsdaten ergänzt werden — bis dahin trägt sie allein der
+/// Namens-Marker unten.
+const INTERMEDIARY_CREDITOR_IDS: [&str; 1] = ["LU96ZZZ0000000000000000058"];
+
+/// Namens-Marker der Durchleiter — das **ergänzende** Signal, das greift, solange oben eine
+/// Gläubiger-ID fehlt. Sie stehen als Marker im **normalisierten** Namen, denn die Firmierung trägt
+/// Beiwerk („PayPal Europe S.a.r.l. et Cie S.C.A.").
+///
+/// Beides ist **Fachwissen der Domäne**, keine Konfiguration: dass ein Durchleiter den Händler
 /// verdeckt, ist eine Aussage über die Analyse, nicht über die Umgebung.
-const INTERMEDIARIES: [&str; 3] = ["PAYPAL", "KLARNA", "AMAZON PAYMENTS"];
+const INTERMEDIARY_NAMES: [&str; 3] = ["PAYPAL", "KLARNA", "AMAZON PAYMENTS"];
 
 /// Der **Fingerabdruck** — der stabile Schlüssel, der eine *Art* von Buchung identifiziert, nicht
 /// die einzelne Buchung. Er ist **Domänenwissen** (ADR-0004, ADR-0013 Entscheidung F): entfernt man
@@ -30,7 +43,8 @@ impl Fingerprint {
     ///
     /// Eine Firma wird über ihre **Gläubiger-ID** geschlüsselt (der öffentliche, über Importe
     /// hinweg stabile Firmenschlüssel); ist sie ein **Zahlungsintermediär**, tritt der
-    /// Händler-Token des Verwendungszwecks hinzu. Eine Privatperson wird über ihr **seed-basiertes
+    /// Händler-Token des Verwendungszwecks hinzu — erkannt vorrangig an eben dieser Gläubiger-ID,
+    /// nicht am optionalen Namen (siehe [`is_intermediary`]). Eine Privatperson wird über ihr **seed-basiertes
     /// Pseudonym** geschlüsselt — derselbe Mensch ergibt bei gleichem Seed denselben Fingerabdruck,
     /// ohne dass preisgegeben wird, wer dahintersteckt (ADR-0010).
     ///
@@ -47,10 +61,9 @@ impl Fingerprint {
                 // er weg — dort ist die Gläubiger-ID bereits der Händler, und der wechselnde
                 // Zweck würde den Schlüssel je Buchung aufspalten.
                 Some(Self(
-                    match name
-                        .as_ref()
-                        .filter(|name| is_intermediary(name))
-                        .and(purpose)
+                    match is_intermediary(name.as_ref(), creditor_id)
+                        .then_some(purpose)
+                        .flatten()
                         .and_then(merchant_token)
                     {
                         Some(token) => format!("{company}|MERCHANT:{token}"),
@@ -77,16 +90,26 @@ fn words(raw: &str) -> impl Iterator<Item = &str> {
         .filter(|word| !word.is_empty())
 }
 
-/// Ist diese Firma ein **Durchleiter**? Geprüft wird auf dem normalisierten Namen, weil die
-/// Firmierung Beiwerk trägt („PayPal Europe S.a.r.l. et Cie S.C.A." → `PAYPAL EUROPE S A R L …`).
-fn is_intermediary(name: &NonEmptyString) -> bool {
-    let normalised = words(name.as_str())
+/// Ist diese Firma ein **Durchleiter**?
+///
+/// Zuerst über die **Gläubiger-ID** — das Pflichtfeld, das immer da ist. Erst danach über den
+/// **optionalen** Namen, der als Auffangsignal dient, solange die ID oben fehlt. Die Reihenfolge ist
+/// der Punkt: das verlässliche Signal muss zuerst greifen, sonst hinge die Händler-Trennung an der
+/// Anwesenheit eines Feldes, das fehlen darf.
+fn is_intermediary(name: Option<&NonEmptyString>, creditor_id: &NonEmptyString) -> bool {
+    let normalised_id = words(creditor_id.as_str())
         .map(str::to_uppercase)
-        .collect::<Vec<_>>()
-        .join(" ");
-    INTERMEDIARIES
-        .iter()
-        .any(|intermediary| normalised.contains(intermediary))
+        .collect::<String>();
+    INTERMEDIARY_CREDITOR_IDS.contains(&normalised_id.as_str())
+        || name.is_some_and(|name| {
+            let normalised = words(name.as_str())
+                .map(str::to_uppercase)
+                .collect::<Vec<_>>()
+                .join(" ");
+            INTERMEDIARY_NAMES
+                .iter()
+                .any(|intermediary| normalised.contains(intermediary))
+        })
 }
 
 /// Der **Händler-Token** eines Verwendungszwecks: seine Wörter, normalisiert — **ohne** jedes Wort,
