@@ -90,10 +90,19 @@ impl<'a> WindowEvaluationHandler<'a> {
     /// verschwenderisch — es stellte die gelernte Korrektur zur Disposition, die genau deshalb
     /// gelernt wurde, weil das Orakel danebenlag.
     ///
-    /// **Bleibt nichts übrig, wird nicht gefragt.** Der Chat bleibt dann ganz stumm; ein Aufruf mit
-    /// leerer Liste wäre ein Egress ohne Frage.
+    /// **Bleibt nichts übrig, wird nicht gefragt** — und zwar an *beiden* Stellen: hat das Fenster
+    /// gar keine Buchungsart mit Kategorie-Signal, wird schon das **Register** nicht befragt; bleibt
+    /// nach dem Abgleich nichts Unbekanntes, bleibt der **Chat** stumm. Ein Aufruf mit leerer Liste
+    /// wäre in beide Richtungen eine Frage ohne Gegenstand.
+    ///
+    /// Beim Register ist das mehr als Sparsamkeit: die Auskunft ist **terminal**. Ein ausgefallenes
+    /// Register beendete sonst einen Lauf, der gar nichts von ihm wollte — ein Fehlschlag ohne
+    /// Ursache in der Sache.
     fn categorise(&self, window: &AnalysisWindow) -> Result<Vec<CategoryAnswer>, EvaluationError> {
         let requests = window.category_requests();
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
         let known = self
             .registry
             .known_among(

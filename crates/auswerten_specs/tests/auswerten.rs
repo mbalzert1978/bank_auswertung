@@ -870,6 +870,30 @@ fn eine_buchung_ohne_kategorie_signal_wird_nicht_angefragt() {
 }
 
 #[test]
+fn ohne_etwas_zu_fragen_wird_auch_das_register_nicht_befragt() {
+    // Gibt es **keine** Anfrage, gibt es auch nichts abzugleichen — dann darf das Register gar nicht
+    // erst angefasst werden. Der Beleg dafür ist ein **ausgefallenes** Register: ein Fenster ohne
+    // Kategorie-Signal läuft trotzdem durch. Andernfalls beendete eine Auskunft, auf die es nicht
+    // ankam, einen Lauf, der nichts von ihr wollte — ein Fehlschlag ohne Ursache in der Sache.
+    let api = api()
+        .with_window(FENSTER, fenster(&[ausgang(JAN_15, 500)]))
+        .with_failing_registry("Register-Tabelle gesperrt");
+
+    let ergebnis = api.run(FENSTER);
+
+    assert_eq!(ergebnis, Ok(()));
+    api.assert_nothing_asked();
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 500)],
+        fingerprints: vec![],
+        counter_accounts: vec![],
+        categories: vec![],
+    });
+}
+
+#[test]
 fn ein_etikett_zu_einem_nie_gefragten_schluessel_wird_verworfen() {
     // Der Fingerabdruck ist **Domänenwissen** (ADR-0004), keine Absprache über Zeichenketten. Ein
     // Orakel, das ein Etikett zu einem Schlüssel schickt, nach dem niemand gefragt hat, behauptet
