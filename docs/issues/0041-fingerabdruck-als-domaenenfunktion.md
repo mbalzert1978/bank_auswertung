@@ -1,7 +1,7 @@
 ---
 id: "0041"
 title: Fingerabdruck als reine Domänenfunktion
-status: blocked
+status: closed
 ---
 
 # Fingerabdruck als reine Domänenfunktion

@@ -1,7 +1,7 @@
 ---
 id: "0038"
 title: fenstern — StartAnalysis-Kickoff und der leere Datenbestand
-status: blocked
+status: closed
 ---
 
 # fenstern — StartAnalysis-Kickoff und der leere Datenbestand

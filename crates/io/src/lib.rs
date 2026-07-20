@@ -23,10 +23,12 @@
 //!   Ein erster nutzlast-tragender Slice erweitert den Outbox-Vertrag um einen Content-/serde-
 //!   Seam — dann ist es kein reiner Zeiger mehr.
 //! - [`Dispatcher`] löst eine Nachricht per `message_type` auf ihren Consumer auf.
-//! - [`einlesen`], [`obfuskierung`] und [`fenstern`] verdrahten je den Slice-Handler + -Decoder in
-//!   einen [`OutboxConsumer`] — dieselbe generische Maschinerie, drei Slices. [`fenstern`] bringt
-//!   **zwei** Consumer mit (Anstoß und Fenster-Schritt), die derselbe [`Dispatcher`] uniform über
-//!   ihren `message_type` auflöst — die Maschinerie brauchte dafür keine Erweiterung.
+//! - [`einlesen`], [`obfuskierung`], [`fenstern`] und [`auswerten`] verdrahten je den
+//!   Slice-Handler und -Decoder in einen [`OutboxConsumer`] — dieselbe generische Maschinerie, vier
+//!   Slices. [`fenstern`] und [`auswerten`] bringen je **zwei** Consumer mit (`fenstern`: Anstoß und
+//!   Fenster-Schritt; `auswerten`: die pro-Fenster- und die fenster-übergreifende Reichweite), die
+//!   derselbe [`Dispatcher`] uniform über ihren `message_type` auflöst — die Maschinerie brauchte
+//!   dafür keine Erweiterung.
 //!
 //! **Bewusst draußen (Build-Order Schritt 5):** der echte SQLite-/`sqlx`-Teil (Broker/Stores,
 //! CSV-/Datei-Beschaffung). Die Seams (`SourceSeam`/`StoreSeam`/…, `OutboxPublisher`,

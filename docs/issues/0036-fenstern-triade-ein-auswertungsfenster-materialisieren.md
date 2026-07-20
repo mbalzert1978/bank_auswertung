@@ -1,7 +1,7 @@
 ---
 id: "0036"
 title: fenstern-Triade — ein Auswertungsfenster materialisieren
-status: blocked
+status: closed
 ---
 
 # fenstern-Triade — ein Auswertungsfenster materialisieren

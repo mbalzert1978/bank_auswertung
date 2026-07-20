@@ -1,6 +1,8 @@
 # Zeitfenster-Schritt `fenstern` als paginierender Analyse-Kopf, zwei Analyse-Reichweiten
 
-> **Status: Akzeptiert (entschiedener Plan, noch nicht gebaut).** Verfeinert
+> **Status: Akzeptiert und gebaut** (Kette 0036–0045 in `main`, gegen Fakes; das reale `io`
+> — SQLite/`sqlx`, Tag-Stamp-Persistenz, Config-Loader — bleibt bewusst der letzte Bauschritt).
+> Verfeinert
 > [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (fügt der Pipeline einen Schritt
 > `fenstern` zwischen `obfuskieren` und `auswerten` hinzu) und stützt sich auf
 > [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (reine Pipeline, Outbox-Mechanik
