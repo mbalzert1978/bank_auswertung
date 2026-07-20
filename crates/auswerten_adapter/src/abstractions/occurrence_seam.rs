@@ -4,7 +4,8 @@ use crate::models::WindowBookingRow;
 /// Der öffentliche **Lese-Seam** der fenster-übergreifenden Reichweite: liefert die Buchungen
 /// **aller** Auswertungsfenster **eines** Laufs — gescopt über die **Lauf-Spanne** `[from … to]`
 /// (beide Grenzen einschließlich), die `fenstern` im `HistorieVollständig`-Signal mitträgt
-/// (ADR-0013, Entscheidung E). **io erfüllt ihn** — roh-typisiert, ohne Domänen-Kenntnis; die
+/// (ADR-0013, Entscheidung E). **io wird ihn erfüllen** — roh-typisiert, ohne Domänen-Kenntnis;
+/// heute trägt ihn allein ein Fake, denn `io` bindet diesen Slice noch nicht. Die
 /// [`OccurrenceBridge`](crate::adapter::OccurrenceBridge) mappt den von der Domäne verlangten Port
 /// `auswerten_domain::OccurrenceSource` darauf.
 ///
