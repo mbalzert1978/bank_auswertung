@@ -44,6 +44,23 @@ Aufzählung der in `io` verdrahteten Slices, die Baureihenfolge und die Liste de
 vertagt ist. Der Umsetzer arbeitet darum **nicht diese vier Punkte ab, sondern gleicht die Doku
 gegen das Repo ab** — die Punkte oben sind die bekannten Startpunkte.
 
+**Das Rustdoc der Crates gehört dazu** (nachgetragen bei der Ripple-Prüfung nach
+[0043](0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md)). Die ursprüngliche
+Fassung dieses Tickets nannte nur CLAUDE.md, PROGRESS.md, README und die ADRs — womit die
+Crate-Doku durch kein Auffangnetz gedeckt war, obwohl sie **dieselbe Sorte** Aussage trägt und ein
+Agent sie **zuerst** liest, wenn er in einem Slice arbeitet. Konkret veraltet die Kette dort an
+mindestens drei Stellen:
+
+- die **Zustands-Aussagen zur `io`-Verdrahtung** je Slice (`auswerten_adapter` benennt heute
+  explizit, dass `io` ihn noch nicht bindet) — [0045](0045-io-auswerten-end-to-end.md) macht sie
+  falsch;
+- das **„io erfüllt ihn"** der Seam- und Port-Docs, das erst ab 0045 bzw. dem realen `io` stimmt;
+- die **„Noch nicht hier"**-Absätze der `lib.rs`-Köpfe, die auf Folge-Issues zeigen, die inzwischen
+  gebaut sind.
+
+Der Umsetzer prüft die Crate-Docs also **mit demselben Blick** wie die Projekt-Doku: behauptet ein
+Satz einen Zustand, den es nicht (mehr) gibt?
+
 **Reine Doku — kein Code-Verhalten ändert sich.** Bewusst **nicht** in diesem Ticket: eine Maßnahme
 gegen die *Wiederholung* des Drifts (etwa das Schließen beim Merge verbindlich zu machen). Die
 Ursache bleibt damit offen — aber sichtbar und absichtlich, statt in einem Reparatur-Ticket
@@ -65,6 +82,10 @@ mitzulaufen, dessen Fertig-Kriterium sie verwässern würde.
 - [ ] Der Kopf von ADR-0013 behauptet nicht mehr, der Plan sei ungebaut.
 - [ ] **Kein Satz** in CLAUDE.md, PROGRESS.md, README oder den ADRs widerspricht dem Repo — geprüft
       durch einen Abgleich gegen den realen Stand, nicht nur an den oben gelisteten Startpunkten.
+- [ ] **Dasselbe gilt für das Rustdoc der Crates** (`lib.rs`-Köpfe, Seam-, Port- und Handler-Docs):
+      keine Aussage über die `io`-Verdrahtung, über „von io erfüllte" Seams oder über „noch nicht
+      Gebautes" steht mehr im Widerspruch zum Repo. Die Prüfung ist dieselbe Frage wie oben —
+      behauptet ein Satz einen Zustand, den es nicht mehr gibt?
 - [ ] Keine Code-Änderung; `cargo build`, `cargo test`, `cargo clippy --all-targets`,
       `cargo fmt --check` und `cargo test -p architecture` bleiben unverändert grün.
 
