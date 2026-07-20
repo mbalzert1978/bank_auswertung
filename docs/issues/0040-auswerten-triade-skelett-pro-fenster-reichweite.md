@@ -1,7 +1,7 @@
 ---
 id: "0040"
 title: auswerten-Triade — die pro-Fenster-Reichweite
-status: blocked
+status: closed
 ---
 
 # auswerten-Triade — die pro-Fenster-Reichweite

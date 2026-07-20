@@ -67,7 +67,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 
 **Cargo workspace** (edition 2024; every member inherits the strict
 `[workspace.lints.clippy]` "Don't Panic" set via `[lints] workspace = true`) —
-**eight crates under `crates/`** plus the top-level validator crate
+**fourteen crates under `crates/`** plus the top-level validator crate
 [`architecture`](architecture):
 
 - **one thin, interface-only kernel crate** ([ADR-0009](docs/adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md),
@@ -75,8 +75,9 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   [`application_kernel`](crates/application_kernel) — the **only** slice↔`io` contract
   (`Command`/`Handler`/`Publisher`/`PublishCommand`/`CommandDecoder`), dependency-free,
   bound by the slice adapters and `io`;
-- two **feature-slice triads** `<slice>_domain`/`_adapter`/`_specs`:
-  [`einlesen`](crates/einlesen_adapter), [`obfuskierung`](crates/obfuskierung_adapter);
+- four **feature-slice triads** `<slice>_domain`/`_adapter`/`_specs`:
+  [`einlesen`](crates/einlesen_adapter), [`obfuskierung`](crates/obfuskierung_adapter),
+  [`fenstern`](crates/fenstern_adapter), [`auswerten`](crates/auswerten_adapter);
 - [`io`](crates/io) — holds the **io-private Outbox seams**
   (`OutboxMessage`/`OutboxCommand`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/
   `UnitOfWork` — here since [Issue 0032](docs/issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)
@@ -154,24 +155,64 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   redacted** failure (static field name / opaque ID, never a raw value) — **no retry in the
   slice** ([ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
   Persistent seed management deferred.
+- **`fenstern`** — third pipeline step and the **paginating analysis head**
+  ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)); the first
+  **N→1** slice. **Two single-purpose handlers** (the type carries the intent, ADR-0005): the
+  `StartHandler` consumes the field-less `StartAnalysis`, reads the initial anchor once over the
+  `WindowAnchor` port (`max(booking_day)`, data-relative, no clock) and publishes the first
+  `AdvanceWindow` — an **empty store is no error** (the run ends `Ok`, publishes nothing); the
+  `WindowingHandler` then, per command, spans the page `[anchor − window_days + 1 … anchor]`,
+  **reads** its obfuscated rows, **reduces** them N→1 into one `Auswertungsfenster` aggregate
+  (invariants at construction: **non-empty** + **one currency**), **stores** it (the store assigns
+  the new ID) and **publishes that new ID** as the pointer (`FensterGeschlossen`). It then **continues
+  itself**: the next anchor is `max(booking_day < from)` — a day found → next `AdvanceWindow`, none
+  → `HistorieVollständig` with the run span. Read/store/publish each **fallible + terminal** (ADR-0012).
+  Downstream of the privacy boundary, so it sees only opaque IDs, one currency and day-stamps — no
+  egress DTO, hence no `assert_not_impl_any!` guard. Page size `WindowDays` and the day-stamp axis
+  come in as **values** (`io` reads the config; the domain binds no calendar).
+- **`auswerten`** — fourth pipeline step and **the analysis itself**
+  ([ADR-0004](docs/adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md): the domain is the
+  analysis, the LLM only an oracle). **Two reaches, two single-purpose handlers — both built**
+  (ADR-0013, decision E). The **per-window** reach (`WindowEvaluationHandler`, consuming
+  `FensterGeschlossen` — an **ID pointer**) reads the frozen `Auswertungsfenster` by ID, computes
+  the periodic metric **within** the window — today the **month cashflow** — plus the window's
+  **distinct fingerprints**, and stores the result. The **window-spanning** reach
+  (`HistoryEvaluationHandler`, consuming `HistorieVollständig` — a **different** dispatch key, scoped
+  to the run by the run span in the `partition_key`) runs **one** read-port query over **all** windows
+  of the run and **returns** the occurrences of the whole timeline — it **stores nothing** (the
+  aggregates are the sole truth; idempotence follows from querying immutable snapshots, not dedupe
+  logic). The **`Fingerabdruck`** is a **pure domain function** (company via `GläubigerId`, payment
+  intermediary additionally via the merchant token, private person via the seed-based pseudonym) —
+  domain, not adapter or `io`. **`Gegenkonto::Eigen|Fremd` is resolved on tokens** against the
+  token-oriented own-accounts config passed in as a value (`io` wires it; the slice reads no file, no
+  raw IBAN ever reaches it), with a `SeedMarker` guard that fails the run terminally if window and
+  config were not tokenised under the same seed. Calls `Kategorisierer` only for **unknown**
+  fingerprints; its egress DTO carries the no-`Serialize` guard. Read/store/query each **fallible +
+  terminal**, **no** publish seam (it is the pipeline tail until `report`). Still to come on top of
+  these reaches: the fee/Pareto/`Umbuchung`-netting/recurrence analyzers (building blocks 0004–0007).
 
 (An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
-`Gegenkonto::Eigen|Fremd` resolution into the future **`auswerten`** slice, done **on
+`Gegenkonto::Eigen|Fremd` resolution into the **`auswerten`** slice, done **on
 tokens** — the counter-account `KONTO_x` against the seed-tokenised set of own accounts —
 so a raw-IBAN register consumed at ingest no longer fits. The own-accounts config
-(IBAN + role Giro/Haushalt/Spar/Vorlauf) resurfaces as an `auswerten` input when that slice
-is built.)
+(IBAN + role Giro/Haushalt/Spar/Vorlauf) is now an `auswerten` input: since issue 0042 the slice
+takes the **token-oriented** own-accounts config as a value (`io` wires it, the slice reads no
+file), and the config loader that turns raw IBANs into tokens is issue 0002, still deferred.)
 
 **Status.** Green: `cargo build`/`test`/`clippy --all-targets`/`fmt --check` +
 `cargo test -p architecture`. Built: `application_kernel` + the `io`-private Outbox seams,
-the generic transactional consumer/dispatcher in `io`, `einlesen` end-to-end against fakes,
-and the `obfuskieren` slice (seed-based, against fakes) — both wired through `io`. Deferred:
+the generic transactional consumer/dispatcher in `io`, and **all four slices end-to-end against
+fakes, each wired through `io`**: `einlesen`, the `obfuskieren` slice (seed-based), the `fenstern`
+slice (the paginating analysis head — two consumers: kick-off + window step), and the `auswerten`
+split (**both reaches** built — per-window and window-spanning; the `Fingerabdruck` domain function,
+token-based `Gegenkonto` resolution, and the `Kategorisierer` port for unknown fingerprints)
+— the whole `ADR-0013` chain (issues 0036–0045) is done. Deferred:
 the real `io` adapters (`csv`/`toml`/`fs`/`sqlx` + SQLite Outbox broker/stores + `Speicher`),
 the `report` presenter, the remaining egress-DTO `Serialize` guards, `ObfuskierterText`
 scrubbing (only trims/rejects-empty today), and persistent seed management
-([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). **Next: the `fenstern`
-slice and the `auswerten` split** ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md),
-accepted) — broken down into issues 0035–0045. No binary yet.
+([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). **Next: the real `io`
+adapters (SQLite Outbox broker/stores, file/CSV parse, config loaders) fulfilling the seams, then
+the `report` HTML presenter.** No binary yet.
 
 ## Language convention
 
@@ -348,14 +389,15 @@ each step runnable/valuable against fakes, real `io` last:
    `Auswertungsfenster` aggregate per page**; publish `FensterGeschlossen` per page and
    `HistorieVollständig` on exhaustion
    ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).
-   **next** — issues 0036–0039.
-5. **`auswerten` slice** — **two single-purpose handlers**: per-window (fees + cashflow +
-   Pareto *within* one `Auswertungsfenster`) and window-spanning (recurrence as a **read-port
-   query over all windows of the run**, triggered by `HistorieVollständig` — no fold-log).
-   Owns `Fingerabdruck` and token-based `Gegenkonto::Eigen|Fremd` resolution (counter
-   `KONTO_x` vs. the seed-tokenised own-accounts set) — needs the own-accounts config
-   (IBAN + role). Calls `Kategorisierer` only for unknown fingerprints. Issues 0040–0045
-   plus the analyzer building blocks 0004–0007.
+   **done** (fakes) — issues 0036–0039.
+5. **`auswerten` slice** — **two single-purpose handlers**, **both built** (fakes): per-window
+   (today the **month cashflow** *within* one `Auswertungsfenster`, carrying the window's distinct
+   fingerprints) and window-spanning (recurrence *reach* as a **read-port query over all windows of
+   the run**, triggered by `HistorieVollständig` — no fold-log). Owns the `Fingerabdruck` domain
+   function and token-based `Gegenkonto::Eigen|Fremd` resolution (counter `KONTO_x` vs. the
+   seed-tokenised own-accounts config, IBAN + role). Calls `Kategorisierer` only for unknown
+   fingerprints. Issues 0040–0045 **done**; the fee/Pareto/`Umbuchung`-netting/recurrence analyzers
+   (building blocks 0004–0007) build *on top* of these reaches and are still to come.
 6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
    (SQLite Outbox broker/stores, file/CSV parse) fulfilling the seams.
 7. **`report`** HTML output.

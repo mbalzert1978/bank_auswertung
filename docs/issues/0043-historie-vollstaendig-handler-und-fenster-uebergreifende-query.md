@@ -1,7 +1,7 @@
 ---
 id: "0043"
 title: HistorieVollständig-Handler und die fenster-übergreifende Read-Port-Query
-status: blocked
+status: closed
 ---
 
 # HistorieVollständig-Handler und die fenster-übergreifende Read-Port-Query

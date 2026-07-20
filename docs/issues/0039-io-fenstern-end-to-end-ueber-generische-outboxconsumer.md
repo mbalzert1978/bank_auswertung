@@ -1,7 +1,7 @@
 ---
 id: "0039"
 title: io — fenstern end-to-end über den generischen OutboxConsumer
-status: blocked
+status: closed
 ---
 
 # io — fenstern end-to-end über den generischen OutboxConsumer

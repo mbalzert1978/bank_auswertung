@@ -1,7 +1,7 @@
 ---
 id: "0044"
 title: Kategorisierer-Port für unbekannte Fingerabdrücke
-status: blocked
+status: closed
 ---
 
 # Kategorisierer-Port für unbekannte Fingerabdrücke

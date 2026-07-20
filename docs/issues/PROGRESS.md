@@ -1,6 +1,6 @@
 # Issue-Fortschritt
 
-Stand: 2026-07-16
+Stand: 2026-07-20
 
 ## Neu (offen) — event-getriebene Pipeline (ADR-0008)
 
@@ -19,7 +19,7 @@ Vertagt (Zielbild ADR-0008, bewusst noch kein Issue): `report`-Consumer und der 
 [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) durch 0040–0045
 belegt.
 
-## Neu (offen) — Bau nach ADR-0013 (`fenstern` + `auswerten`-Split)
+## Erledigt — Bau nach ADR-0013 (`fenstern` + `auswerten`-Split)
 
 Zerlegung des Baus hinter dem akzeptierten
 [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) in vertikale
@@ -39,36 +39,29 @@ Prefactor:
 
 `fenstern`-Slice:
 
-- [ ] **[0036-fenstern-triade-ein-auswertungsfenster-materialisieren.md](0036-fenstern-triade-ein-auswertungsfenster-materialisieren.md)**
-  Triade + Kern-Pfad: `AdvanceWindow` → `Auswertungsfenster` materialisieren → `FensterGeschlossen`.
-  *Blockiert durch 0035.*
-- [ ] **[0037-fenstern-selbst-fortsetzung-mehr-seiten-paging.md](0037-fenstern-selbst-fortsetzung-mehr-seiten-paging.md)**
-  Selbst-Fortsetzung über `max(booking_day < from)`; Lücken übersprungen, Fenster nie leer.
-  *Blockiert durch 0036.*
-- [ ] **[0038-fenstern-startanalysis-kickoff-und-leere-datenbank.md](0038-fenstern-startanalysis-kickoff-und-leere-datenbank.md)**
-  `StartAnalysis`-Anstoß über den `WindowAnchor`-Port; leerer Bestand → `Ok`, publiziert nichts.
-  *Blockiert durch 0036.*
-- [ ] **[0039-io-fenstern-end-to-end-ueber-generische-outboxconsumer.md](0039-io-fenstern-end-to-end-ueber-generische-outboxconsumer.md)**
-  `fenstern` in `io` verdrahtet, end-to-end gegen Fakes. *Blockiert durch 0037, 0038.*
+- [x] **[0036-fenstern-triade-ein-auswertungsfenster-materialisieren.md](0036-fenstern-triade-ein-auswertungsfenster-materialisieren.md)**
+  (2026-07-19, PR #34) Triade + Kern-Pfad: `AdvanceWindow` → `Auswertungsfenster` materialisieren → `FensterGeschlossen`.
+- [x] **[0037-fenstern-selbst-fortsetzung-mehr-seiten-paging.md](0037-fenstern-selbst-fortsetzung-mehr-seiten-paging.md)**
+  (2026-07-19, PR #35) Selbst-Fortsetzung über `max(booking_day < from)`; Lücken übersprungen, Fenster nie leer.
+- [x] **[0038-fenstern-startanalysis-kickoff-und-leere-datenbank.md](0038-fenstern-startanalysis-kickoff-und-leere-datenbank.md)**
+  (2026-07-20, PR #36) `StartAnalysis`-Anstoß über den `WindowAnchor`-Port; leerer Bestand → `Ok`, publiziert nichts.
+- [x] **[0039-io-fenstern-end-to-end-ueber-generische-outboxconsumer.md](0039-io-fenstern-end-to-end-ueber-generische-outboxconsumer.md)**
+  (2026-07-20, PR #37) `fenstern` in `io` verdrahtet, end-to-end gegen Fakes.
 
 `auswerten`-Slice:
 
-- [ ] **[0040-auswerten-triade-skelett-pro-fenster-reichweite.md](0040-auswerten-triade-skelett-pro-fenster-reichweite.md)**
-  Triade + erster Handler (`FensterGeschlossen` → Aggregat per ID → Monats-Cashflow).
-  *Blockiert durch 0036.*
-- [ ] **[0041-fingerabdruck-als-domaenenfunktion.md](0041-fingerabdruck-als-domaenenfunktion.md)**
-  `Fingerabdruck` als reine Domänenfunktion (inkl. Intermediär + Händler-Token).
-  *Blockiert durch 0040.*
-- [ ] **[0042-eigene-konten-config-und-gegenkonto-auf-token.md](0042-eigene-konten-config-und-gegenkonto-auf-token.md)**
-  `Gegenkonto::Eigen|Fremd` auf Token + token-orientierte Eigene-Konten-Config. *Blockiert durch 0040.*
-- [ ] **[0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md](0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md)**
-  Zweiter Handler: `HistorieVollständig` → Read-Port-Query über alle Fenster des Laufs (kein Log).
-  *Blockiert durch 0037, 0040.*
-- [ ] **[0044-kategorisierer-port-fuer-unbekannte-fingerabdruecke.md](0044-kategorisierer-port-fuer-unbekannte-fingerabdruecke.md)**
-  `Kategorisierer`-Port nur für unbekannte Fingerabdrücke, Egress-DTO ohne `Serialize`.
-  *Blockiert durch 0041.*
-- [ ] **[0045-io-auswerten-end-to-end.md](0045-io-auswerten-end-to-end.md)**
-  `auswerten` in `io` verdrahtet; volle Pipeline gegen Fakes. *Blockiert durch 0039, 0043.*
+- [x] **[0040-auswerten-triade-skelett-pro-fenster-reichweite.md](0040-auswerten-triade-skelett-pro-fenster-reichweite.md)**
+  (2026-07-20, PR #38) Triade + erster Handler (`FensterGeschlossen` → Aggregat per ID → Monats-Cashflow).
+- [x] **[0041-fingerabdruck-als-domaenenfunktion.md](0041-fingerabdruck-als-domaenenfunktion.md)**
+  (2026-07-20, PR #39) `Fingerabdruck` als reine Domänenfunktion (inkl. Intermediär + Händler-Token).
+- [x] **[0042-eigene-konten-config-und-gegenkonto-auf-token.md](0042-eigene-konten-config-und-gegenkonto-auf-token.md)**
+  (2026-07-20, PR #40) `Gegenkonto::Eigen|Fremd` auf Token + token-orientierte Eigene-Konten-Config.
+- [x] **[0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md](0043-historie-vollstaendig-handler-und-fenster-uebergreifende-query.md)**
+  (2026-07-20, PR #41) Zweiter Handler: `HistorieVollständig` → Read-Port-Query über alle Fenster des Laufs (kein Log).
+- [x] **[0044-kategorisierer-port-fuer-unbekannte-fingerabdruecke.md](0044-kategorisierer-port-fuer-unbekannte-fingerabdruecke.md)**
+  (2026-07-20, PR #42) `Kategorisierer`-Port nur für unbekannte Fingerabdrücke, Egress-DTO ohne `Serialize`.
+- [x] **[0045-io-auswerten-end-to-end.md](0045-io-auswerten-end-to-end.md)**
+  (2026-07-20, PR #43) `auswerten` in `io` verdrahtet; volle Pipeline gegen Fakes.
 
 Neu verdrahtete Fach-Analyzer (bestehende Issues): 0004 ← 0042 · 0006 ← 0040, 0004 ·
 0005 ← 0041, 0043, 0004 · 0007 ← 0040, 0004, 0005, 0006.
@@ -77,8 +70,8 @@ Abschluss:
 
 - [ ] **[0046-doku-drift-nach-den-merges-0036-0045-auf-den-realen-stand-ziehen.md](0046-doku-drift-nach-den-merges-0036-0045-auf-den-realen-stand-ziehen.md)**
   Doku **einmal am Ende** auf den realen Stand: Issue-Status, `PROGRESS.md`, Crate-Liste und
-  Status-Abschnitt in CLAUDE.md, ADR-0013-Kopf. Gegenstück zum Prefactor 0035.
-  *Blockiert durch 0045.*
+  Status-Abschnitt in CLAUDE.md, ADR-0013-Kopf sowie das Rustdoc der Crates. Gegenstück zum
+  Prefactor 0035. *In Arbeit — durch das Merge von 0045 freigegeben.*
 
 ## Erledigt
 

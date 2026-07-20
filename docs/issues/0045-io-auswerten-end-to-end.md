@@ -1,7 +1,7 @@
 ---
 id: "0045"
 title: io — auswerten end-to-end über den generischen OutboxConsumer
-status: blocked
+status: closed
 ---
 
 # io — auswerten end-to-end über den generischen OutboxConsumer
