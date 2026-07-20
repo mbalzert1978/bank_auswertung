@@ -1,7 +1,7 @@
 use fenstern_domain::AnalysisWindow;
 
 /// Das **abgelegte Auswertungsfenster** als Zeile der eigenen Tabelle des Slice — das Ausgangs-DTO,
-/// das die [`RepositoryBridge`](crate::adapter::RepositoryBridge) in den Speicher-Seam staged. Es
+/// das die `RepositoryBridge` in den Speicher-Seam staged. Es
 /// trägt die Lauf-Spanne, die eine Währung des Fensters und die **Fremdschlüssel** auf genau die
 /// obfuskierten Zeilen, die es einfriert (ADR-0013, Entscheidung A: FKs, keine eingebettete
 /// Nutzlast). Seine **eigene** ID vergibt die Persistenz beim Ablegen — sie steht darum nicht hier

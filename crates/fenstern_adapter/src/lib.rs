@@ -28,7 +28,7 @@
 //!
 //! **Schichtung:** der domänen-interne `fenstern_domain::WindowingHandler` hängt **nur** an den
 //! verlangten Domänen-Ports (`ObfuscatedWindowSource`/`AnalysisWindowRepository`/
-//! `WindowClosedPublisher`); die Port-Bridges (Modul [`adapter`]) mappen die öffentlichen,
+//! `WindowClosedPublisher`); die Port-Bridges (Modul `adapter`) mappen die öffentlichen,
 //! mechanischen Abstractions ([`ObfuscatedWindowSeam`]/[`AnalysisWindowStoreSeam`]/
 //! [`WindowPublishSeam`], die io erfüllt) darauf. **Alle drei sind fehlbar und terminal** (ADR-0012).
 //!

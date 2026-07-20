@@ -124,7 +124,7 @@ impl WindowingTestApi {
     /// Ein terminaler Fehler bricht den Lauf sofort ab und wird nackt zurückgegeben.
     ///
     /// # Panics
-    /// Wenn die Kette nicht binnen [`KETTEN_SCHRANKE`] Schritten terminiert — der Anker muss streng
+    /// Wenn die Kette nicht binnen `KETTEN_SCHRANKE` Schritten terminiert — der Anker muss streng
     /// monoton sinken, ein Nicht-Terminieren ist ein **Fehlschlag des Specs**, kein Hänger.
     pub fn run_chain(&self, anchor: i64) -> Result<(), WindowError> {
         self.fahre_kette(format!("{anchor}:{anchor}"), 0)
@@ -138,7 +138,7 @@ impl WindowingTestApi {
     /// ohne dass je ein Fenster-Schritt läuft.
     ///
     /// # Panics
-    /// Wenn die Kette nicht binnen [`KETTEN_SCHRANKE`] Schritten terminiert.
+    /// Wenn die Kette nicht binnen `KETTEN_SCHRANKE` Schritten terminiert.
     pub fn start_chain(&self) -> Result<(), WindowError> {
         self.start()?;
         // Der Anstoß hat die **nullte** Fortsetzung publiziert — oder gar keine (leerer Bestand).

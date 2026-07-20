@@ -119,7 +119,7 @@ impl WindowEvaluation {
 
     /// Die Kategorien, die das **Orakel** zu den zuvor **unbekannten** Buchungsarten dieses
     /// Fensters beigetragen hat — eine **Abbildung** Fingerabdruck → Kategorie: je Schlüssel
-    /// höchstens ein Etikett, in stabiler Reihenfolge (siehe [`unambiguous`]; ein widersprüchlich
+    /// höchstens ein Etikett, in stabiler Reihenfolge (siehe `unambiguous`; ein widersprüchlich
     /// gedeuteter Schlüssel trägt gar keines).
     ///
     /// **Nur das Neue steht hier, nicht das Bekannte.** Was das Kategorie-Register ohnehin schon

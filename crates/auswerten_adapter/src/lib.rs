@@ -51,7 +51,7 @@
 //!
 //! **Schichtung:** die domänen-internen Handler hängen **nur** an den verlangten Domänen-Ports
 //! (`AnalysisWindowSource`/`EvaluationRepository` bzw. `OccurrenceSource`); die Port-Bridges (Modul
-//! [`adapter`]) mappen die öffentlichen, mechanischen Abstractions
+//! `adapter`) mappen die öffentlichen, mechanischen Abstractions
 //! ([`AnalysisWindowSeam`]/[`EvaluationStoreSeam`]/[`OccurrenceSeam`], die io erfüllt) darauf.
 //! **Alle sind fehlbar und terminal** (ADR-0012). Es gibt **keinen** Publish-Seam: die eine
 //! Reichweite legt ab, die andere gibt zurück, und keine stößt etwas stromabwärts an.

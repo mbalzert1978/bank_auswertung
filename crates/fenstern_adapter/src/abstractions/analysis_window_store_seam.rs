@@ -7,7 +7,7 @@ use crate::models::AnalysisWindowRow;
 /// Arbeitseinheit) besorgt io.
 ///
 /// **Fehlbar und terminal:** ein Scheitern ist ein seam-lokaler [`StoreUnavailable`]; die
-/// [`RepositoryBridge`](crate::adapter::RepositoryBridge) mappt ihn „außen → innen" auf den
+/// `RepositoryBridge` mappt ihn „außen → innen" auf den
 /// terminalen Domänen-Fehler (ACL).
 pub trait AnalysisWindowStoreSeam {
     /// Legt die Fenster-Zeile ab und gibt die dabei vergebene ID zurück; `Err` = der Zugriff

@@ -4,7 +4,7 @@ use crate::models::CategoryRow;
 use crate::models::account_role_vocabulary::role_label;
 
 /// Das **abgelegte Pro-Fenster-Ergebnis** als Zeile der eigenen Tabelle des Slice — das Ausgangs-DTO,
-/// das die [`RepositoryBridge`](crate::adapter::RepositoryBridge) in den Speicher-Seam staged. Es
+/// das die `RepositoryBridge` in den Speicher-Seam staged. Es
 /// trägt den **Fremdschlüssel** auf sein Quell-Fenster (ADR-0012: Aggregate referenzieren
 /// Fremd-Entitäten nur per ID), die eine Währung und die Monats-Buckets des Cashflows. Seine
 /// **eigene** ID vergibt die Persistenz beim Ablegen — sie steht darum nicht hier drin.

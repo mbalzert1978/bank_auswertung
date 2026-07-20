@@ -15,8 +15,8 @@
 //!
 //! **Schichtung (die eine Aufgabe dieses Layers):** der interne `ReadHandler` hängt
 //! **ausschließlich** an den von `einlesen_domain` verlangten Ports (`RawLineSource`, `Calendar`,
-//! `Money`, `Store`, `EventSink`). **Darüber** mappen Port-Bridges (Modul [`adapter`]) die
-//! öffentlichen, mechanischen Abstractions (Modul [`abstractions`], die io erfüllt) auf genau
+//! `Money`, `Store`, `EventSink`). **Darüber** mappen Port-Bridges (Modul `adapter`) die
+//! öffentlichen, mechanischen Abstractions (Modul `abstractions`, die io erfüllt) auf genau
 //! diese internen Domänen-Ports. Alle drei I/O-Schritte (Beschaffung, Ablage, Veröffentlichung)
 //! sind fehlbar und terminal.
 //!

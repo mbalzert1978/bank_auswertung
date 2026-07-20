@@ -7,7 +7,7 @@
 /// **Er spricht rohe Schlüssel-Zeichenketten**, keine Domänen-Fingerabdrücke: der Seam ist die
 /// mechanische Außenseite, und das Register ist eine Tabelle mit einer Schlüsselspalte. Dass aus
 /// den zurückgegebenen Zeichenketten wieder Domänen-Schlüssel werden, besorgt die
-/// [`RegistryBridge`](crate::adapter::RegistryBridge) — indem sie **gegen die selbst gestellten
+/// `RegistryBridge` — indem sie **gegen die selbst gestellten
 /// Kandidaten matcht**, nie durch Neubildung aus einem String.
 ///
 /// **Fehlbar und terminal:** ein Scheitern reist als [`RegistryUnavailable`] „außen → innen".

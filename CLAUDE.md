@@ -224,12 +224,21 @@ including code, in **English**.
 Standard Cargo, from the repo root:
 
 ```bash
-cargo build                 # compile
-cargo test                  # all tests
-cargo test <name>           # single test by name match
-cargo clippy --all-targets  # lint
-cargo fmt                   # format
+cargo build                      # compile
+cargo test                       # all tests
+cargo test <name>                # single test by name match
+cargo clippy --all-targets       # lint
+cargo fmt                        # format
+cargo doc --no-deps --workspace  # docs — sixth gate: rustdoc-Warnungen sind harte Fehler
 ```
+
+The **six gates** that must be green: `build`, `test`, `clippy --all-targets`,
+`fmt --check`, `cargo test -p architecture`, and `cargo doc --no-deps --workspace`.
+`cargo doc` is a real gate, not a nicety: `[workspace.lints.rustdoc]` sets
+`private_intra_doc_links`/`broken_intra_doc_links` to `deny`, so öffentliche Doku, die auf
+ein privates oder nicht existierendes Item verlinkt, **bricht den Build** statt nur zu
+warnen (Issue 0048). Ein Kollaborateur darf weiter **benannt** werden (Code-Auszeichnung
+oder Prosa) — nur nicht als toter Link, der keiner werden kann.
 
 No binary yet (library crate, no `src/main.rs`), so `cargo run` does nothing useful.
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).

@@ -18,7 +18,7 @@
 //!
 //! **Schichtung:** der domänen-interne [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler)
 //! hängt **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
-//! `BookingPublisher`); die Port-Bridges (Modul [`adapter`]) mappen die öffentlichen, mechanischen
+//! `BookingPublisher`); die Port-Bridges (Modul `adapter`) mappen die öffentlichen, mechanischen
 //! Abstractions ([`IngestedSourceSeam`]/[`ObfuscatorSeam`]/[`ObfuscatedStoreSeam`], die io erfüllt)
 //! darauf. Der Ausgang (Publisher-Bridge) zielt auf `application_kernel::Publisher`; den letzten
 //! Outbox-Hop macht `io`. Betrag/Datum &c. reist als Pass-Through verbatim mit.

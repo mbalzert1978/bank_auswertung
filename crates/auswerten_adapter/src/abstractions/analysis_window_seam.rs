@@ -4,7 +4,7 @@ use crate::models::AnalysisWindowRow;
 /// Auswertungsfenster **zu einer ID** — samt der obfuskierten Buchungen, auf die es per
 /// Fremdschlüssel zeigt (io: die Fenster-Zeile plus ihr Join auf die `obfuskiert`-Ablage).
 /// **io erfüllt ihn** — roh-typisiert, ohne Domänen-Kenntnis. Die
-/// [`SourceBridge`](crate::adapter::SourceBridge) mappt den von der Domäne verlangten Port
+/// `SourceBridge` mappt den von der Domäne verlangten Port
 /// `auswerten_domain::AnalysisWindowSource` darauf.
 ///
 /// **Der Join lebt hier, nicht im Handler:** die Domäne verlangt *ein* Aggregat zu *einer* ID; dass

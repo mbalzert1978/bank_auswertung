@@ -11,7 +11,7 @@ pub enum Sign {
 }
 
 /// Die Richtung eines Umsatzes — der einzige Ort, an dem das Vorzeichen lebt (ADR-0005),
-/// sodass ein negativer [`Amount`](crate::Amount) unkonstruierbar ist. Die **Bedeutung**
+/// sodass ein negativer `Amount` unkonstruierbar ist. Die **Bedeutung**
 /// des Vorzeichens lebt hier (`from_sign`, total); `Amount::with_direction` ruft sie auf,
 /// statt sie ein zweites Mal zu führen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
