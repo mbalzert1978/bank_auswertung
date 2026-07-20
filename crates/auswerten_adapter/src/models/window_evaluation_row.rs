@@ -1,5 +1,6 @@
 use auswerten_domain::{CounterAccount, WindowEvaluation};
 
+use crate::models::CategoryRow;
 use crate::models::account_role_vocabulary::role_label;
 
 /// Das **abgelegte Pro-Fenster-Ergebnis** als Zeile der eigenen Tabelle des Slice — das Ausgangs-DTO,
@@ -24,6 +25,11 @@ pub struct WindowEvaluationRow {
     /// eigen (samt Rolle) oder fremd. Aufgelöst **auf Token**; eine IBAN steht hier so wenig wie
     /// irgendwo sonst in diesem Slice.
     pub counter_accounts: Vec<CounterAccountRow>,
+    /// Was das **Orakel** zu den zuvor **unbekannten** Buchungsarten dieses Fensters beigetragen
+    /// hat — je Eintrag Fingerabdruck → Kategorie, in stabiler Reihenfolge. Bereits Bekanntes steht
+    /// hier **nicht**: das führt das Kategorie-Register, und es an jedes Fenster zu heften hieße,
+    /// die gelernte Wahrheit zu duplizieren.
+    pub categories: Vec<CategoryRow>,
 }
 
 /// Ein **eingeordnetes Gegenkonto** als Zeile — **adapter-eigener** DTO-Typ, bewusst re-deklariert
@@ -92,6 +98,11 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
                 .counter_accounts()
                 .iter()
                 .map(CounterAccountRow::from)
+                .collect(),
+            categories: evaluation
+                .categories()
+                .iter()
+                .map(CategoryRow::from)
                 .collect(),
         }
     }

@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::entities::AnalysisWindow;
 use crate::value_objects::WindowedBooking;
 use crate::value_objects::{
-    CounterAccount, Currency, Fingerprint, Month, MonthlyCashflow, OwnAccounts, WindowId,
+    CategoryAnswer, CounterAccount, Currency, Fingerprint, Month, MonthlyCashflow, OwnAccounts,
+    WindowId,
 };
 
 /// Das **Pro-Fenster-Ergebnis** — was dieser Slice aus **einem** eingefrorenen Auswertungsfenster
@@ -20,6 +21,7 @@ pub struct WindowEvaluation {
     months: Vec<MonthlyCashflow>,
     fingerprints: Vec<Fingerprint>,
     counter_accounts: Vec<CounterAccount>,
+    categories: Vec<CategoryAnswer>,
 }
 
 impl WindowEvaluation {
@@ -37,6 +39,7 @@ impl WindowEvaluation {
         window: WindowId,
         snapshot: &AnalysisWindow,
         own_accounts: &OwnAccounts,
+        categories: Vec<CategoryAnswer>,
     ) -> Self {
         let months = snapshot
             .bookings()
@@ -77,6 +80,14 @@ impl WindowEvaluation {
             months: months.into_values().collect(),
             fingerprints: fingerprints.into_iter().collect(),
             counter_accounts: counter_accounts.into_iter().collect(),
+            // In **stabiler** Reihenfolge, wie alles andere hier: die Reihenfolge, in der ein
+            // Orakel antwortet, ist keine Aussage über die Auswertung und darf ihr Ergebnis nicht
+            // durchschlagen.
+            categories: categories
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -111,5 +122,19 @@ impl WindowEvaluation {
     #[must_use]
     pub fn counter_accounts(&self) -> &[CounterAccount] {
         &self.counter_accounts
+    }
+
+    /// Die Kategorien, die das **Orakel** zu den zuvor **unbekannten** Buchungsarten dieses
+    /// Fensters beigetragen hat — je Eintrag Fingerabdruck → Kategorie, in stabiler Reihenfolge.
+    ///
+    /// **Nur das Neue steht hier, nicht das Bekannte.** Was das Kategorie-Register ohnehin schon
+    /// weiß, noch einmal an jedes Fenster zu heften, hieße die gelernte Wahrheit zu duplizieren —
+    /// dieselbe Linie, die dieser Slice beim Verzicht auf ein Vorkommens-/Fold-Log zieht.
+    ///
+    /// **Leer ist ein gültiges Ergebnis**, und zwar in beide Richtungen: es kann heißen, dass die
+    /// Domäne jede Art des Fensters schon kannte — oder dass sie sie nicht deuten konnte.
+    #[must_use]
+    pub fn categories(&self) -> &[CategoryAnswer] {
+        &self.categories
     }
 }

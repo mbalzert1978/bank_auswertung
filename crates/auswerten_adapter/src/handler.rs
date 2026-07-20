@@ -1,8 +1,10 @@
 use application_kernel::Handler;
 use auswerten_domain::{EvaluateWindow, EvaluationError, WindowEvaluationHandler as DomainHandler};
 
-use crate::abstractions::{AnalysisWindowSeam, EvaluationStoreSeam};
-use crate::adapter::{RepositoryBridge, SourceBridge};
+use crate::abstractions::{
+    AnalysisWindowSeam, CategorizerSeam, CategoryRegistrySeam, EvaluationStoreSeam,
+};
+use crate::adapter::{CategorizerBridge, RegistryBridge, RepositoryBridge, SourceBridge};
 use crate::models::{ConfigRejected, EvaluateWindowCommand, OwnAccountsConfig};
 
 /// Der **`application_kernel::Handler` des Slice** für die **pro-Fenster**-Reichweite: die reine
@@ -21,6 +23,8 @@ use crate::models::{ConfigRejected, EvaluateWindowCommand, OwnAccountsConfig};
 pub struct WindowEvaluationHandler<'a> {
     source: SourceBridge<'a>,
     repository: RepositoryBridge<'a>,
+    registry: RegistryBridge<'a>,
+    categorizer: CategorizerBridge<'a>,
     /// Die Eigene-Konten-Config — als **Wert** verdrahtet, nicht als Port: sie steht beim Bau fest
     /// und gilt für den ganzen Lauf. Sie liegt hier noch als rohes DTO; gedeutet wird sie je
     /// `handle` (die Deutung ist **fehlbar**, ein Konstruktor wäre es nicht).
@@ -32,11 +36,15 @@ impl<'a> WindowEvaluationHandler<'a> {
     pub fn new(
         source: &'a dyn AnalysisWindowSeam,
         repository: &'a dyn EvaluationStoreSeam,
+        registry: &'a dyn CategoryRegistrySeam,
+        categorizer: &'a dyn CategorizerSeam,
         own_accounts: OwnAccountsConfig,
     ) -> Self {
         Self {
             source: SourceBridge { seam: source },
             repository: RepositoryBridge { seam: repository },
+            registry: RegistryBridge { seam: registry },
+            categorizer: CategorizerBridge { seam: categorizer },
             own_accounts,
         }
     }
@@ -59,7 +67,13 @@ impl Handler for WindowEvaluationHandler<'_> {
                     }
                     ConfigRejected::UnknownAccountRole => EvaluationError::UnknownAccountRole,
                 })?;
-        DomainHandler::new(&self.source, &self.repository, &own_accounts)
-            .handle(EvaluateWindow::new(command.window()))
+        DomainHandler::new(
+            &self.source,
+            &self.repository,
+            &self.registry,
+            &self.categorizer,
+            &own_accounts,
+        )
+        .handle(EvaluateWindow::new(command.window()))
     }
 }
