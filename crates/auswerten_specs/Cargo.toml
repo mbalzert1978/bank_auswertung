@@ -1,0 +1,13 @@
+[package]
+name = "auswerten_specs"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# Reine Black-Box: die Spec hängt genau am eigenen `_adapter` (Fluent-TestApi + DTOs + der
+# vom Adapter re-exportierte nackte Domänen-Fehler), sonst an nichts.
+auswerten_adapter = { path = "../auswerten_adapter" }

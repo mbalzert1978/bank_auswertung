@@ -11,6 +11,9 @@ members = [
     "crates/fenstern_domain",
     "crates/fenstern_adapter",
     "crates/fenstern_specs",
+    "crates/auswerten_domain",
+    "crates/auswerten_adapter",
+    "crates/auswerten_specs",
     "crates/io",
     "architecture",
 ]
