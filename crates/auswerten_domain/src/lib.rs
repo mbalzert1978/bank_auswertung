@@ -7,7 +7,7 @@
 //! die Domäne ist die Analyse, das LLM nur ein Orakel).
 //!
 //! `auswerten` hat **zwei Reichweiten** (ADR-0013, Entscheidung E) und dafür **zwei einzweckige
-//! Handler**. Gebaut ist die **erste**, die **pro-Fenster**-Reichweite: der
+//! Handler**; **beide sind gebaut**. Die **erste** ist die **pro-Fenster**-Reichweite: der
 //! [`WindowEvaluationHandler`] konsumiert `FensterGeschlossen`, **liest** das eingefrorene
 //! [`AnalysisWindow`] **per ID** ([`AnalysisWindowSource`]) — er bekommt einen **Zeiger**, keine
 //! eingebetteten Daten (uniformes ID-Handoff, ADR-0012) —, rechnet die periodische Kennzahl
@@ -46,16 +46,26 @@
 //! endet der Lauf terminal — sonst liefe jede Umbuchung **lautlos** als „fremd" durch und der
 //! Bericht wiese sie als Konsum aus, ohne dass irgendetwas fehlschlüge.
 //!
-//! **Noch nicht hier** (je eigenes Folge-Issue): die zweite, **fenster-übergreifende** Reichweite
-//! (Wiederkehr über alle Fenster eines Laufs, angestoßen von `HistorieVollständig`), die
-//! Fach-Analyzer (**Umbuchungs-Netting** auf der Einordnung oben — Issue 0004 —,
-//! Gebühren-Klassifikation, Pareto), die gelernten Korrekturen und das `Kategorisierer`-Orakel.
-//! Dieser Stand ist das **Gerüst plus zwei lauffähige Kennzahlen und der Schlüssel** — der Pfad, an
-//! dem sie andocken.
+//! **Die zweite Reichweite ist die fenster-übergreifende:** der [`HistoryEvaluationHandler`]
+//! konsumiert **`HistorieVollständig`** — nicht `FensterGeschlossen`, denn `auswerten` kann die
+//! letzte Seite nicht selbst erkennen (der Pager läuft neu→alt; nur `fenstern` kennt die
+//! Erschöpfung). Er führt **eine** Query über **alle** Fenster des Laufs ([`OccurrenceSource`]),
+//! gescopt über die [`RunSpan`] aus dem Signal, die ihn gegen frühere Läufe abgrenzt, und liefert
+//! die [`Occurrence`]s der ganzen Zeitachse zurück. Er **legt nichts ab**: kein Vorkommens-/
+//! Fold-Log, keine Akkumulation, keine zweite persistierte Sicht — die Aggregate sind die alleinige
+//! Wahrheit. Seine Idempotenz folgt daraus, nicht aus Dedupe-Logik: eine Query über unveränderliche
+//! Snapshots antwortet auf erneute Zustellung identisch.
+//!
+//! **Noch nicht hier** (je eigenes Folge-Issue): die **Wiederkehr-Erkennung** selbst (Issue 0005,
+//! die auf den Vorkommen oben aufsetzt), die weiteren Fach-Analyzer (**Umbuchungs-Netting** auf der
+//! Einordnung oben — Issue 0004 —, Gebühren-Klassifikation, Pareto), die gelernten Korrekturen und
+//! das `Kategorisierer`-Orakel. Dieser Stand ist das **Gerüst plus die beiden Reichweiten, zwei
+//! lauffähige Kennzahlen und der Schlüssel** — der Pfad, an dem sie andocken.
 
 mod entities;
 mod error;
 mod handler;
+mod history_handler;
 mod models;
 mod ports;
 mod value_objects;
@@ -63,10 +73,11 @@ mod value_objects;
 pub use entities::{AnalysisWindow, WindowEvaluation};
 pub use error::EvaluationError;
 pub use handler::WindowEvaluationHandler;
-pub use models::EvaluateWindow;
-pub use ports::{AnalysisWindowSource, EvaluationRepository};
+pub use history_handler::HistoryEvaluationHandler;
+pub use models::{EvaluateHistory, EvaluateWindow};
+pub use ports::{AnalysisWindowSource, EvaluationRepository, OccurrenceSource};
 pub use value_objects::{
     AccountRole, AccountToken, Amount, CounterAccount, Currency, DayStamp, Direction, Fingerprint,
-    Month, MonthlyCashflow, NonEmptyString, OwnAccounts, Recipient, SeedMarker, WindowId,
-    WindowedBooking,
+    Month, MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts, Recipient, RunSpan,
+    SeedMarker, WindowId, WindowedBooking,
 };

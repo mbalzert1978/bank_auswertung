@@ -10,6 +10,13 @@ impl DayStamp {
     pub fn new(value: i64) -> Self {
         Self(value)
     }
+
+    /// Der rohe Tag-Stamp — den die Adapter-Grenze braucht, um die Lauf-Spanne an den (roh
+    /// typisierten) Lese-Seam zu reichen.
+    #[must_use]
+    pub fn value(self) -> i64 {
+        self.0
+    }
 }
 
 /// Der **Monats-Bucket** des Cashflows — der *Zeitraum*, **innerhalb** dessen dieser Slice rechnet.

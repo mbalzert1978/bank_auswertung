@@ -2,10 +2,22 @@
 //! Test-Consts, die die nackten Tests in `tests/` per Modul-Include (`#[path = …] mod fixtures;`)
 //! hereinziehen. Erwartungsdaten sind test-seitig und gehören darum hierher, nicht in die
 //! Adapter-`TestApi`.
+//!
+//! Der Slice hat **zwei** Spec-Dateien — eine je Reichweite (ADR-0013, Entscheidung E) — und damit
+//! zwei Test-Binaries, in die dieses Modul **je vollständig** hineinkompiliert wird. Jede nutzt
+//! naturgemäß nur ihren Teil, was ohne das `allow` in beiden Binaries `dead_code` für die Helfer der
+//! jeweils anderen meldete. Das ist der bekannte Preis geteilter Test-Helfer, kein Hinweis auf
+//! ungenutzten Code: was hier steht, hat in genau einer der beiden Specs einen Aufrufer.
+#![allow(
+    dead_code,
+    reason = "geteiltes Fixture-Modul: es wird in beide Spec-Binaries (eine je Reichweite) \
+              vollstaendig hineinkompiliert, jede nutzt nur ihren Teil"
+)]
 
 use auswerten_adapter::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, CounterAccountRow, EvaluationTestApi,
-    MonthlyCashflowRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
+    HistoryTestApi, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig,
+    WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -192,5 +204,51 @@ pub(crate) fn monat(year: i64, month: i64, incoming: u64, outgoing: u64) -> Mont
         month,
         incoming_cent: incoming,
         outgoing_cent: outgoing,
+    }
+}
+
+// --- Die fenster-übergreifende Reichweite (Issue 0043) -------------------------
+
+/// Die Gläubiger-ID der wiederkehrenden Buchungsart, an der die fenster-übergreifenden Specs
+/// arbeiten — sie ist der **Schlüssel**, unter dem die Vorkommen über die Fenster hinweg
+/// zusammenfinden.
+pub(crate) const HAENDLER: &str = "DE98ZZZ09999999999";
+
+/// Eine TestApi der **zweiten** Reichweite mit leerer Fenster-Ablage. Sie braucht **keine**
+/// Eigene-Konten-Config: dieser Handler ordnet keine Gegenkonten ein, er sammelt Vorkommen ein —
+/// einzweckig wie der erste (ADR-0013, Entscheidung E).
+pub(crate) fn historie_api() -> HistoryTestApi {
+    HistoryTestApi::new()
+}
+
+/// Eine Buchung **derselben wiederkehrenden Art** an einem Buchungstag — derselbe Händler, also
+/// derselbe Fingerabdruck, egal in welchem Fenster sie liegt.
+pub(crate) fn wiederkehrend(booking_day: i64, cent: u64) -> WindowBookingRow {
+    firma(booking_day, cent, HAENDLER, "Netflix", None)
+}
+
+/// Dieselbe wiederkehrende Art, aber als **Zufluss** — eine Rückerstattung desselben Händlers. Sie
+/// trägt denselben Fingerabdruck: die *Art* der Buchung hängt an der Gegenpartei, nicht an der
+/// Richtung.
+pub(crate) fn eingang_wiederkehrend(booking_day: i64, cent: u64) -> WindowBookingRow {
+    WindowBookingRow {
+        direction: BookingDirection::Incoming,
+        ..wiederkehrend(booking_day, cent)
+    }
+}
+
+/// Ein erwartetes **Vorkommen** auf der Zeitachse des Laufs: der Fingerabdruck der Buchungs*art*
+/// plus das, was Rhythmus und Betragsvergleich brauchen — Tag, Betrag und Richtung.
+pub(crate) fn vorkommen(
+    fingerprint: &str,
+    booking_day: i64,
+    cent: u64,
+    direction: BookingDirection,
+) -> OccurrenceRow {
+    OccurrenceRow {
+        fingerprint: fingerprint.to_string(),
+        booking_day,
+        amount_cent: cent,
+        direction,
     }
 }
