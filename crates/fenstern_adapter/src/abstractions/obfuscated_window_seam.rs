@@ -15,6 +15,15 @@ pub trait ObfuscatedWindowSeam {
     /// Lesereihenfolge); `Err` = Beschaffung misslungen (terminal).
     fn read(&self, from: i64, to: i64) -> Result<Vec<ObfuscatedRow>, SourceUnavailable>;
 
+    /// Der **jüngste Buchungstag des ganzen Bestands** (io: `SELECT MAX(booking_day)`) — der
+    /// Initial-Anker, mit dem der **Anstoß** einen Lauf eröffnet (ADR-0013, Entscheidung D). Er ist
+    /// **datenrelativ**: der Lauf startet am jüngsten vorhandenen Tag, nie an einer Uhr — darum
+    /// braucht weder io noch der Spec eine Zeitquelle.
+    ///
+    /// `Ok(None)` ist die **gültige** Antwort „der Bestand ist leer" und beendet den Lauf
+    /// erfolgreich, ohne dass etwas publiziert wird; `Err` = die Abfrage misslang (terminal).
+    fn latest(&self) -> Result<Option<i64>, SourceUnavailable>;
+
     /// Der **jüngste Buchungstag echt unterhalb** von `day` (io: `SELECT MAX(booking_day) WHERE
     /// booking_day < ?`) — dieselbe Query-Art wie der Initial-Anker, nur mit Untergrenze. Er trägt
     /// die **Selbst-Fortsetzung und die Terminierung** des Pagers (ADR-0013, Entscheidung B,
