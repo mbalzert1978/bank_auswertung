@@ -6,6 +6,15 @@
 //! outbox-frei**: er bindet **nur** `application_kernel` und nennt keinen Outbox-Typ — die
 //! Outbox-Mechanik (Envelope, Consumer-Rolle, `UnitOfWork`) lebt vollständig in `io`.
 //!
+//! **Zwei einzweckige Handler (ADR-0013, Entscheidung B/D):** der [`StartHandler`] eröffnet den Lauf
+//! — er konsumiert das **feldlose** [`StartAnalysisCommand`] (registriert auf
+//! [`START_MESSAGE_TYPE`]), beschafft den Initial-Anker über den Lese-Seam (`max(booking_day)`,
+//! datenrelativ, keine Uhr) und publiziert damit das erste Fenster-Kommando. Ein **leerer Bestand**
+//! ist dabei **kein Fehler**: der Lauf endet erfolgreich, ohne dass etwas publiziert wird — und weil
+//! so kein `HistoryComplete` mit leerer Spanne entsteht, bleibt dessen Lauf-Spanne nicht entartet.
+//! Der [`WindowingHandler`] materialisiert danach je Kommando ein Fenster. **Zwei** Kommandotypen
+//! statt eines mit optionalem Anker: der **Typ trägt die Absicht** (ADR-0005).
+//!
 //! **Reine Pipeline (ADR-0011, Entscheidung A):** der [`WindowingHandler`] ist der
 //! `application_kernel::Handler` des Slice — `AdvanceWindowCommand → Domäne → Response`. `io`s
 //! generische `OutboxConsumer` fährt ihn: sie extrahiert die Envelope, ruft den slice-gelieferten
@@ -40,6 +49,7 @@ mod abstractions;
 mod adapter;
 mod handler;
 mod models;
+mod start_handler;
 mod testapi;
 
 pub use abstractions::{
@@ -49,8 +59,10 @@ pub use abstractions::{
 pub use handler::WindowingHandler;
 pub use models::{
     AdvanceWindowCommand, AdvanceWindowCommandDecoder, AdvanceWindowMessage, AnalysisWindowRow,
-    CONSUMED_MESSAGE_TYPE, HistoryCompleteMessage, ObfuscatedRow, WindowClosedMessage,
+    CONSUMED_MESSAGE_TYPE, HistoryCompleteMessage, ObfuscatedRow, START_MESSAGE_TYPE,
+    StartAnalysisCommand, StartAnalysisCommandDecoder, WindowClosedMessage,
 };
+pub use start_handler::StartHandler;
 pub use testapi::WindowingTestApi;
 
 /// Der **nackte Domänen-Fehler** des Slice, re-exportiert: der [`WindowingHandler`] gibt ihn 1:1

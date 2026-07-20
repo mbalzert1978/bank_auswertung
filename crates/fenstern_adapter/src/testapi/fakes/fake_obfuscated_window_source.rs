@@ -47,6 +47,14 @@ impl ObfuscatedWindowSeam for FakeObfuscatedWindowSource {
             .collect())
     }
 
+    fn latest(&self) -> Result<Option<i64>, SourceUnavailable> {
+        self.arranged_failure()?;
+        // `MAX(booking_day)` über den ganzen Bestand — der letzte Schlüssel der `BTreeMap`. Ein
+        // leerer Bestand liefert `None`, ohne dass der Spec eine Zeitquelle bräuchte: der Anker ist
+        // **datenrelativ**, nicht uhrrelativ.
+        Ok(self.rows.keys().next_back().copied())
+    }
+
     fn latest_before(&self, day: i64) -> Result<Option<i64>, SourceUnavailable> {
         self.arranged_failure()?;
         // `MAX(booking_day) WHERE booking_day < day` — die `BTreeMap` gibt die Ordnung her, der

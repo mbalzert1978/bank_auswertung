@@ -4,7 +4,13 @@
 //! öffentliche Fakes und gibt den **nackten Domänen-Fehler** zurück — keine Outbox-Typen (die
 //! Outbox-Mechanik prüft der io-Integrationstest).
 //!
-//! Der Slice konsumiert `AdvanceWindow{anchor, run_top}`, liest die obfuskierten Buchungen der Seite
+//! Der Slice hat **zwei** einzweckige Handler und je ein eigenes Kommando. Der **Anstoß**
+//! konsumiert das **feldlose** `StartAnalysis` (`start`/`start_chain`): er beschafft den
+//! Initial-Anker über den Anker-Port (`max(booking_day)` — datenrelativ, **keine Uhr**, darum in den
+//! Specs allein über `with_obfuscated` arrangierbar) und publiziert damit das erste Fenster-Kommando.
+//! Auf **leerem** Bestand endet er **erfolgreich**, ohne irgendetwas zu publizieren.
+//!
+//! Der Fenster-Schritt konsumiert `AdvanceWindow{anchor, run_top}`, liest die obfuskierten Buchungen der Seite
 //! `[anchor − window_days + 1 … anchor]` per Port, reduziert sie **N→1** zu **einem**
 //! `Auswertungsfenster`, legt es in eigener Ablage ab (die Ablage vergibt die ID) und publiziert
 //! **diese neue ID** als Zeiger. Danach **setzt er sich selbst fort**: der nächste Anker ist
@@ -18,6 +24,69 @@ use fenstern_adapter::{AnalysisWindowRow, WindowError, WindowingTestApi};
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
 use fixtures::{ANKER, UNTERGRENZE, WINDOW_DAYS, api, erwartetes_fenster, fenster, zeile};
+
+// --- Der Anstoß: StartAnalysis → genau ein AdvanceWindow -----------------------
+
+#[test]
+fn ein_anstoss_ergibt_genau_ein_fenster_kommando_mit_dem_juengsten_buchungstag_als_anker() {
+    // Der Anstoß ist **feldlos** — er trägt keinen Anker, er *beschafft* ihn: der Start-Handler
+    // liest ihn einmalig über den Anker-Port (`max(booking_day)`), also **datenrelativ** und
+    // deterministisch, ohne Uhr (ADR-0013, Entscheidung D).
+    let api = api()
+        .with_obfuscated(800, zeile("alt", "EUR"))
+        .with_obfuscated(ANKER, zeile("jung", "EUR"));
+
+    let ergebnis = api.start();
+
+    assert_eq!(ergebnis, Ok(()));
+    // Genau **ein** Fenster-Kommando, und sein Anker ist der jüngste Buchungstag des Bestands.
+    api.assert_advance_window(&[ANKER]);
+    // Der Anstoß ist einzweckig: er materialisiert **kein** Fenster und stößt `auswerten` nicht an
+    // — das ist Sache des Fenster-Handlers, den das publizierte Kommando erst auslöst.
+    api.assert_stored_windows(&[]);
+    api.assert_window_closed(&[]);
+    api.assert_history_complete(&[]);
+}
+
+#[test]
+fn ein_anstoss_auf_leerem_bestand_endet_erfolgreich_und_publiziert_nichts() {
+    // Kein einziger Buchungstag: der Anker-Port liefert `None`. Das ist die **gültige** Antwort
+    // „leerer Bestand", kein Fehler — Erschöpfung schon bei Schritt 0, symmetrisch zum normalen
+    // Ketten-Ende. Kein Dead-Letter (den gibt es nicht), kein „nichts auszuwerten"-Fehler.
+    let api = api();
+
+    let ergebnis = api.start();
+
+    assert_eq!(ergebnis, Ok(()));
+    // Es geht **nichts** heraus — die Kette beginnt gar nicht erst.
+    api.assert_advance_window(&[]);
+    api.assert_stored_windows(&[]);
+    api.assert_window_closed(&[]);
+    // Insbesondere entsteht **kein** `HistoryComplete`: `auswerten` wird nicht angestoßen, und weil
+    // kein Abschluss mit leerer Spanne entsteht, bleibt jede publizierte Lauf-Spanne garantiert
+    // nicht entartet.
+    api.assert_history_complete(&[]);
+}
+
+#[test]
+fn der_anstoss_setzt_den_lauf_gipfel_sodass_die_lauf_spanne_nicht_entartet() {
+    // Zwei Seiten bei Seitengröße 10. Der Anstoß gibt dem ersten Fenster-Kommando Anker **und**
+    // Lauf-Gipfel — beide der jüngste Buchungstag. Genau dieser Gipfel reist unverändert durch die
+    // ganze Selbst-Fortsetzung und bildet am Ende die **Obergrenze** der Lauf-Spanne.
+    let api = WindowingTestApi::new()
+        .with_window_days(10)
+        .with_obfuscated(1000, zeile("jung", "EUR"))
+        .with_obfuscated(900, zeile("alt", "EUR"));
+
+    let ergebnis = api.start_chain();
+
+    assert_eq!(ergebnis, Ok(()));
+    // Das erste Kommando stammt vom Anstoß, das zweite von der Selbst-Fortsetzung.
+    api.assert_advance_window(&[1000, 900]);
+    // Die Lauf-Spanne reicht von der Unterkante der letzten Seite bis zum Gipfel des Anstoßes —
+    // nicht entartet, weil der Gipfel ein echter Buchungstag ist.
+    api.assert_history_complete(&[(891, 1000)]);
+}
 
 // --- Kern-Pfad: N Zeilen → genau ein Fenster, genau ein Zeiger ------------------
 

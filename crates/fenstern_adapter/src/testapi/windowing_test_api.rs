@@ -7,7 +7,9 @@ use super::fakes::{FakeAnalysisWindowStore, FakeObfuscatedWindowSource, FakeWind
 use crate::handler::WindowingHandler;
 use crate::models::{
     AdvanceWindowCommandDecoder, AnalysisWindowRow, CONSUMED_MESSAGE_TYPE, ObfuscatedRow,
+    StartAnalysisCommandDecoder,
 };
+use crate::start_handler::StartHandler;
 
 /// Fluent-TestApi des fenstern-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
 /// [ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)): die
@@ -91,6 +93,18 @@ impl WindowingTestApi {
         self
     }
 
+    /// Fährt den **Anstoß**: die echte Kette [`StartAnalysisCommandDecoder`] →
+    /// [`StartHandler`](crate::StartHandler) mit dem **feldlosen** Auslöser-Kommando. Der Anker wird
+    /// dabei nicht hereingereicht, sondern vom Handler über den Anker-Port beschafft — die Specs
+    /// arrangieren ihn allein über [`with_obfuscated`](Self::with_obfuscated), **ohne Uhr**.
+    ///
+    /// `Ok(())` = verarbeitet (auch beim **leeren** Bestand, dann ohne jede Nachricht);
+    /// `Err` = terminaler [`WindowError`].
+    pub fn start(&self) -> Result<(), WindowError> {
+        let command = StartAnalysisCommandDecoder::decode("", "").expect("feldloser Auslöser");
+        StartHandler::new(&self.source, &self.publisher).handle(command)
+    }
+
     /// Fährt **einen** Fenster-Schritt der echten Kette (Decoder → Handler) für einen Anker und gibt
     /// das Handler-Ergebnis zurück (`Ok(())` = verarbeitet, `Err` = terminaler [`WindowError`]). Der
     /// Anker ist zugleich der Lauf-Gipfel — genau die Lage, in der ein Lauf beginnt.
@@ -113,8 +127,35 @@ impl WindowingTestApi {
     /// Wenn die Kette nicht binnen [`KETTEN_SCHRANKE`] Schritten terminiert — der Anker muss streng
     /// monoton sinken, ein Nicht-Terminieren ist ein **Fehlschlag des Specs**, kein Hänger.
     pub fn run_chain(&self, anchor: i64) -> Result<(), WindowError> {
-        let mut key = format!("{anchor}:{anchor}");
-        let mut fortsetzungen = 0;
+        self.fahre_kette(format!("{anchor}:{anchor}"), 0)
+    }
+
+    /// Fährt den **ganzen Lauf ab dem Anstoß**: erst [`start`](Self::start) (der den Initial-Anker
+    /// selbst beschafft), dann jede vom Slice publizierte Fortsetzung — die einzige Sicht, in der
+    /// der vom Anstoß gesetzte **Lauf-Gipfel** bis zur publizierten Lauf-Spanne beobachtbar wird.
+    ///
+    /// Auf **leerem** Bestand publiziert der Anstoß nichts; dann endet der Lauf sofort mit `Ok(())`,
+    /// ohne dass je ein Fenster-Schritt läuft.
+    ///
+    /// # Panics
+    /// Wenn die Kette nicht binnen [`KETTEN_SCHRANKE`] Schritten terminiert.
+    pub fn start_chain(&self) -> Result<(), WindowError> {
+        self.start()?;
+        // Der Anstoß hat die **nullte** Fortsetzung publiziert — oder gar keine (leerer Bestand).
+        match self.naechste_fortsetzung(0) {
+            Some(key) => self.fahre_kette(key, 1),
+            None => Ok(()),
+        }
+    }
+
+    /// Der gemeinsame Ketten-Motor von [`run_chain`](Self::run_chain) und
+    /// [`start_chain`](Self::start_chain): verarbeitet ein Kommando nach dem anderen, bis der Slice
+    /// keine Fortsetzung mehr publiziert. Er spielt die Rolle, die in Produktion die Outbox hat —
+    /// der Slice selbst kennt keine Schleife. `bereits` ist die Zahl der schon publizierten
+    /// Fortsetzungen, ab der die nächste erwartet wird.
+    fn fahre_kette(&self, erster_key: String, bereits: usize) -> Result<(), WindowError> {
+        let mut key = erster_key;
+        let mut fortsetzungen = bereits;
         loop {
             self.run_key(&key)?;
             let Some(naechste) = self.naechste_fortsetzung(fortsetzungen) else {
