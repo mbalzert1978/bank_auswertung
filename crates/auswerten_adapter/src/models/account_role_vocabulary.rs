@@ -9,7 +9,7 @@ use auswerten_domain::AccountRole;
 /// zweimal da, könnten die Richtungen auseinanderlaufen — eine Config, die `vorlauf` liest, und ein
 /// Ergebnis, das `Vorlauf` schreibt, wären beide „richtig" und trotzdem nicht mehr dasselbe Wort.
 /// Hier ist der Rundlauf per Konstruktion dicht: **das Parsen benutzt die Beschriftung**.
-
+///
 /// Die Rolle „innen → außen". Ein **erschöpfender `match`**, bewusst keine Tabelle: so erzwingt der
 /// Compiler die Beschriftung einer fünften Variante, sollte je eine dazukommen.
 pub(crate) fn role_label(role: AccountRole) -> &'static str {
