@@ -52,7 +52,7 @@
 //! **Schichtung:** die domänen-internen Handler hängen **nur** an den verlangten Domänen-Ports
 //! (`AnalysisWindowSource`/`EvaluationRepository` bzw. `OccurrenceSource`); die Port-Bridges (Modul
 //! [`adapter`]) mappen die öffentlichen, mechanischen Abstractions
-//! ([`AnalysisWindowSeam`]/[`EvaluationStoreSeam`]/[`OccurrenceSeam`], die io erfüllen wird) darauf.
+//! ([`AnalysisWindowSeam`]/[`EvaluationStoreSeam`]/[`OccurrenceSeam`], die io erfüllt) darauf.
 //! **Alle sind fehlbar und terminal** (ADR-0012). Es gibt **keinen** Publish-Seam: die eine
 //! Reichweite legt ab, die andere gibt zurück, und keine stößt etwas stromabwärts an.
 //!
@@ -60,7 +60,7 @@
 //! das gelesene Fenster ([`AnalysisWindowRow`]/[`WindowBookingRow`]/[`BookingDirection`]), das
 //! abgelegte Ergebnis ([`WindowEvaluationRow`]/[`MonthlyCashflowRow`]/[`CounterAccountRow`]), die
 //! zurückgegebenen Vorkommen ([`OccurrenceRow`]), die Eigene-Konten-Config
-//! ([`OwnAccountsConfig`]/[`OwnAccountRow`]), die von `io` **zu erfüllenden** Seams samt ihren
+//! ([`OwnAccountsConfig`]/[`OwnAccountRow`]), die von `io` erfüllten Seams samt ihren
 //! Seam-Fehlern und die beiden Slice-Verträge ([`WindowEvaluationHandler`] +
 //! [`EvaluateWindowCommand`]/[`EvaluateWindowCommandDecoder`]/[`CONSUMED_MESSAGE_TYPE`];
 //! [`HistoryEvaluationHandler`] +
@@ -69,18 +69,15 @@
 //! Nachrichten tragen **nur die ID** bzw. **nur die Spanne** — kein Wire-DTO, **kein serde** im
 //! Slice.
 //!
-//! **Noch nicht verdrahtet:** `io` bindet diesen Slice heute **nicht** — sein Dispatcher registriert
-//! `einlesen`, `obfuskierung` und `fenstern`, und `io`s Manifest führt `auswerten_adapter` gar nicht
-//! erst als Dependency. Beide Reichweiten laufen bislang **nur** über ihre TestApis gegen Fakes; die
-//! Seams oben sind Verträge, die `io` erfüllen **wird**, nicht solche, die es erfüllt.
-//!
-//! Für die fenster-übergreifende Reichweite steckt darin eine **offene Frage an das Einhängen**: ihr
-//! Ergebnis existiert bewusst nur als `Handler::Response`, `io`s generischer `TransactionalHandler`
-//! gibt aber `Result<(), _>` zurück und **kann eine Response strukturell nicht tragen**. Wer diesen
-//! Slice einhängt, muss also entweder den `io`-Vertrag um einen Rückgabewert erweitern oder der
-//! Reichweite einen Abnehmer geben (der Wiederkehr-Analyzer aus
-//! [Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md) ist der naheliegende). Hier
-//! **keine** Mechanik auf Vorrat: die Reichweite steht, ihr Abnehmer entscheidet die Form.
+//! **Was das Einhängen der fenster-übergreifenden Reichweite verlangt:** ihr Ergebnis wird
+//! **zurückgegeben, nicht abgelegt** — es lebt allein in der `Handler::Response`. Das ist der Preis
+//! dafür, dass es **keine** zweite persistierte Sicht gibt (kein Vorkommens-/Fold-Log), und keine
+//! Übergangserscheinung: wer diese Reichweite konsumiert, muss die Response **entgegennehmen**, denn
+//! sonst verpufft ihr Ergebnis. Ein Consumer-Vertrag der Form `Result<(), _>` trägt sie nicht — er
+//! muss dafür um einen Rückgabewert wachsen oder die Reichweite bekommt einen direkten Abnehmer (der
+//! Wiederkehr-Analyzer aus [Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md) ist der
+//! naheliegende). Hier **keine** Mechanik auf Vorrat: die Reichweite steht, ihr Abnehmer entscheidet
+//! die Form.
 //!
 //! **Datenschutz:** der Slice liegt **stromabwärts** der Obfuskierungs-Grenze. Er sieht **nie einen
 //! strukturellen Identifikator** — im Sinn von CONTEXT.md („Obfuskierung"): eigene IBAN/Kontonr.,
