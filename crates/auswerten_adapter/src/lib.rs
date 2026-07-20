@@ -6,14 +6,28 @@
 //! **nur** `application_kernel` und nennt keinen Outbox-Typ — die Outbox-Mechanik (Envelope,
 //! Consumer-Rolle, `UnitOfWork`) lebt vollständig in `io`.
 //!
-//! **Zwei Reichweiten, zwei einzweckige Handler (ADR-0013, Entscheidung E).** Gebaut ist die
-//! **erste**, die **pro-Fenster**-Reichweite: der [`WindowEvaluationHandler`] konsumiert
+//! **Zwei Reichweiten, zwei einzweckige Handler (ADR-0013, Entscheidung E) — beide gebaut.**
+//!
+//! Die **erste** ist die **pro-Fenster**-Reichweite: der [`WindowEvaluationHandler`] konsumiert
 //! `FensterGeschlossen` (registriert auf [`CONSUMED_MESSAGE_TYPE`]) — die Nachricht trägt **nur die
 //! ID** des eingefrorenen Auswertungsfensters, einen **Zeiger** (uniformes ID-Handoff, ADR-0012).
 //! Er **liest** das Aggregat darüber, rechnet die periodische Kennzahl **innerhalb** des Fensters —
 //! heute den **Cashflow je Monat** — samt den **distinkten Fingerabdrücken** der Buchungsarten des
-//! Fensters und **legt** das Ergebnis ab. Die zweite, fenster-übergreifende Reichweite (Wiederkehr,
-//! angestoßen von `HistorieVollständig`) kommt mit ihrem eigenen Handler.
+//! Fensters und **legt** das Ergebnis ab.
+//!
+//! Die **zweite** ist die **fenster-übergreifende**: der [`HistoryEvaluationHandler`] konsumiert
+//! `HistorieVollständig` (registriert auf [`CONSUMED_HISTORY_MESSAGE_TYPE`] — ein **anderer**
+//! Dispatch-Key, ein geschlossenes Fenster erreicht ihn also nie). Der Trigger ist nötig, weil
+//! `auswerten` die letzte Seite **nicht selbst erkennen kann**: der Pager läuft neu→alt, und nur
+//! `fenstern` weiß, wann die Historie erschöpft ist. Die Nachricht trägt die **Lauf-Spanne** im
+//! `partition_key` (`"{from}:{to}"`), die die Query auf **genau diesen Lauf** scopt — ohne sie
+//! flössen die Aggregate früherer Läufe **lautlos** mit ein. Er führt **eine** Query über **alle**
+//! Fenster des Laufs ([`OccurrenceSeam`]) und **gibt** die [`OccurrenceRow`]s der ganzen Zeitachse
+//! **zurück**; er legt **nichts** ab. Kein Vorkommens-/Fold-Log, keine Akkumulation, keine zweite
+//! persistierte Sicht — die Aggregate sind die alleinige Wahrheit, und die Idempotenz folgt daraus
+//! statt aus Dedupe-Logik: eine Query über unveränderliche Snapshots antwortet auf erneute
+//! Zustellung identisch. Die **Wiederkehr-Erkennung** selbst
+//! ([Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md)) setzt auf diesen Vorkommen auf.
 //!
 //! **Das Gegenkonto wird auf Token eingeordnet** (ADR-0013, Entscheidung F): der Adapter nimmt die
 //! **token-orientierte** Eigene-Konten-Config ([`OwnAccountsConfig`]) als **Wert** entgegen — io
@@ -35,21 +49,25 @@
 //! `partition_key`) und dispatcht. Ein terminaler Fehler ist der **nackte Domänen-[`EvaluationError`]**
 //! (hier re-exportiert), dessen **redigierte** `Display` `io` spiegelt.
 //!
-//! **Schichtung:** der domänen-interne `auswerten_domain::WindowEvaluationHandler` hängt **nur** an
-//! den verlangten Domänen-Ports (`AnalysisWindowSource`/`EvaluationRepository`); die Port-Bridges
-//! (Modul [`adapter`]) mappen die öffentlichen, mechanischen Abstractions
-//! ([`AnalysisWindowSeam`]/[`EvaluationStoreSeam`], die io erfüllt) darauf. **Beide sind fehlbar und
-//! terminal** (ADR-0012). Es gibt **keinen** Publish-Seam: diese Reichweite legt ab und stößt nichts
-//! stromabwärts an.
+//! **Schichtung:** die domänen-internen Handler hängen **nur** an den verlangten Domänen-Ports
+//! (`AnalysisWindowSource`/`EvaluationRepository` bzw. `OccurrenceSource`); die Port-Bridges (Modul
+//! [`adapter`]) mappen die öffentlichen, mechanischen Abstractions
+//! ([`AnalysisWindowSeam`]/[`EvaluationStoreSeam`]/[`OccurrenceSeam`], die io erfüllt) darauf.
+//! **Alle sind fehlbar und terminal** (ADR-0012). Es gibt **keinen** Publish-Seam: die eine
+//! Reichweite legt ab, die andere gibt zurück, und keine stößt etwas stromabwärts an.
 //!
-//! **Öffentliche Fläche:** die Fluent-[`EvaluationTestApi`], das gelesene Fenster
-//! ([`AnalysisWindowRow`]/[`WindowBookingRow`]/[`BookingDirection`]), das abgelegte Ergebnis
-//! ([`WindowEvaluationRow`]/[`MonthlyCashflowRow`]/[`CounterAccountRow`]), die
-//! Eigene-Konten-Config ([`OwnAccountsConfig`]/[`OwnAccountRow`]), die von `io` erfüllten Seams samt ihren
-//! Seam-Fehlern und der von `io` verdrahtete Slice-Vertrag ([`WindowEvaluationHandler`],
-//! [`EvaluateWindowCommand`]/[`EvaluateWindowCommandDecoder`], [`CONSUMED_MESSAGE_TYPE`], der
-//! re-exportierte [`EvaluationError`]). Alles andere ist crate-privat. Die eingehende Nachricht
-//! trägt **nur die ID** — kein Wire-DTO, **kein serde** im Slice.
+//! **Öffentliche Fläche:** die beiden Fluent-TestApis ([`EvaluationTestApi`]/[`HistoryTestApi`]),
+//! das gelesene Fenster ([`AnalysisWindowRow`]/[`WindowBookingRow`]/[`BookingDirection`]), das
+//! abgelegte Ergebnis ([`WindowEvaluationRow`]/[`MonthlyCashflowRow`]/[`CounterAccountRow`]), die
+//! zurückgegebenen Vorkommen ([`OccurrenceRow`]), die Eigene-Konten-Config
+//! ([`OwnAccountsConfig`]/[`OwnAccountRow`]), die von `io` erfüllten Seams samt ihren Seam-Fehlern
+//! und die beiden von `io` verdrahteten Slice-Verträge ([`WindowEvaluationHandler`] +
+//! [`EvaluateWindowCommand`]/[`EvaluateWindowCommandDecoder`]/[`CONSUMED_MESSAGE_TYPE`];
+//! [`HistoryEvaluationHandler`] +
+//! [`EvaluateHistoryCommand`]/[`EvaluateHistoryCommandDecoder`]/[`CONSUMED_HISTORY_MESSAGE_TYPE`])
+//! samt dem re-exportierten [`EvaluationError`]. Alles andere ist crate-privat. Die eingehenden
+//! Nachrichten tragen **nur die ID** bzw. **nur die Spanne** — kein Wire-DTO, **kein serde** im
+//! Slice.
 //!
 //! **Datenschutz:** der Slice liegt **stromabwärts** der Obfuskierungs-Grenze. Er sieht **nie einen
 //! strukturellen Identifikator** — im Sinn von CONTEXT.md („Obfuskierung"): eigene IBAN/Kontonr.,
@@ -72,19 +90,23 @@
 mod abstractions;
 mod adapter;
 mod handler;
+mod history_handler;
 mod models;
 mod testapi;
 
 pub use abstractions::{
-    AnalysisWindowSeam, EvaluationStoreSeam, SourceUnavailable, StoreUnavailable,
+    AnalysisWindowSeam, EvaluationStoreSeam, OccurrenceSeam, SourceUnavailable, StoreUnavailable,
 };
 pub use handler::WindowEvaluationHandler;
+pub use history_handler::HistoryEvaluationHandler;
 pub use models::{
-    AnalysisWindowRow, BookingDirection, BookingRecipient, CONSUMED_MESSAGE_TYPE,
-    CounterAccountRow, EvaluateWindowCommand, EvaluateWindowCommandDecoder, MonthlyCashflowRow,
-    OwnAccountRow, OwnAccountsConfig, WindowBookingRow, WindowEvaluationRow,
+    AnalysisWindowRow, BookingDirection, BookingRecipient, CONSUMED_HISTORY_MESSAGE_TYPE,
+    CONSUMED_MESSAGE_TYPE, CounterAccountRow, EvaluateHistoryCommand,
+    EvaluateHistoryCommandDecoder, EvaluateWindowCommand, EvaluateWindowCommandDecoder,
+    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
+    WindowEvaluationRow,
 };
-pub use testapi::EvaluationTestApi;
+pub use testapi::{EvaluationTestApi, HistoryTestApi};
 
 /// Der **nackte Domänen-Fehler** des Slice, re-exportiert: der [`WindowEvaluationHandler`] gibt ihn
 /// 1:1 zurück, `io` spiegelt seine **redigierte** `Display`. Bewusst re-exportiert statt

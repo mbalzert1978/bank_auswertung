@@ -5,6 +5,10 @@
 //! [`MonthlyCashflow`] ist der Bucket selbst, [`WindowedBooking`] die gelesene Buchung des
 //! Fensters. Die [`WindowId`] ist die opake Identität des Aggregats, per Zeiger hereingereicht.
 //!
+//! Die **fenster-übergreifende** Reichweite bringt zwei weitere mit: die [`RunSpan`] (die
+//! Lauf-Spanne, die ihre Query gegen frühere Läufe abgrenzt) und das [`Occurrence`] (ein Vorkommen
+//! einer Buchungsart auf der Zeitachse des Laufs).
+//!
 //! Die Aggregate (`AnalysisWindow`, `WindowEvaluation`) sind über ihre Identität definiert und
 //! liegen in `entities/`.
 
@@ -15,8 +19,10 @@ mod fingerprint;
 mod month;
 mod monthly_cashflow;
 mod non_empty_string;
+mod occurrence;
 mod own_accounts;
 mod recipient;
+mod run_span;
 mod seed_marker;
 mod window_id;
 mod windowed_booking;
@@ -28,8 +34,10 @@ pub use fingerprint::Fingerprint;
 pub use month::{DayStamp, Month};
 pub use monthly_cashflow::MonthlyCashflow;
 pub use non_empty_string::NonEmptyString;
+pub use occurrence::Occurrence;
 pub use own_accounts::OwnAccounts;
 pub use recipient::Recipient;
+pub use run_span::RunSpan;
 pub use seed_marker::SeedMarker;
 pub use window_id::WindowId;
 pub use windowed_booking::WindowedBooking;

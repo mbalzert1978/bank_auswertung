@@ -5,7 +5,7 @@
 /// **eine** Währung steht einmal am Auswertungsfenster — `fenstern` hat sie **an der Konstruktion**
 /// des Fensters erzwungen. Sie an jedem Betrag zu wiederholen brächte keinen Beweis dazu, sondern
 /// nur einen „was, wenn sie abweichen"-Zweig, der per Konstruktion nie feuern kann.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Amount(u64);
 
 impl Amount {
@@ -31,7 +31,7 @@ impl Amount {
 /// Die Richtung eines Umsatzes — der einzige Ort, an dem das Vorzeichen lebt (ADR-0005), sodass ein
 /// negativer [`Amount`] unkonstruierbar ist. Sie entscheidet, in welche der beiden Spalten eines
 /// Monats-Buckets ein Betrag fließt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Direction {
     Incoming,
     Outgoing,
