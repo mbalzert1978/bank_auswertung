@@ -1,7 +1,7 @@
 ---
 id: "0048"
 title: "rustdoc-Warnungen: public Doku zeigt auf private Items"
-status: open
+status: closed
 ---
 
 # rustdoc-Warnungen: public Doku zeigt auf private Items

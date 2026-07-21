@@ -1,6 +1,6 @@
 # Issue-Fortschritt
 
-Stand: 2026-07-20
+Stand: 2026-07-21
 
 ## Neu (offen) — event-getriebene Pipeline (ADR-0008)
 
@@ -78,6 +78,10 @@ Abschluss:
 
 ## Erledigt
 
+- [x] **[0048-rustdoc-warnungen-public-doku-zeigt-auf-private-items.md](0048-rustdoc-warnungen-public-doku-zeigt-auf-private-items.md)** (2026-07-21, PR #46)
+  rustdoc-Warnungen beseitigt (public Doku-Links auf private Items → Code-Auszeichnung/Prosa),
+  Regressionssperre `[workspace.lints.rustdoc]` (`private_intra_doc_links`/`broken_intra_doc_links` = `deny`)
+  gesetzt, `cargo doc` als sechstes Gate in CLAUDE.md dokumentiert. Squash-gemergt in `main` (Commit 84d5ac2).
 - [x] **[0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md](0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)** (2026-07-15, PR #25)
   `shared_kernel` als eigene Crate aufgelöst und io-privat als Outbox-Modul in `io`
   untergebracht (ADR-0011). Squash-gemergt in `main`.
