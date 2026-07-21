@@ -6,8 +6,17 @@
 //! [`CONSUMED_MESSAGE_TYPE`] (message_type-Auflösung).
 //!
 //! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle ([`UnitFactory`])
-//! reicht der Aufrufer herein — heute der Integrationstest mit Fakes, später die realen io-Adapter
-//! (Build-Order Schritt 5: eine `rusqlite`-Transaktion pro Nachricht).
+//! reicht der Aufrufer herein. **Kalender und Geld sind seit
+//! [Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md) echte, reine
+//! io-Adapter** ([`GermanCalendar`] über `chrono`, [`GermanMoney`] über `rust_decimal`); Quelle und
+//! Unit-Quelle bleiben bis Build-Order Schritt 5 Fakes (die reale `rusqlite`-Transaktion pro
+//! Nachricht + CSV-/Datei-Beschaffung folgen dort).
+
+mod calendar;
+mod money;
+
+pub use calendar::GermanCalendar;
+pub use money::GermanMoney;
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;

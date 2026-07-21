@@ -10,22 +10,23 @@
 //! `pending`-Arbeit (Rollback ohne Sonderfall) — eine gestagete Schreibung committet also mit der
 //! Nachricht oder gar nicht.
 //!
-//! Die Seam-Fakes ([`FakeSource`]/[`FakeCalendar`]/[`FakeMoney`]) sind **bewusst minimale Stubs**
-//! für die zwei Fixtures — kein Nachbau des echten Dekodierens (das prüft der `einlesen`-Spec hinter
-//! den Seams). So gibt es keine „reiche" Parser-Duplikation, die gegen den Adapter driften könnte.
+//! **Geld/Kalender sind keine Fakes mehr:** seit
+//! [Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md) steckt der Test die
+//! echten io-Adapter (`io::einlesen::GermanMoney`/`GermanCalendar`) ein. Fake bleibt nur, was
+//! bis Build-Order Schritt 5 noch ohne echtes `io` ist: die Quelle ([`FakeSource`]) und die
+//! Arbeitseinheit ([`FakeUnit`]).
 
 use std::cell::{Cell, RefCell};
 use std::convert::Infallible;
 use std::rc::Rc;
 
 use einlesen_adapter::{
-    CalendarDay, CalendarSeam, DecodedAmount, Line, MoneySeam, RawRecord, Sign, SourceSeam,
-    SourceUnavailable, StoreSeam, StoreUnavailable,
+    Line, RawRecord, SourceSeam, SourceUnavailable, StoreSeam, StoreUnavailable,
 };
 use io::einlesen::UnitFactory;
 use io::outbox::{OutboxCommand, OutboxMessage, OutboxPublisher, UnitOfWork};
 
-// --- Seam-Fakes (minimale Stubs für die Fixtures) ---------------------------------------
+// --- Fake-Quelle (bis Build-Order Schritt 5 ohne echtes `io`) ---------------------------
 
 /// Fake-Quelle: liefert die arrangierten Roh-Zeilen (die Beschaffung gelingt).
 pub(crate) struct FakeSource {
@@ -35,36 +36,6 @@ pub(crate) struct FakeSource {
 impl SourceSeam for FakeSource {
     fn fetch(&self) -> Result<Vec<RawRecord>, SourceUnavailable> {
         Ok(self.records.clone())
-    }
-}
-
-/// Minimaler Kalender-Stub: zerlegt „TT.MM.JJJJ" ohne Bereichsprüfung (die Fixtures sind gültig;
-/// ungültige Daten prüft der `einlesen`-Spec, nicht dieser Maschinen-Test).
-pub(crate) struct FakeCalendar;
-
-impl CalendarSeam for FakeCalendar {
-    fn parse(&self, raw: &str) -> Option<CalendarDay> {
-        let mut parts = raw.split('.');
-        Some(CalendarDay {
-            day: parts.next()?.parse().ok()?,
-            month: parts.next()?.parse().ok()?,
-            year: parts.next()?.parse().ok()?,
-        })
-    }
-}
-
-/// Minimaler Geld-Stub: das negative Fixture-Format dekodiert zu Cent, alles Nicht-Numerische
-/// (z. B. eine IBAN im Betragsfeld) zu `None` — genug, um „gültig vs. terminal" zu unterscheiden.
-pub(crate) struct FakeMoney;
-
-impl MoneySeam for FakeMoney {
-    fn decode(&self, raw: &str) -> Option<DecodedAmount> {
-        let digits = raw.strip_prefix('-')?;
-        let cent = digits.replace([',', '.'], "").parse().ok()?;
-        Some(DecodedAmount {
-            cent,
-            sign: Sign::Negative,
-        })
     }
 }
 
