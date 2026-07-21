@@ -4,7 +4,7 @@
 //! „Obfuscated"-Nachricht. Getestet wird die **io-Verdrahtung** (Envelope-Extraktion,
 //! `CommandDecoder`-Aufruf, atomarer `UnitOfWork`-Commit, message_type-Auflösung, Dead-Letter-/
 //! Retry-Taktik), nicht das Slice-Verhalten (das prüft der `obfuskierung`-Spec). Alle Seams sind
-//! Fakes; der echte SQLite-/`sqlx`-Teil bleibt draußen (Build-Order Schritt 5).
+//! Fakes; der echte SQLite-/`rusqlite`-Teil bleibt draußen (Build-Order Schritt 5).
 //!
 //! Die Seam-Fakes, die Fake-Arbeitseinheit und die Dispatcher-Verdrahtung liegen in den Fixtures
 //! nebenan (`fixtures/obfuskierung/mod.rs`).

@@ -1,7 +1,7 @@
 use crate::models::WindowEvaluationRow;
 
 /// Der öffentliche **Speicher-Seam** der Ergebnis-Tabelle: legt (staged) eine
-/// [`WindowEvaluationRow`] ab (io: `INSERT`). **io erfüllt ihn** (sqlx) — den Commit besorgt io.
+/// [`WindowEvaluationRow`] ab (io: `INSERT`). **io erfüllt ihn** (rusqlite) — den Commit besorgt io.
 ///
 /// **Ohne Rückgabe der vergebenen ID:** die Ablage vergibt sie, aber diese Reichweite publiziert
 /// **keinen** Zeiger stromabwärts (siehe `auswerten_domain::EvaluationRepository`) — der Seam

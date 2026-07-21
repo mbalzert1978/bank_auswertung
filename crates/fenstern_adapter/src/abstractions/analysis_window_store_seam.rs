@@ -2,7 +2,7 @@ use crate::models::AnalysisWindowRow;
 
 /// Der öffentliche **Speicher-Seam** der Fenster-Tabelle: legt (staged) eine [`AnalysisWindowRow`]
 /// ab und **vergibt dabei die Identität** — er gibt die zugeteilte ID (Textform) zurück (io:
-/// `INSERT … RETURNING id`). **io erfüllt ihn** (sqlx) — die Tabelle ist die Wahrheit für
+/// `INSERT … RETURNING id`). **io erfüllt ihn** (rusqlite) — die Tabelle ist die Wahrheit für
 /// stromabwärts; den Commit (Tabelle **und** die ausgehenden Nachrichten atomar in **einer**
 /// Arbeitseinheit) besorgt io.
 ///

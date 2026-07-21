@@ -51,7 +51,7 @@ pub const CONSUMED_HISTORY_MESSAGE_TYPE: &str = auswerten_adapter::CONSUMED_HIST
 /// Die **Unit-Quelle** von `auswerten`: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
 /// **zugleich** die gestagete Ergebnis-Ablage ([`EvaluationStoreSeam`]) **und** die Outbox
 /// ([`OutboxPublisher`]) ist und beides atomar committet ([`UnitOfWork`]). Spiegel von `fenstern`s
-/// `UnitFactory`; der echte io backt eine Unit mit **einer** `sqlx`-Transaktion.
+/// `UnitFactory`; der echte io backt eine Unit mit **einer** `rusqlite`-Transaktion.
 ///
 /// **Eine** Unit-Quelle für **beide** Reichweiten: es gibt eine Ablage und eine Outbox, also auch
 /// eine Transaktions-Quelle. Dass die fenster-übergreifende Reichweite nichts ablegt, ändert daran

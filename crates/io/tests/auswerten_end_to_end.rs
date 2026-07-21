@@ -7,7 +7,7 @@
 //! Getestet wird die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
 //! `UnitOfWork`-Commit, uniforme message_type-Auflösung **aller vier** Kommandotypen, Fehler-Taktik),
 //! nicht das Slice-Verhalten — das prüfen die `fenstern`- und `auswerten`-Specs. Alle Seams sind
-//! Fakes; der echte SQLite-/`sqlx`-Teil bleibt draußen (Build-Order Schritt 5). Kein Datei-, Netz-
+//! Fakes; der echte SQLite-/`rusqlite`-Teil bleibt draußen (Build-Order Schritt 5). Kein Datei-, Netz-
 //! oder echter Datenbankzugriff.
 //!
 //! Die Seam-Fakes, die Fake-Arbeitseinheit, die Dispatcher-Verdrahtung und die Broker-Schleife

@@ -5,7 +5,7 @@ use crate::models::AnalysisWindowRow;
 
 /// Die **Port-Bridge** für die Ablage: erfüllt `fenstern_domain::AnalysisWindowRepository` und setzt
 /// das Domänen-Aggregat auf die [`AnalysisWindowRow`] um (ACL, „innen → außen"), die sie in den
-/// öffentlichen [`AnalysisWindowStoreSeam`] staged (den io — sqlx — erfüllt). Die vom Seam **neu
+/// öffentlichen [`AnalysisWindowStoreSeam`] staged (den io — rusqlite — erfüllt). Die vom Seam **neu
 /// vergebene** ID hüllt sie „außen → innen" in die [`WindowId`] und reicht sie an den Handler
 /// zurück, der genau sie als Zeiger publiziert; ein `Err` des Seams ist **terminal** →
 /// `WindowError::StorageUnavailable` mit durchgereichter io-Diagnose.

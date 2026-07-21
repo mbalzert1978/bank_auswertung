@@ -11,7 +11,7 @@
 /// Arbeit **verwerfen** (Rollback). Nur so gilt „gemeinsam oder gar nicht" auch auf dem
 /// Abbruch-Pfad: scheitert der Handler, wird die Einheit ungecommittet fallengelassen.
 /// Rust kann diese zwei Eigenschaften nicht kompilierzeit-erzwingen — eine echte
-/// `sqlx::Transaction` erfüllt sie (Rollback bei Drop), der Test-Fake ebenso (eigene
+/// `rusqlite::Transaction` erfüllt sie (Rollback bei Drop), der Test-Fake ebenso (eigene
 /// `pending`-Puffer, nur bei `commit` geflusht).
 pub trait UnitOfWork {
     /// Der Fehler, mit dem der Commit scheitern kann (Schranke `std::error::Error`,

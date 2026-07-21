@@ -7,7 +7,7 @@ use crate::models::Line;
 /// [`Line`]-DTO **samt der vergebenen ID** fest, sodass ein Spec sowohl die projizierten Felder
 /// (Feld-Treue inkl. Währung und Optional-`none`) als auch belegen kann, dass die Roh-Zeile unter
 /// **genau der** ID liegt, die als Zeiger publiziert wird. Implementiert die öffentliche Abstraction
-/// [`StoreSeam`] (nicht den Domänen-Port direkt) — hinter dem echten Seam steckt später sqlx in io,
+/// [`StoreSeam`] (nicht den Domänen-Port direkt) — hinter dem echten Seam steckt später rusqlite in io,
 /// das die ID `INSERT … RETURNING id` vergibt. Ein arrangierter Ausfall (`fail_with`) lässt `store`
 /// terminal scheitern.
 ///

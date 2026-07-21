@@ -53,15 +53,17 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (deliberately free of architecture/crate detail so it cannot go stale); the architecture
   is owned by [docs/adr/](docs/adr/) and this file.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — thirteen ADRs (0008/0009 governing the pipeline/kernel — refined
+- [docs/adr/](docs/adr/) — fourteen ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011** (built): each slice decoupled from the Outbox mechanics, kernel cut flipped and
   merged into `application_kernel`; and by **0012**, which fixes the pipeline to
   **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
   and pins the **uniform ID handoff** (DB-assigned new ID as the published pointer, foreign
   entities referenced by ID only). **0013** (*accepted*) adds the **`fenstern`** step and the
-  `auswerten` split — two analysis reaches, per-window and window-spanning; 0010 governing
-  seed-based pseudonym stability; 0001–0007 each carry a superseded banner pointing at the
-  canonical successor).
+  `auswerten` split — two analysis reaches, per-window and window-spanning; **0014**
+  (*accepted*) pins the real `io` persistence to **rusqlite** and keeps the Outbox spine
+  **synchronous** (`sqlx` rejected — async ripple through `application_kernel`/all slices vs.
+  ADR-0003); 0010 governing seed-based pseudonym stability; 0001–0007 each carry a superseded
+  banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
 
@@ -82,8 +84,9 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (`OutboxMessage`/`OutboxCommand`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/
   `UnitOfWork` — here since [Issue 0032](docs/issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)
   dissolved the former `shared_kernel` crate), the generic transactional consumer +
-  dispatcher, and the per-slice wiring with in-memory doubles. The real `sqlx`/`csv`/`toml`
-  adapters are still deferred;
+  dispatcher, and the per-slice wiring with in-memory doubles. The real `rusqlite`/`csv`/`toml`
+  adapters are still deferred (io-Persistenz = **rusqlite**, die Outbox-Spine bleibt
+  **synchron** — [ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md));
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
   (outside `crates/`) asserting dependency direction over `cargo_metadata`.
 
@@ -207,7 +210,9 @@ slice (the paginating analysis head — two consumers: kick-off + window step), 
 split (**both reaches** built — per-window and window-spanning; the `Fingerabdruck` domain function,
 token-based `Gegenkonto` resolution, and the `Kategorisierer` port for unknown fingerprints)
 — the whole `ADR-0013` chain (issues 0036–0045) is done. Deferred:
-the real `io` adapters (`csv`/`toml`/`fs`/`sqlx` + SQLite Outbox broker/stores + `Speicher`),
+the real `io` adapters (`csv`/`toml`/`fs`/`rusqlite` + SQLite Outbox broker/stores + `Speicher`;
+io-Persistenz = **rusqlite**, Outbox-Spine bleibt **synchron**, `sqlx` verworfen —
+[ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)),
 the `report` presenter, the remaining egress-DTO `Serialize` guards, `ObfuskierterText`
 scrubbing (only trims/rejects-empty today), and persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). **Next: the real `io`

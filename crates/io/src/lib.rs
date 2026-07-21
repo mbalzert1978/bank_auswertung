@@ -30,7 +30,7 @@
 //!   derselbe [`Dispatcher`] uniform über ihren `message_type` auflöst — die Maschinerie brauchte
 //!   dafür keine Erweiterung.
 //!
-//! **Bewusst draußen (Build-Order Schritt 5):** der echte SQLite-/`sqlx`-Teil (Broker/Stores,
+//! **Bewusst draußen (Build-Order Schritt 5):** der echte SQLite-/`rusqlite`-Teil (Broker/Stores,
 //! CSV-/Datei-Beschaffung). Die Seams (`SourceSeam`/`StoreSeam`/…, `OutboxPublisher`,
 //! [`einlesen::UnitFactory`]) erfüllt heute der Integrationstest mit Fakes; die Maschinerie hier
 //! ist davon unabhängig und bleibt bei der echten io-Anbindung unverändert.

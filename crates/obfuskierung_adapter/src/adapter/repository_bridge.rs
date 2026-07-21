@@ -7,7 +7,7 @@ use crate::models::ObfuscatedBooking;
 
 /// Die **Port-Bridge** für die Ablage: erfüllt `obfuskierung_domain::ObfuscatedRepository` und setzt
 /// das obfuskierte Domänen-Aggregat auf das DTO [`ObfuscatedBooking`] um (ACL, „innen → außen"), das
-/// sie in den öffentlichen [`ObfuscatedStoreSeam`] staged (den io — sqlx — erfüllt). Die vom Seam
+/// sie in den öffentlichen [`ObfuscatedStoreSeam`] staged (den io — rusqlite — erfüllt). Die vom Seam
 /// **neu vergebene** ID hüllt sie „außen → innen" in die [`BookingId`] und reicht sie an den Handler
 /// zurück, der genau sie als Zeiger publiziert; ein
 /// [`StoreUnavailable`](crate::abstractions::StoreUnavailable) des Seams wird auf den redigierten

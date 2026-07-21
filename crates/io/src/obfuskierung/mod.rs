@@ -32,7 +32,7 @@ pub const CONSUMED_MESSAGE_TYPE: &str = obfuskierung_adapter::CONSUMED_MESSAGE_T
 /// **zugleich** die gestagete `obfuskiert`-Ablage ([`ObfuscatedStoreSeam`]) **und** die Outbox
 /// ([`OutboxPublisher`]) ist und beides atomar committet ([`UnitOfWork`]). Weil dieselbe Unit staged
 /// **und** committet, committet eine gestagete Schreibung mit der Nachricht oder gar nicht. Spiegel
-/// von einlesens `UnitFactory`; der echte io backt eine Unit mit **einer** `sqlx`-Transaktion.
+/// von einlesens `UnitFactory`; der echte io backt eine Unit mit **einer** `rusqlite`-Transaktion.
 pub trait UnitFactory {
     /// Die Arbeitseinheit: gestagete Ablage + Outbox in einem, atomar committbar.
     type Unit: UnitOfWork + ObfuscatedStoreSeam + OutboxPublisher;
