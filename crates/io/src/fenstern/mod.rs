@@ -31,7 +31,7 @@ use fenstern_adapter::{
 };
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
-use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 
 /// Der `message_type`, unter dem der Dispatcher den **Fenster-Schritt** auflöst (`AdvanceWindow`).
 /// Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am Slice-Eingang.
@@ -57,8 +57,9 @@ pub trait UnitFactory {
     /// Die Arbeitseinheit: gestagete Fenster-Ablage + Outbox in einem, atomar committbar.
     type Unit: UnitOfWork + AnalysisWindowStoreSeam + OutboxPublisher;
 
-    /// Öffnet die Arbeitseinheit für die anstehende Nachricht.
-    fn begin(&self) -> Self::Unit;
+    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
+    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand).
+    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
 }
 
 /// Der [`TransactionalHandler`] des **Fenster-Schritts**: hält den message-unabhängigen Lese-Seam,
@@ -77,11 +78,15 @@ impl<F: UnitFactory> TransactionalHandler for WindowingTransactionalHandler<'_, 
     type Decoder = AdvanceWindowCommandDecoder;
     type Error = WindowError;
 
-    fn handle(&self, command: AdvanceWindowCommand) -> Result<(), TransactionError<WindowError>> {
+    fn handle(
+        &self,
+        ack: MessageId<'_>,
+        command: AdvanceWindowCommand,
+    ) -> Result<(), TransactionError<WindowError>> {
         // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Ablage- und Publish-Ports **sind**
         // die Unit; die Lese-Quelle liegt außerhalb (idempotentes Lesen).
-        run_in_unit(self.units.begin(), |unit, publishing| {
+        run_in_unit(self.units.begin(ack), |unit, publishing| {
             WindowingHandler::new(self.window_days, self.source, unit, publishing).handle(command)
         })
     }
@@ -101,8 +106,12 @@ impl<F: UnitFactory> TransactionalHandler for StartTransactionalHandler<'_, F> {
     type Decoder = StartAnalysisCommandDecoder;
     type Error = WindowError;
 
-    fn handle(&self, command: StartAnalysisCommand) -> Result<(), TransactionError<WindowError>> {
-        run_in_unit(self.units.begin(), |_unit, publishing| {
+    fn handle(
+        &self,
+        ack: MessageId<'_>,
+        command: StartAnalysisCommand,
+    ) -> Result<(), TransactionError<WindowError>> {
+        run_in_unit(self.units.begin(ack), |_unit, publishing| {
             StartHandler::new(self.source, publishing).handle(command)
         })
     }

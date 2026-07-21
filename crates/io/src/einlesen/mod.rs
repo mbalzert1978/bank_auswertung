@@ -28,7 +28,7 @@ use einlesen_adapter::{
     SourceSeam, StoreSeam,
 };
 
-use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 
 /// Der `message_type`, unter dem der Dispatcher den `einlesen`-Consumer auflöst (der konsumierte
 /// Auslöser). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am Slice-Eingang.
@@ -43,8 +43,10 @@ pub trait UnitFactory {
     /// Die Arbeitseinheit: gestageter Speicher + Outbox in einem, atomar committbar.
     type Unit: UnitOfWork + StoreSeam + OutboxPublisher;
 
-    /// Öffnet die Arbeitseinheit für die anstehende Nachricht.
-    fn begin(&self) -> Self::Unit;
+    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
+    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand), damit die
+    /// Unit eine reine Funktion ihres Arguments ist.
+    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
 }
 
 /// Der [`TransactionalHandler`] von `einlesen`: hält die message-unabhängigen Seams und die
@@ -63,11 +65,15 @@ impl<F: UnitFactory> TransactionalHandler for EinlesenTransactionalHandler<'_, F
     type Decoder = ReadCommandDecoder;
     type Error = ReadError;
 
-    fn handle(&self, command: ReadCommand) -> Result<(), TransactionError<ReadError>> {
+    fn handle(
+        &self,
+        ack: MessageId<'_>,
+        command: ReadCommand,
+    ) -> Result<(), TransactionError<ReadError>> {
         // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
-        // Unit — was der Handler staged, committet mit ihr oder gar nicht.
-        run_in_unit(self.units.begin(), |unit, publishing| {
+        // Unit — was der Handler staged, committet mit ihr (und dem Ack von `ack`) oder gar nicht.
+        run_in_unit(self.units.begin(ack), |unit, publishing| {
             ReadingHandler::new(self.source, self.calendar, self.money, unit, publishing)
                 .handle(command)
         })

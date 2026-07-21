@@ -34,7 +34,7 @@ use auswerten_adapter::{
 };
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
-use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 
 /// Der `message_type`, unter dem der Dispatcher die **pro-Fenster**-Reichweite auflöst
 /// (`FensterGeschlossen`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
@@ -60,8 +60,10 @@ pub trait UnitFactory {
     /// Die Arbeitseinheit: gestagete Ergebnis-Ablage + Outbox in einem, atomar committbar.
     type Unit: UnitOfWork + EvaluationStoreSeam + OutboxPublisher;
 
-    /// Öffnet die Arbeitseinheit für die anstehende Nachricht.
-    fn begin(&self) -> Self::Unit;
+    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
+    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand) — bei der
+    /// fenster-übergreifenden Reichweite, die nichts ablegt, umspannt die Einheit genau diesen Ack.
+    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
 }
 
 /// Der **Abnehmer** der fenster-übergreifenden Reichweite — die io-Seite der einen Stelle, an der
@@ -109,12 +111,13 @@ impl<F: UnitFactory> TransactionalHandler for WindowEvaluationTransactionalHandl
 
     fn handle(
         &self,
+        ack: MessageId<'_>,
         command: EvaluateWindowCommand,
     ) -> Result<(), TransactionError<EvaluationError>> {
         // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Der Ablage-Port **ist** die Unit;
         // die Lese-Seams und das Orakel liegen außerhalb (idempotentes Lesen bzw. Egress).
-        run_in_unit(self.units.begin(), |unit, _publishing| {
+        run_in_unit(self.units.begin(ack), |unit, _publishing| {
             WindowEvaluationHandler::new(
                 self.source,
                 unit,
@@ -146,9 +149,10 @@ impl<F: UnitFactory, S: OccurrenceSink> TransactionalHandler
 
     fn handle(
         &self,
+        ack: MessageId<'_>,
         command: EvaluateHistoryCommand,
     ) -> Result<(), TransactionError<EvaluationError>> {
-        run_in_unit(self.units.begin(), |_unit, _publishing| {
+        run_in_unit(self.units.begin(ack), |_unit, _publishing| {
             HistoryEvaluationHandler::new(self.source)
                 .handle(command)
                 .map(|occurrences| self.sink.receive(occurrences))

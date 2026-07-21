@@ -23,9 +23,25 @@ pub trait TransactionalHandler {
     /// Grund spiegelt).
     type Error: std::error::Error;
 
-    /// Verarbeitet das Kommando in einer atomaren Arbeitseinheit.
-    fn handle(&self, command: Self::Command) -> Result<(), TransactionError<Self::Error>>;
+    /// Verarbeitet das Kommando in einer atomaren Arbeitseinheit und markiert **dieselbe** Einheit
+    /// die konsumierte Nachricht `ack` als verarbeitet. Die Ack-ID kommt **explizit** vom
+    /// [`OutboxConsumer`] und wird an die Arbeitseinheit weitergereicht (`begin(ack)`) — kein ambient
+    /// geteilter Zustand.
+    fn handle(
+        &self,
+        ack: MessageId<'_>,
+        command: Self::Command,
+    ) -> Result<(), TransactionError<Self::Error>>;
 }
+
+/// Die Identität der Outbox-Nachricht, die eine Arbeitseinheit als **verarbeitet** markiert (ackt).
+/// Ein eigener Typ statt eines nackten `&str`, damit die Ack-ID nicht mit `partition_key`/`content`
+/// (ebenfalls Strings) verwechselt wird und der Datenfluss **explizit** durch die Aufrufkette läuft:
+/// der [`OutboxConsumer`] liest sie aus der [`OutboxMessage::id`](super::outbox::OutboxMessage::id),
+/// reicht sie an den [`TransactionalHandler`] und dieser an die Unit-Quelle (`begin(ack)`) — statt
+/// sie über geteilten mutablen Zustand zu schmuggeln.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MessageId<'a>(pub &'a str);
 
 /// Die Disposition **eines** transaktionalen Versuchs — von `io` erzeugt, nie von einem Slice.
 pub enum TransactionError<E> {
@@ -35,10 +51,19 @@ pub enum TransactionError<E> {
     /// Der **Commit** ist gescheitert → io-interner Retry (nie aus einem Handler-Fehler). Trägt
     /// den bereits stringifizierten Grund (der Commit-Fehlertyp lebt nicht über diese Grenze).
     ///
-    /// **Redaktions-Pflicht (wenn der echte `io`-Commit fällt):** dieser Grund wird nach
-    /// erschöpften Versuchen als Dead-Letter-Grund persistiert. Wie die io-Diagnose des Quell-
-    /// Seams beschreibt er **Transaktions-Mechanik** (Broker/DB), **nie** einen Roh-Zeilenwert —
-    /// die reale `UnitOfWork::Error`-`Display` muss das einhalten. Der `obfuskierung`-Integrationstest
+    /// **Heute bedeutet Retry unbegrenzte erneute Zustellung:** der Broker
+    /// ([`SqliteOutbox`](crate::sqlite::SqliteOutbox)) stellt eine offene Nachricht beim nächsten Lauf
+    /// erneut zu; eine **attempt-basierte Eskalation Retry → Dead-Letter** ist **noch nicht gebaut**
+    /// (Build-Order Schritt 5, außerhalb des Fundament-Scopes von Issue 0052; wie `io` einen
+    /// terminalen Fehlschlag surfacet, ist per
+    /// [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
+    /// vertagt). **Sobald** sie gebaut ist, wird dieser Grund nach erschöpften Versuchen als
+    /// Dead-Letter-Grund persistiert.
+    ///
+    /// **Redaktions-Pflicht (wenn der echte `io`-Commit fällt):** wie die io-Diagnose des Quell-Seams
+    /// beschreibt er **Transaktions-Mechanik** (Broker/DB), **nie** einen Roh-Zeilenwert — die reale
+    /// `UnitOfWork::Error`-`Display` muss das einhalten (siehe
+    /// [`SqliteCommitError`](crate::sqlite::SqliteCommitError)). Der `obfuskierung`-Integrationstest
     /// fährt diesen Pfad bereits (sein Fake-Commit scheitert mit einer reinen Transaktions-Diagnose
     /// „broker weg" und wird als einziger Retry-Fall gespiegelt); einlesens Fake-Commit ist noch
     /// `Infallible`.
@@ -53,8 +78,9 @@ pub enum TransactionError<E> {
 /// **Ablauf je Nachricht:** die Envelope extrahieren und dem slice-eigenen
 /// [`CommandDecoder`](TransactionalHandler::Decoder) nur die nackten Strings
 /// `partition_key`/`content` reichen (Shape Y — der Slice nennt keinen Outbox-Typ) → das Kommando
+/// **zusammen mit der Ack-ID** ([`MessageId`], aus [`OutboxMessage::id`](super::outbox::OutboxMessage::id))
 /// an den [`TransactionalHandler`] geben, der die Arbeitseinheit öffnet, den Handler aus ihr baut,
-/// dispatcht und **einmal** committet.
+/// dispatcht und **einmal** committet — der Commit markiert dieselbe Nachricht als verarbeitet.
 ///
 /// **Fehler-Taktik (io-intern, ADR-0011 Entscheidung B):** der `OutboxError` der
 /// **Nachrichtenverarbeitung** entsteht hier — leerer/ungültiger Inhalt (Decoder `None`) →
@@ -63,7 +89,9 @@ pub enum TransactionError<E> {
 /// besitzt; ein Commit-Fehler → `Retry`, der **einzige** io-interne Retry-Ursprung. (Die
 /// Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`](crate::Dispatcher), wenn kein
 /// Consumer zum `message_type` passt.) Die attempt-basierte Eskalation Retry → Dead-Letter nach
-/// erschöpften Versuchen gehört dem Broker (`OutboxMessage::attempt`, Build-Order Schritt 5).
+/// erschöpften Versuchen gehört dem Broker (`OutboxMessage::attempt`, Build-Order Schritt 5) und ist
+/// **noch nicht gebaut** — heute wird eine per Retry offen gebliebene Nachricht **unbegrenzt** erneut
+/// zugestellt (s. [`TransactionError::Commit`]).
 pub struct OutboxConsumer<T> {
     transaction: T,
 }
@@ -88,7 +116,11 @@ impl<T: TransactionalHandler> OutboxHandler for OutboxConsumer<T> {
                 }
             })?;
 
-        self.transaction.handle(command).map_err(OutboxError::from)
+        // Die Ack-ID fließt explizit weiter — die Arbeitseinheit markiert **diese** Nachricht als
+        // verarbeitet, atomar mit ihren Schreibungen.
+        self.transaction
+            .handle(MessageId(&message.id), command)
+            .map_err(OutboxError::from)
     }
 }
 
@@ -185,7 +217,11 @@ mod tests {
         type Command = Cmd;
         type Decoder = D;
         type Error = DomainError;
-        fn handle(&self, _command: Cmd) -> Result<(), TransactionError<DomainError>> {
+        fn handle(
+            &self,
+            _ack: MessageId<'_>,
+            _command: Cmd,
+        ) -> Result<(), TransactionError<DomainError>> {
             (self.outcome)()
         }
     }

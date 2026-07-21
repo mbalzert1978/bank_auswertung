@@ -21,7 +21,7 @@ use obfuskierung_adapter::{
     ObfuscatingHandler, ObfuscatorSeam, SourceError,
 };
 
-use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 
 /// Der `message_type`, unter dem der Dispatcher den `obfuskierung`-Consumer auflöst (der konsumierte
 /// Auslöser, `Ingested`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
@@ -37,8 +37,9 @@ pub trait UnitFactory {
     /// Die Arbeitseinheit: gestagete Ablage + Outbox in einem, atomar committbar.
     type Unit: UnitOfWork + ObfuscatedStoreSeam + OutboxPublisher;
 
-    /// Öffnet die Arbeitseinheit für die anstehende Nachricht.
-    fn begin(&self) -> Self::Unit;
+    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
+    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand).
+    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
 }
 
 /// Der [`TransactionalHandler`] von `obfuskierung`: hält die message-unabhängigen Seams (Lese-Quelle
@@ -59,11 +60,15 @@ impl<F: UnitFactory> TransactionalHandler for ObfuskierungTransactionalHandler<'
     type Decoder = ObfuscateCommandDecoder;
     type Error = SourceError;
 
-    fn handle(&self, command: ObfuscateCommand) -> Result<(), TransactionError<SourceError>> {
+    fn handle(
+        &self,
+        ack: MessageId<'_>,
+        command: ObfuscateCommand,
+    ) -> Result<(), TransactionError<SourceError>> {
         // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
         // Unit; Quelle/Obfuskator liegen außerhalb (idempotentes Lesen).
-        run_in_unit(self.units.begin(), |unit, publishing| {
+        run_in_unit(self.units.begin(ack), |unit, publishing| {
             ObfuscatingHandler::new(self.seed, self.source, self.obfuscator, unit, publishing)
                 .handle(command)
         })

@@ -320,7 +320,7 @@ impl FakeDb {
 impl io::fenstern::UnitFactory for FakeDb {
     type Unit = FakeUnit;
 
-    fn begin(&self) -> FakeUnit {
+    fn begin(&self, _ack: io::MessageId<'_>) -> FakeUnit {
         FakeUnit::of(self)
     }
 }
@@ -328,7 +328,7 @@ impl io::fenstern::UnitFactory for FakeDb {
 impl io::auswerten::UnitFactory for FakeDb {
     type Unit = FakeUnit;
 
-    fn begin(&self) -> FakeUnit {
+    fn begin(&self, _ack: io::MessageId<'_>) -> FakeUnit {
         FakeUnit::of(self)
     }
 }

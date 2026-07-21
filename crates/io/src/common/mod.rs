@@ -12,6 +12,6 @@ mod dispatcher;
 mod publishing;
 
 pub(crate) use consumer::run_in_unit;
-pub use consumer::{OutboxConsumer, TransactionError, TransactionalHandler};
+pub use consumer::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler};
 pub use dispatcher::Dispatcher;
 pub use publishing::PublishingPort;
