@@ -51,6 +51,8 @@ impl std::error::Error for LineError {}
 /// ist **per Konstruktion** redigiert — es trägt nur den statischen Feldnamen, nie den
 /// Rohwert; diese `Display` ist der **einzige Eigentümer** des Meldungssatzes (der Adapter
 /// spiegelt ihn nicht; Kontrakt der Specs ist allein „der Grund enthält den Feldnamen").
+/// [`MixedCurrency`](SourceError::MixedCurrency) ist **datenlos** und damit per Konstruktion
+/// redigiert — es nennt nur die Mechanik, nie einen Währungscode (auch `Debug` spiegelt keinen).
 /// [`Unavailable`](SourceError::Unavailable) trägt die vom Quell-Seam **durchgereichte
 /// io-Diagnose** (Pfad, OS-/Parse-Fehler — Beschaffungs-Mechanik, nie Satz-/Feldinhalt;
 /// diese Redaktions-Pflicht ist am Seam dokumentiert), damit der terminale Fehlergrund
@@ -62,6 +64,10 @@ pub enum SourceError {
     /// Eine beschaffte Zeile ist da, aber ein **Pflichtfeld fehlt/ist leer** — redigiert
     /// per Konstruktion: nur der statische Feldname.
     MissingMandatoryField { field: &'static str },
+    /// Der beschaffte Batch führt **mehr als eine** Währung — die Domäne summiert keine
+    /// gemischten Währungen, darum eine **formatunabhängige** Inbound-Zusicherung der ACL
+    /// (nicht des CSV-Readers). Redigiert per Konstruktion: **datenlos**, nie ein Code.
+    MixedCurrency,
 }
 
 impl fmt::Display for SourceError {
@@ -70,6 +76,9 @@ impl fmt::Display for SourceError {
             SourceError::Unavailable { reason } => write!(f, "source unavailable: {reason}"),
             SourceError::MissingMandatoryField { field } => {
                 write!(f, "mandatory field missing: {field}")
+            }
+            SourceError::MixedCurrency => {
+                write!(f, "source is not single-currency across the batch")
             }
         }
     }
