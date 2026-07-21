@@ -28,21 +28,60 @@ impl MoneySeam for GermanMoney {
             .map(|rest| (Sign::Negative, rest))
             .or_else(|| raw.strip_prefix('+').map(|rest| (Sign::Positive, rest)))?;
 
-        // Deutsche Darstellung → das, was `rust_decimal` parst: Tausenderpunkte sind reine Gruppierung
-        // (entfallen), das Dezimalkomma wird zum Punkt. Der Vorzeichen-Teil ist schon abgestreift.
-        let normalised = body.replace('.', "").replace(',', ".");
-        let euros = Decimal::from_str(&normalised).ok()?;
+        // Ganzzahl- und (optionalen) Nachkomma-Teil am Dezimalkomma trennen.
+        let (integer_part, fraction) = match body.split_once(',') {
+            Some((integer_part, fraction)) => (integer_part, Some(fraction)),
+            None => (body, None),
+        };
 
-        // Feste Skala 2: der Betrag muss in ganzen Cent aufgehen (drei+ Nachkommastellen sind für
-        // eine Cent-Währung kein gültiger Betrag). `rust_decimal` rechnet das exakt.
-        let cents = euros.checked_mul(Decimal::ONE_HUNDRED)?;
-        if !cents.fract().is_zero() {
-            return None;
-        }
+        // Deutsche Darstellung → die Form, die `rust_decimal` parst — **mit** Gruppierungs-Prüfung:
+        // ein Tausenderpunkt zählt nur, wenn er sauber in 3er-Gruppen trennt; eine falsch gruppierte
+        // Zahl (z. B. „1.23") ergibt `None` statt einer stillen Fehldeutung („123").
+        let integer_digits = normalise_grouped_integer(integer_part)?;
+        let normalised = match fraction {
+            None => integer_digits,
+            Some(fraction) => format!("{integer_digits}.{}", validated_fraction(fraction)?),
+        };
 
+        // `rust_decimal` parst exakt (kein `f64`-Rundungsfehler). Der Nachkomma-Teil ist auf ≤2
+        // Stellen begrenzt (feste Skala 2 = Cent), darum geht `× 100` immer in ganzen Cent auf.
+        let cents = Decimal::from_str(&normalised)
+            .ok()?
+            .checked_mul(Decimal::ONE_HUNDRED)?;
         Some(DecodedAmount {
             cent: cents.to_u64()?,
             sign,
         })
     }
+}
+
+/// Ist `s` ein **nichtleerer** reiner ASCII-Ziffernblock?
+fn all_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Prüft die deutsche Tausender-Gruppierung des Ganzzahl-Teils und gibt den reinen Ziffernkörper
+/// (Punkte entfernt) zurück, sonst `None`. **Ohne** Punkt ist jeder nichtleere Ziffernblock gültig;
+/// **mit** Punkt hat der erste Block 1–3 Ziffern und jeder weitere **genau** 3 — so wird „1.23" oder
+/// „1.2345" verworfen statt fehlgedeutet.
+fn normalise_grouped_integer(integer_part: &str) -> Option<String> {
+    let groups: Vec<&str> = integer_part.split('.').collect();
+    let valid = match groups.as_slice() {
+        [single] => all_digits(single),
+        [first, rest @ ..] => {
+            (1..=3).contains(&first.len())
+                && all_digits(first)
+                && rest
+                    .iter()
+                    .all(|group| group.len() == 3 && all_digits(group))
+        }
+        [] => false,
+    };
+    valid.then(|| groups.concat())
+}
+
+/// Prüft den Nachkomma-Teil: **1–2** Ziffern, sonst `None` (ein leerer Teil = nachgestelltes Komma
+/// wie „50," ist ungültig; drei+ Stellen sprengen die Cent-Skala).
+fn validated_fraction(fraction: &str) -> Option<&str> {
+    ((1..=2).contains(&fraction.len()) && all_digits(fraction)).then_some(fraction)
 }
