@@ -3,20 +3,26 @@
 //! in `io` → den echten `einlesen`-Slice → bis zur publizierten „Ingested"-Nachricht. Getestet
 //! wird die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
 //! `UnitOfWork`-Commit, message_type-Auflösung, Dead-Letter-Taktik), nicht das Slice-Verhalten
-//! (das prüft der `einlesen`-Spec). Alle Seams sind Fakes; der echte SQLite-/`rusqlite`-Teil bleibt
-//! draußen (Build-Order Schritt 5).
+//! (das prüft der `einlesen`-Spec).
 //!
-//! Die Seam-Fakes und die Fake-Arbeitseinheit liegen in den Fixtures nebenan
+//! **Geld-/Kalender-Seam sind seit [Issue 0050](../../../docs/issues/0050-money-calendar-decode-seams-real.md)
+//! die echten io-Adapter** ([`GermanMoney`](io::einlesen::GermanMoney) über `rust_decimal`,
+//! [`GermanCalendar`](io::einlesen::GermanCalendar) über `chrono`) — so läuft das **komplette
+//! Konstrukt gegen die echten Libs verdrahtet**. Quelle und Arbeitseinheit bleiben Fakes (der echte
+//! SQLite-/`rusqlite`-/CSV-Teil folgt in Build-Order Schritt 5). Die deutsche Zahl-/Datum-**Mechanik
+//! selbst** wird hier nicht durchdekliniert (das ist Lib-Sache, kein io-Unit-Test) — die bestehenden
+//! Fälle üben sie am Happy Path (`-50,00`, `13.06.2024`) bzw. terminal (IBAN im Betragsfeld) mit.
+//!
+//! Die Fake-Quelle und die Fake-Arbeitseinheit liegen in den Fixtures nebenan
 //! (`fixtures/einlesen/mod.rs`).
 
 use io::Dispatcher;
+use io::einlesen::{GermanCalendar, GermanMoney};
 use io::outbox::OutboxError;
 
 #[path = "../fixtures/einlesen/mod.rs"]
 mod fixtures;
-use fixtures::{
-    FakeCalendar, FakeDb, FakeMoney, FakeSource, gültiger_rohsatz, read_transactions_envelope,
-};
+use fixtures::{FakeDb, FakeSource, gültiger_rohsatz, read_transactions_envelope};
 
 // --- Happy Path: Envelope → OutboxConsumer → einlesen → publiziertes „Ingested" ---------
 
@@ -26,7 +32,7 @@ fn ein_envelope_wird_end_to_end_verarbeitet_und_atomar_committet() {
     let source = FakeSource {
         records: vec![gültiger_rohsatz()],
     };
-    let consumer = io::einlesen::consumer(&source, &FakeCalendar, &FakeMoney, db.clone());
+    let consumer = io::einlesen::consumer(&source, &GermanCalendar, &GermanMoney, db.clone());
 
     let mut dispatcher = Dispatcher::new();
     assert!(
@@ -58,7 +64,7 @@ fn ein_terminaler_fehler_wird_redigiert_dead_lettered() {
     let source = FakeSource {
         records: vec![rohsatz],
     };
-    let consumer = io::einlesen::consumer(&source, &FakeCalendar, &FakeMoney, db.clone());
+    let consumer = io::einlesen::consumer(&source, &GermanCalendar, &GermanMoney, db.clone());
 
     let mut dispatcher = Dispatcher::new();
     assert!(
