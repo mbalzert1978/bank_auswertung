@@ -209,6 +209,25 @@ fn ein_währungsbruch_über_den_batch_scheitert_terminal_redigiert() {
     assert!(api.published_message_types().is_empty());
 }
 
+// --- Ein-Währung: gleiche Währung in anderer Schreibung ist KEIN Bruch -------------------
+// Die Zusicherung teilt die Deutung des Domänen-Decodes (`Currency::from_code`, case-insensitiv):
+// `eur` und `EUR` sind dieselbe Währung, kein Bruch. Beide Zeilen laufen durch.
+
+#[test]
+fn gleiche_währung_in_anderer_schreibung_ist_kein_bruch() {
+    let groß = gültiger_rohsatz(); // trägt EUR
+    let mut klein = gültiger_rohsatz();
+    klein.currency = feld("eur");
+    let api = ReadTestApi::new().with_line(groß).with_line(klein);
+
+    api.run(QUELLE)
+        .expect("gleiche Währung, nur andere Schreibung");
+
+    // Kein Bruch: beide Zeilen werden gestaged und fächern zu je einem Command auf.
+    assert_eq!(api.stored_lines().len(), 2);
+    assert_eq!(api.published_message_types(), vec!["Ingested"; 2]);
+}
+
 // --- Optionaler Empfänger: eine Gebührenzeile ohne Empfänger läuft durch -----------------
 // Eine Entgelt-/Gebührenzeile hat keine Gegenpartei (B2); der Empfängername ist optional. Die
 // Zeile wird **nicht** abgewiesen, sondern mit `recipient_name == None` gestaged. Der
