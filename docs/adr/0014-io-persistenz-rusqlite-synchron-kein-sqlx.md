@@ -63,12 +63,13 @@ die synchrone Spine hereinzuziehen ließe nur zwei Wege — beide schlecht:
 
 ## Begründung
 
-- **Kein async-Ripple.** rusqlites synchrone API passt zur synchronen Spine ohne eine
-  einzige Signaturänderung — die Alternative (async-Umbau) verletzte
-  [ADR-0003](0003-rust-als-sprache.md) („ein Binary ohne Runtime") und breitete `async`
-  über I/O-blinde Crates aus.
-- **Kein `block_on`-Hack.** Ohne async-Treiber gibt es nichts zu blockieren; die
-  Runtime-los-Garantie bleibt echt statt versteckt-blockierend.
+- **Synchron passt zu synchron.** rusqlites synchrone API fällt hinter die bestehenden
+  sync-Traits ohne eine einzige Signaturänderung — kein `async`-Ripple, keine Runtime
+  gegen [ADR-0003](0003-rust-als-sprache.md) (der abgewogene Vergleich mit den beiden
+  `sqlx`-Wegen steht oben unter **Problem**).
+- **Runtime-los bleibt echt.** Ohne async-Treiber gibt es nichts zu blockieren; die
+  Runtime-los-Garantie aus [ADR-0003](0003-rust-als-sprache.md) bleibt echt statt
+  versteckt-blockierend.
 - **Passt zum Einsatzbild.** Bank-Auswertung ist ein **lokales**, single-user
   Analysewerkzeug ohne Server-Nebenläufigkeit. Async-I/O kauft hier nichts; SQLite-Zugriff
   ist lokal und synchron ausreichend.
