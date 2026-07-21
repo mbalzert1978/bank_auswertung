@@ -14,7 +14,7 @@ Den `auswerten`-Slice in `io` verdrahten und die **ganze Pipeline gegen Fakes** 
 
 **Beide** Kommandotypen (`FensterGeschlossen`, `HistorieVollständig`) werden über den **Dispatcher**
 uniform aufgelöst; **Consumer-Rolle und Unit-of-Work bleiben in `io`** (ADR-0011), die Seams des
-Adapters bekommen In-Memory-Implementierungen. Echtes `io` (SQLite/`sqlx`, Tag-Stamp-Persistenz,
+Adapters bekommen In-Memory-Implementierungen. Echtes `io` (SQLite/`rusqlite`, Tag-Stamp-Persistenz,
 Broker-Trigger) bleibt weiterhin **out of scope**.
 
 Ein **End-to-End-Test** treibt die Kette über **beide Slices**: ein `StartAnalysis` hinein — `fenstern`
