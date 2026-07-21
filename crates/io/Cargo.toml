@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["alloc"] }
+csv = "1.4.0"
 rust_decimal = { version = "1.42.1", default-features = false }
 application_kernel = { path = "../application_kernel" }
 auswerten_adapter = { path = "../auswerten_adapter" }

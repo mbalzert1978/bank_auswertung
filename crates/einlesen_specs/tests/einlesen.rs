@@ -30,13 +30,15 @@
 //! **Was hier sehr wohl abgelehnt wird — und warum das Slice-Verhalten ist:** die *Präsenz*
 //! eines Pflichtfelds erzwingt der **Adapter** (ACL, „außen → innen": `RawRecord` → `RawLine`)
 //! — seit Issue 0018 **hinter dem Quell-Seam in der Source-Bridge**, weiterhin batch-atomar:
-//! fehlt eins, scheitert der **ganze** Batch redigiert (nur Feldname, nie ein Rohwert). Das
-//! ist beobachtbares Slice-Verhalten, kein io-Detail — darum prüfen Specs es. Ebenso sind die
-//! Abbildung „Quelle nicht beschaffbar → terminaler Fehler mit durchgereichter io-Diagnose"
-//! (Bridge-Verhalten, kein io-Format-Detail) und „unbekannte Währung" (eine
-//! **Domänen**-Deutungsentscheidung, `Currency::from_code`) Slice-Verhalten. Weiterhin
-//! **nicht** getestet wird reine io-Mechanik (Datei lesen, echtes Dekodieren von deutschem
-//! Datum/Zahlenformat) — die liegt hinter den Seams.
+//! fehlt eins, scheitert der **ganze** Batch redigiert (nur Feldname, nie ein Rohwert). Ebenso
+//! sichert die Bridge **eine Währung über den ganzen Batch** zu (formatunabhängige
+//! Inbound-Zusicherung der ACL, nicht des io-Readers) — ein Bruch scheitert redigiert und
+//! batch-atomar (`SourceError::MixedCurrency`, datenlos). Beides ist beobachtbares
+//! Slice-Verhalten, kein io-Detail — darum prüfen Specs es. Ebenso sind die Abbildung „Quelle
+//! nicht beschaffbar → terminaler Fehler mit durchgereichter io-Diagnose" (Bridge-Verhalten,
+//! kein io-Format-Detail) und „unbekannte Währung" (eine **Domänen**-Deutungsentscheidung,
+//! `Currency::from_code`) Slice-Verhalten. Weiterhin **nicht** getestet wird reine io-Mechanik
+//! (Datei lesen, echtes Dekodieren von deutschem Datum/Zahlenformat) — die liegt hinter den Seams.
 //!
 //! **`RawRecord` trägt keine Test-Ergonomie** (bewusst): die Fixtures liegen spec-lokal in
 //! `fixtures/` (per Modul-Include hereingezogen), nicht in der Adapter-API.
@@ -178,6 +180,52 @@ fn ein_fehlendes_pflichtfeld_scheitert_batch_atomar() {
     // Batch-atomar: nichts wird gestaged oder veröffentlicht — auch die gültige Zeile nicht.
     assert!(api.stored_lines().is_empty());
     assert!(api.published_message_types().is_empty());
+}
+
+// --- Ein-Währung: ein Währungsbruch über den Batch scheitert terminal + redigiert --------
+// Die Domäne summiert keine gemischten Währungen; die „eine Währung über den ganzen Batch"-
+// Zusicherung ist eine **formatunabhängige** Inbound-Zusicherung der ACL (Source-Bridge, hinter
+// dem Quell-Seam) — genau wie die Präsenz-Prüfung, und damit beobachtbares Slice-Verhalten. Zwei
+// sonst gültige Zeilen mit verschiedenen Währungen lassen den ganzen Batch terminal scheitern,
+// bevor der Handler eine Zeile summiert. Redigiert: der Grund nennt keinen Währungscode.
+
+#[test]
+fn ein_währungsbruch_über_den_batch_scheitert_terminal_redigiert() {
+    let eur = gültiger_rohsatz(); // trägt bereits EUR
+    let mut usd = gültiger_rohsatz();
+    usd.currency = feld("USD");
+    let api = ReadTestApi::new().with_line(eur).with_line(usd);
+
+    let ergebnis = api.run(QUELLE);
+
+    // Terminal + redigiert: die Meldung nennt nur die Mechanik, nie einen Währungscode.
+    assert!(
+        matches!(&ergebnis, Err(error)
+            if !error.to_string().contains("EUR") && !error.to_string().contains("USD")),
+        "erwartet redigierter Währungsbruch-Fehler ohne Code: {ergebnis:?}"
+    );
+    // Batch-atomar: nichts wird gestaged oder veröffentlicht — auch die EUR-Zeile nicht.
+    assert!(api.stored_lines().is_empty());
+    assert!(api.published_message_types().is_empty());
+}
+
+// --- Ein-Währung: gleiche Währung in anderer Schreibung ist KEIN Bruch -------------------
+// Die Zusicherung teilt die Deutung des Domänen-Decodes (`Currency::from_code`, case-insensitiv):
+// `eur` und `EUR` sind dieselbe Währung, kein Bruch. Beide Zeilen laufen durch.
+
+#[test]
+fn gleiche_währung_in_anderer_schreibung_ist_kein_bruch() {
+    let groß = gültiger_rohsatz(); // trägt EUR
+    let mut klein = gültiger_rohsatz();
+    klein.currency = feld("eur");
+    let api = ReadTestApi::new().with_line(groß).with_line(klein);
+
+    api.run(QUELLE)
+        .expect("gleiche Währung, nur andere Schreibung");
+
+    // Kein Bruch: beide Zeilen werden gestaged und fächern zu je einem Command auf.
+    assert_eq!(api.stored_lines().len(), 2);
+    assert_eq!(api.published_message_types(), vec!["Ingested"; 2]);
 }
 
 // --- Optionaler Empfänger: eine Gebührenzeile ohne Empfänger läuft durch -----------------
