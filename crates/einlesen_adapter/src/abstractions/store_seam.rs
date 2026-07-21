@@ -2,7 +2,7 @@ use crate::models::Line;
 
 /// Der öffentliche, mechanische **Speicher-Seam**: legt eine bereits auf die primitive Wire-Form
 /// abgeflachte [`Line`] ab und **vergibt dabei die Identität** der Zeile — er gibt die zugeteilte
-/// ID (Textform) zurück (io: `INSERT … RETURNING id`). **Kein Domänentyp** — io (sqlx) erfüllt ihn
+/// ID (Textform) zurück (io: `INSERT … RETURNING id`). **Kein Domänentyp** — io (rusqlite) erfüllt ihn
 /// ohne Domänen-Kenntnis; Format/Transaktion liegen bei der Implementierung. Er ist **fehlbar** und
 /// **terminal**: ein misslungener Zugriff ist ein [`StoreUnavailable`]. Die
 /// `StoreBridge` mappt ihn auf den internen Domänen-Port

@@ -3,7 +3,7 @@
 //! in `io` → den echten `einlesen`-Slice → bis zur publizierten „Ingested"-Nachricht. Getestet
 //! wird die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
 //! `UnitOfWork`-Commit, message_type-Auflösung, Dead-Letter-Taktik), nicht das Slice-Verhalten
-//! (das prüft der `einlesen`-Spec). Alle Seams sind Fakes; der echte SQLite-/`sqlx`-Teil bleibt
+//! (das prüft der `einlesen`-Spec). Alle Seams sind Fakes; der echte SQLite-/`rusqlite`-Teil bleibt
 //! draußen (Build-Order Schritt 5).
 //!
 //! Die Seam-Fakes und die Fake-Arbeitseinheit liegen in den Fixtures nebenan

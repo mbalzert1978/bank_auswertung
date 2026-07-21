@@ -5,7 +5,7 @@ use crate::models::WindowEvaluationRow;
 
 /// Die **Port-Bridge** für die Ablage: erfüllt `auswerten_domain::EvaluationRepository` und setzt das
 /// Domänen-Aggregat auf die [`WindowEvaluationRow`] um (ACL, „innen → außen"), die sie in den
-/// öffentlichen [`EvaluationStoreSeam`] staged (den io — sqlx — erfüllt). Ein `Err` des Seams ist
+/// öffentlichen [`EvaluationStoreSeam`] staged (den io — rusqlite — erfüllt). Ein `Err` des Seams ist
 /// **terminal** → `EvaluationError::StorageUnavailable` mit durchgereichter io-Diagnose.
 pub(crate) struct RepositoryBridge<'a> {
     pub(crate) seam: &'a dyn EvaluationStoreSeam,

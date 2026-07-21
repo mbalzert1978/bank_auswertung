@@ -1,7 +1,8 @@
 # Zeitfenster-Schritt `fenstern` als paginierender Analyse-Kopf, zwei Analyse-Reichweiten
 
 > **Status: Akzeptiert und gebaut** (Kette 0036–0045 in `main`, gegen Fakes; das reale `io`
-> — SQLite/`sqlx`, Tag-Stamp-Persistenz, Config-Loader — bleibt bewusst der letzte Bauschritt).
+> — SQLite/`rusqlite` (synchron, [ADR-0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)),
+> Tag-Stamp-Persistenz, Config-Loader — bleibt bewusst der letzte Bauschritt).
 > Verfeinert
 > [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (fügt der Pipeline einen Schritt
 > `fenstern` zwischen `obfuskieren` und `auswerten` hinzu) und stützt sich auf
@@ -260,7 +261,8 @@ einzelnes Aggregat kann das beantworten — es ist eine **Zwischen-Seiten**-Frag
 
 ## Bewusst vertagt
 
-Das echte `io` (Broker-Auto-Trigger beim Drain, `sqlx`-Stores, die reale Tag-Stamp-Persistenz aus
+Das echte `io` (Broker-Auto-Trigger beim Drain, `rusqlite`-Stores (synchron,
+[ADR-0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)), die reale Tag-Stamp-Persistenz aus
 Entscheidung C), der `report` (u. a. die „lief / lief-nie"-Unterscheidung), persistente Seed-Verwaltung
 und die `ObfuskierterText`-Scrubbing-Regeln.
 

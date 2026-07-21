@@ -49,7 +49,7 @@ pub const START_MESSAGE_TYPE: &str = fenstern_adapter::START_MESSAGE_TYPE;
 /// ([`OutboxPublisher`]) ist und beides atomar committet ([`UnitOfWork`]). Weil dieselbe Unit staged
 /// **und** committet, committet eine gestagete Schreibung mit ihren Nachrichten oder gar nicht.
 /// Spiegel von einlesens/obfuskierungs `UnitFactory`; der echte io backt eine Unit mit **einer**
-/// `sqlx`-Transaktion.
+/// `rusqlite`-Transaktion.
 ///
 /// **Eine** Unit-Quelle für **beide** Handler: es gibt eine Ablage und eine Outbox, also auch eine
 /// Transaktions-Quelle. Dass der Anstoß die Ablage nicht nutzt, ändert daran nichts.

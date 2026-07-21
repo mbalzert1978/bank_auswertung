@@ -4,7 +4,7 @@
 //! wird die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
 //! `UnitOfWork`-Commit, uniforme message_type-Auflösung **beider** Kommandotypen, Fehler-Taktik),
 //! nicht das Slice-Verhalten (das prüft der `fenstern`-Spec). Alle Seams sind Fakes; der echte
-//! SQLite-/`sqlx`-Teil bleibt draußen (Build-Order Schritt 5).
+//! SQLite-/`rusqlite`-Teil bleibt draußen (Build-Order Schritt 5).
 //!
 //! Die Seam-Fakes, die Fake-Arbeitseinheit, die Dispatcher-Verdrahtung und die Broker-Schleife
 //! liegen in den Fixtures nebenan (`fixtures/fenstern/mod.rs`).

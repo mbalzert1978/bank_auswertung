@@ -7,7 +7,7 @@
 //!
 //! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle ([`UnitFactory`])
 //! reicht der Aufrufer herein — heute der Integrationstest mit Fakes, später die realen io-Adapter
-//! (Build-Order Schritt 5: eine `sqlx`-Transaktion pro Nachricht).
+//! (Build-Order Schritt 5: eine `rusqlite`-Transaktion pro Nachricht).
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
@@ -26,7 +26,7 @@ pub const CONSUMED_MESSAGE_TYPE: &str = einlesen_adapter::CONSUMED_MESSAGE_TYPE;
 /// **zugleich** der gestagete Speicher (`StoreSeam`) **und** die Outbox (`OutboxPublisher`) ist und
 /// beides atomar committet (`UnitOfWork`). Weil dieselbe Unit staged **und** committet, committet
 /// eine gestagete Schreibung mit der Nachricht oder gar nicht. Der echte io backt eine Unit mit
-/// **einer** `sqlx`-Transaktion; der Test mit einer In-Memory-Unit.
+/// **einer** `rusqlite`-Transaktion; der Test mit einer In-Memory-Unit.
 pub trait UnitFactory {
     /// Die Arbeitseinheit: gestageter Speicher + Outbox in einem, atomar committbar.
     type Unit: UnitOfWork + StoreSeam + OutboxPublisher;

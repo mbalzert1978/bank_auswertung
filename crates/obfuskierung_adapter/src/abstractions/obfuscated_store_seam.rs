@@ -2,7 +2,7 @@ use crate::models::ObfuscatedBooking;
 
 /// Der öffentliche **Speicher-Seam** der `obfuskiert`-Tabelle: legt (staged) eine obfuskierte Buchung
 /// ab und gibt die dabei **neu vergebene** ID zurück (io: `INSERT … RETURNING id`). **io erfüllt ihn**
-/// (sqlx) — die Tabelle ist die Wahrheit für stromabwärts; den Commit (Tabelle **und** die
+/// (rusqlite) — die Tabelle ist die Wahrheit für stromabwärts; den Commit (Tabelle **und** die
 /// `Obfuscated`-Nachricht atomar in **einer** Arbeitseinheit) besorgt io.
 ///
 /// **Fehlbar und terminal:** ein Scheitern ist ein seam-lokaler [`StoreUnavailable`] (roh-typisiert,

@@ -76,7 +76,7 @@ trait CommandDecoder {
 - [ ] `architecture`-Regel gelockert: `io` darf `application_kernel` binden; volle Suite
   grün (`cargo build`/`test`/`clippy --all-targets`/`fmt --check` + `cargo test -p
   architecture`).
-- [ ] Der echte SQLite-/`sqlx`-Teil des `io`-Crate bleibt draußen (separater `io`-Effort,
+- [ ] Der echte SQLite-/`rusqlite`-Teil des `io`-Crate bleibt draußen (separater `io`-Effort,
   Build-Order Schritt 5) — die Consumer-Maschinerie läuft gegen Fakes.
 
 ## Blocked by

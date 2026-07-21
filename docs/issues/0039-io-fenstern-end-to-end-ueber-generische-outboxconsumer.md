@@ -17,7 +17,7 @@ sind (vgl. [0020](0020-einlesen-end-to-end-ber-die-generische-outboxconsumer-in-
 Beide Kommandotypen des Slice werden über den **Dispatcher** uniform aufgelöst; **Consumer-Rolle,
 Fehler-Taktik und Unit-of-Work bleiben in `io`** (ADR-0011) — der Slice-Adapter kennt keine
 Outbox-Mechanik. Die Seams des Adapters werden mit **In-Memory-Implementierungen** gefüllt; echtes
-`io` (SQLite, `sqlx`, Tag-Stamp-Persistenz, Broker-Trigger) bleibt **out of scope**.
+`io` (SQLite, `rusqlite`, Tag-Stamp-Persistenz, Broker-Trigger) bleibt **out of scope**.
 
 Ein **End-to-End-Test** treibt den ganzen Lauf: ein `StartAnalysis` hinein — mehrere Seiten mit je
 einem abgelegten `Auswertungsfenster` und `FensterGeschlossen` heraus — am Ende genau ein

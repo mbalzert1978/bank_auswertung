@@ -9,7 +9,7 @@ use crate::PublishingPort;
 /// **atomar**, wenn der Handler gelingt. Weil Handler und Unit **zusammen je Aufruf** entstehen und
 /// den Aufruf nie verlassen, committet eine gestagete Store-/Publish-Schreibung **mit** der Unit
 /// oder gar nicht — die Atomarität des Outbox-Patterns (ADR-0011, Entscheidung A; `io` besitzt die
-/// Unit-of-Work). Der echte `sqlx`-`io` backt sie mit **einer** `sqlx`-Transaktion, der Test mit
+/// Unit-of-Work). Der echte `rusqlite`-`io` backt sie mit **einer** `rusqlite`-Transaktion, der Test mit
 /// einer In-Memory-Unit.
 ///
 /// Der [`Decoder`](TransactionalHandler::Decoder) (Shape Y, ACL) gehört zum Slice-Handler: er baut

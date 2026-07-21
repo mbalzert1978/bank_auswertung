@@ -1,5 +1,5 @@
 //! Die öffentlichen, **mechanischen** Abstractions des Slice — die Seams, die **io** erfüllt
-//! (sqlx/Speicher) und die in den Specs Fakes tragen.
+//! (rusqlite/Speicher) und die in den Specs Fakes tragen.
 //!
 //! Die **pro-Fenster**-Reichweite braucht zwei: [`AnalysisWindowSeam`] (das eingefrorene Fenster per
 //! ID lesen) und [`EvaluationStoreSeam`] (ihr Ergebnis ablegen). Die **fenster-übergreifende**
