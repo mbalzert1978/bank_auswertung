@@ -7,6 +7,8 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["alloc"] }
+rust_decimal = { version = "1.42.1", default-features = false }
 application_kernel = { path = "../application_kernel" }
 auswerten_adapter = { path = "../auswerten_adapter" }
 einlesen_adapter = { path = "../einlesen_adapter" }
