@@ -10,32 +10,58 @@
 //! `pending`-Arbeit (Rollback ohne Sonderfall) — eine gestagete Schreibung committet also mit der
 //! Nachricht oder gar nicht.
 //!
-//! **Geld/Kalender sind keine Fakes mehr:** seit
+//! **Geld/Kalender/Quelle sind keine Fakes mehr:** seit
 //! [Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md) steckt der Test die
-//! echten io-Adapter (`io::einlesen::GermanMoney`/`GermanCalendar`) ein. Fake bleibt nur, was
-//! bis Build-Order Schritt 5 noch ohne echtes `io` ist: die Quelle ([`FakeSource`]) und die
-//! Arbeitseinheit ([`FakeUnit`]).
+//! echten io-Adapter (`io::einlesen::GermanMoney`/`GermanCalendar`) ein, und seit
+//! [Issue 0051](../../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)
+//! auch den echten CSV-CAMT-v8-Reader ([`csv_source`], der eine synthetische Fixture-Datei über
+//! `fs` + `csv` liest). Fake bleibt nur die Arbeitseinheit ([`FakeUnit`]) — der echte
+//! SQLite-/`rusqlite`-Teil folgt in Build-Order Schritt 5.
 
 use std::cell::{Cell, RefCell};
 use std::convert::Infallible;
 use std::rc::Rc;
 
-use einlesen_adapter::{
-    Line, RawRecord, SourceSeam, SourceUnavailable, StoreSeam, StoreUnavailable,
-};
-use io::einlesen::UnitFactory;
+use einlesen_adapter::{CalendarDay, Currency, Direction, Line, StoreSeam, StoreUnavailable};
+use io::einlesen::{CsvCamtV8Source, UnitFactory};
 use io::outbox::{OutboxCommand, OutboxMessage, OutboxPublisher, UnitOfWork};
 
-// --- Fake-Quelle (bis Build-Order Schritt 5 ohne echtes `io`) ---------------------------
+// --- Echte Quelle: der CSV-CAMT-v8-Reader auf einer synthetischen Fixture-Datei ----------
 
-/// Fake-Quelle: liefert die arrangierten Roh-Zeilen (die Beschaffung gelingt).
-pub(crate) struct FakeSource {
-    pub(crate) records: Vec<RawRecord>,
+/// Baut den echten [`CsvCamtV8Source`] auf die benannte Fixture-Datei unter
+/// `fixtures/einlesen/csv/` (Pfad relativ zum io-Crate). So läuft der Beschaffungs-Seam im Test
+/// gegen den **echten** Reader (`fs` + `csv`), nicht mehr gegen einen Fake.
+pub(crate) fn csv_source(name: &str) -> CsvCamtV8Source {
+    let path = format!(
+        "{}/fixtures/einlesen/csv/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    CsvCamtV8Source::new(path)
 }
 
-impl SourceSeam for FakeSource {
-    fn fetch(&self) -> Result<Vec<RawRecord>, SourceUnavailable> {
-        Ok(self.records.clone())
+/// Die erwartete `Line`-Projektion der einzigen Zeile aus `gueltig.csv` (EDEKA, `-50,00 EUR`) —
+/// unabhängige Wahrheit für den Feld-Treue-Vergleich der committeten Zeile.
+pub(crate) fn erwartete_gueltige_zeile() -> Line {
+    Line {
+        ordering_account: "DE89370400440532013000".to_string(),
+        counter_account: Some("DE11520513735120710131".to_string()),
+        amount_cent: 5000,
+        currency: Currency::Euro,
+        direction: Direction::Outgoing,
+        recipient_name: Some("EDEKA SAGT DANKE".to_string()),
+        creditor_id: Some("DE98ZZZ09999999999".to_string()),
+        booking_day: CalendarDay {
+            year: 2024,
+            month: 6,
+            day: 13,
+        },
+        value_date: CalendarDay {
+            year: 2024,
+            month: 6,
+            day: 14,
+        },
+        purpose: Some("Einkauf".to_string()),
+        booking_text: Some("LASTSCHRIFT".to_string()),
     }
 }
 
@@ -147,21 +173,6 @@ impl UnitOfWork for FakeUnit {
 }
 
 // --- Fixtures ---------------------------------------------------------------------------
-
-pub(crate) fn gültiger_rohsatz() -> RawRecord {
-    RawRecord {
-        ordering_account: Some("DE89370400440532013000".to_string()),
-        booking_day: Some("13.06.2024".to_string()),
-        value_date: Some("14.06.2024".to_string()),
-        amount: Some("-50,00".to_string()),
-        currency: Some("EUR".to_string()),
-        recipient_name: Some("EDEKA SAGT DANKE".to_string()),
-        creditor_id: Some("DE98ZZZ09999999999".to_string()),
-        counter_account: Some("DE11520513735120710131".to_string()),
-        purpose: Some("Einkauf".to_string()),
-        booking_text: Some("LASTSCHRIFT".to_string()),
-    }
-}
 
 pub(crate) fn read_transactions_envelope() -> OutboxMessage {
     OutboxMessage {

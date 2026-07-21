@@ -1,20 +1,23 @@
-//! io-Integrationstest ([Issue 0020](../../../docs/issues/0020-einlesen-end-to-end-ber-die-generische-outboxconsumer-in-io-kernel-flip.md)):
+//! io-Integrationstest ([Issue 0020](../../../docs/issues/0020-einlesen-end-to-end-ber-die-generische-outboxconsumer-in-io-kernel-flip.md),
+//! Quelle real seit [Issue 0051](../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)):
 //! ein `ReadTransactions`-Envelope läuft **end-to-end** durch die generische Consumer-Maschinerie
-//! in `io` → den echten `einlesen`-Slice → bis zur publizierten „Ingested"-Nachricht. Getestet
-//! wird die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
-//! `UnitOfWork`-Commit, message_type-Auflösung, Dead-Letter-Taktik), nicht das Slice-Verhalten
-//! (das prüft der `einlesen`-Spec).
+//! in `io` → den echten `einlesen`-Slice → bis zur publizierten „Ingested"-Nachricht. Getestet wird
+//! die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
+//! `UnitOfWork`-Commit, message_type-Auflösung, Dead-Letter-Taktik) **zusammen mit** der echten
+//! Beschaffung: seit 0051 steht an der Stelle des früheren Quell-Fakes der echte
+//! CSV-CAMT-v8-Reader ([`CsvCamtV8Source`](io::einlesen::CsvCamtV8Source)) auf **synthetischen
+//! Fixture-Dateien** nach echtem Sparkassen-Header.
 //!
 //! **Geld-/Kalender-Seam sind seit [Issue 0050](../../../docs/issues/0050-money-calendar-decode-seams-real.md)
 //! die echten io-Adapter** ([`GermanMoney`](io::einlesen::GermanMoney) über `rust_decimal`,
 //! [`GermanCalendar`](io::einlesen::GermanCalendar) über `chrono`) — so läuft das **komplette
-//! Konstrukt gegen die echten Libs verdrahtet**. Quelle und Arbeitseinheit bleiben Fakes (der echte
-//! SQLite-/`rusqlite`-/CSV-Teil folgt in Build-Order Schritt 5). Die deutsche Zahl-/Datum-**Mechanik
-//! selbst** wird hier nicht durchdekliniert (das ist Lib-Sache, kein io-Unit-Test) — die bestehenden
-//! Fälle üben sie am Happy Path (`-50,00`, `13.06.2024`) bzw. terminal (IBAN im Betragsfeld) mit.
+//! Konstrukt gegen die echten Libs verdrahtet**. Fake bleibt nur die Arbeitseinheit (der echte
+//! SQLite-/`rusqlite`-Teil folgt in Build-Order Schritt 5). Verifiziert wird das Verhalten
+//! **downstream über den einlesen-Bridge-Weg** gegen Fakes (Fixture → `RawRecord`s → `RawLine`s →
+//! committete `Line`), **nicht** als isolierter Reader-Unit-Test.
 //!
-//! Die Fake-Quelle und die Fake-Arbeitseinheit liegen in den Fixtures nebenan
-//! (`fixtures/einlesen/mod.rs`).
+//! Die Fake-Arbeitseinheit, der Fixture-Reader-Helfer und die erwartete Zeile liegen in den
+//! Fixtures nebenan (`fixtures/einlesen/mod.rs`).
 
 use io::Dispatcher;
 use io::einlesen::{GermanCalendar, GermanMoney};
@@ -22,16 +25,16 @@ use io::outbox::OutboxError;
 
 #[path = "../fixtures/einlesen/mod.rs"]
 mod fixtures;
-use fixtures::{FakeDb, FakeSource, gültiger_rohsatz, read_transactions_envelope};
+use fixtures::{FakeDb, csv_source, erwartete_gueltige_zeile, read_transactions_envelope};
 
-// --- Happy Path: Envelope → OutboxConsumer → einlesen → publiziertes „Ingested" ---------
-
-#[test]
-fn ein_envelope_wird_end_to_end_verarbeitet_und_atomar_committet() {
-    let db = FakeDb::default();
-    let source = FakeSource {
-        records: vec![gültiger_rohsatz()],
-    };
+/// Registriert den `einlesen`-Consumer über die gegebene Fixture-Datei und dispatcht **einen**
+/// `ReadTransactions`-Envelope — die gemeinsame Verdrahtung aller Fälle.
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test-Helfer: das assert! prüft die Registrierungs-Invariante, bevor dispatcht wird"
+)]
+fn dispatch_ueber(db: &FakeDb, fixture: &str) -> Result<(), OutboxError> {
+    let source = csv_source(fixture);
     let consumer = io::einlesen::consumer(&source, &GermanCalendar, &GermanMoney, db.clone());
 
     let mut dispatcher = Dispatcher::new();
@@ -42,46 +45,44 @@ fn ein_envelope_wird_end_to_end_verarbeitet_und_atomar_committet() {
         "frische Registrierung darf keinen Consumer verdrängen"
     );
 
-    let ergebnis = dispatcher.dispatch(read_transactions_envelope());
+    dispatcher.dispatch(read_transactions_envelope())
+}
+
+// --- Happy Path: Fixture-Datei → OutboxConsumer → einlesen → publiziertes „Ingested" -----
+
+#[test]
+fn eine_fixture_datei_wird_end_to_end_verarbeitet_und_atomar_committet() {
+    let db = FakeDb::default();
+
+    let ergebnis = dispatch_ueber(&db, "gueltig.csv");
 
     assert_eq!(ergebnis, Ok(()));
-    // Atomar committet: genau eine Roh-Zeile **und** genau eine „Ingested"-Nachricht, deren Zeiger
-    // sich mit der Speicher-ID deckt (Tabelle = Wahrheit, Message = Pointer).
-    assert_eq!(db.committed_lines().len(), 1);
+    // Die eine Fixture-Zeile wird feld-treu zur erwarteten `Line` projiziert (Fixture → erwarteter
+    // `RawRecord` → `Line`) — ein `assert_eq!` über die ganze DTO beweist zugleich, dass **kein**
+    // anderes Feld abweicht.
+    assert_eq!(db.committed_lines(), vec![erwartete_gueltige_zeile()]);
+    // Atomar committet: genau eine „Ingested"-Nachricht, deren Zeiger sich mit der Speicher-ID
+    // deckt (Tabelle = Wahrheit, Message = Pointer).
     assert_eq!(db.committed_message_types(), vec!["Ingested"]);
     assert_eq!(db.committed_partition_keys(), db.committed_line_ids());
 }
 
-// --- Terminaler Fehler: redigiertes Dead-Letter, nichts committet -----------------------
+// --- Fehlendes Pflichtfeld: terminal + redigiert, nie ein Rohwert im Fehler --------------
 
 #[test]
-fn ein_terminaler_fehler_wird_redigiert_dead_lettered() {
-    // Spaltenverschub: eine IBAN im Betragsfeld → der Betrag ist nicht dekodierbar (terminal).
+fn ein_fehlendes_pflichtfeld_wird_redigiert_dead_lettered() {
+    // Der Betrag der einzigen Zeile ist leer → die Adapter-ACL (`RawLine::try_from`) failt den
+    // Batch terminal mit **nur** dem statischen Feldnamen, nie einem Rohwert.
     let leck = "DE89370400440532013000";
-    let mut rohsatz = gültiger_rohsatz();
-    rohsatz.amount = Some(format!("-{leck}"));
     let db = FakeDb::default();
-    let source = FakeSource {
-        records: vec![rohsatz],
-    };
-    let consumer = io::einlesen::consumer(&source, &GermanCalendar, &GermanMoney, db.clone());
 
-    let mut dispatcher = Dispatcher::new();
+    let ergebnis = dispatch_ueber(&db, "pflichtfeld_fehlt.csv");
+
     assert!(
-        dispatcher
-            .register(io::einlesen::CONSUMED_MESSAGE_TYPE, Box::new(consumer))
-            .is_none(),
-        "frische Registrierung darf keinen Consumer verdrängen"
+        matches!(&ergebnis, Err(OutboxError::Warning { reason })
+            if reason.contains("amount") && !reason.contains(leck)),
+        "erwartet redigiertes Dead-Letter mit Feldname, ohne Rohwert: {ergebnis:?}"
     );
-
-    let ergebnis = dispatcher.dispatch(read_transactions_envelope());
-
-    // Terminal → `Warning` über die **redigierte** `Display` des Domänen-Fehlers (nie der Rohwert).
-    assert!(
-        matches!(&ergebnis, Err(OutboxError::Warning { reason }) if !reason.contains(leck)),
-        "erwartet redigiertes Dead-Letter: {ergebnis:?}"
-    );
-    // Nichts committet: die Arbeitseinheit fiel zurück (Rollback).
     assert!(db.committed_lines().is_empty());
     assert!(db.committed_message_types().is_empty());
 }

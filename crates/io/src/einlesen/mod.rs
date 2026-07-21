@@ -8,15 +8,18 @@
 //! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle ([`UnitFactory`])
 //! reicht der Aufrufer herein. **Kalender und Geld sind seit
 //! [Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md) echte, reine
-//! io-Adapter** ([`GermanCalendar`] über `chrono`, [`GermanMoney`] über `rust_decimal`); Quelle und
-//! Unit-Quelle bleiben bis Build-Order Schritt 5 Fakes (die reale `rusqlite`-Transaktion pro
-//! Nachricht + CSV-/Datei-Beschaffung folgen dort).
+//! io-Adapter** ([`GermanCalendar`] über `chrono`, [`GermanMoney`] über `rust_decimal`); die **Quelle
+//! ist seit [Issue 0051](../../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)
+//! der echte CSV-CAMT-v8-Reader** ([`CsvCamtV8Source`] über `fs` + `csv`). Fake bleibt nur die
+//! Unit-Quelle bis Build-Order Schritt 5 (die reale `rusqlite`-Transaktion pro Nachricht folgt dort).
 
 mod calendar;
 mod money;
+mod source;
 
 pub use calendar::GermanCalendar;
 pub use money::GermanMoney;
+pub use source::CsvCamtV8Source;
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
