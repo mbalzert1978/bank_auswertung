@@ -53,3 +53,38 @@ fn eine_ungueltige_config_schlaegt_redigiert_fehl() {
     assert_eq!(fehler, ConfigError::WindowDaysInvalid);
     assert!(!fehler.to_string().contains("drei"));
 }
+
+// --- Fehlender Schlüssel: eigener, redigierter Fehlschlag --------------------------------
+
+#[test]
+fn eine_config_ohne_window_days_schlaegt_redigiert_fehl() {
+    // Gültiges (leeres) TOML, aber der Pflichtschlüssel fehlt — abgegrenzt von „kein TOML".
+    let fehler =
+        FensterConfig::from_toml_str("").expect_err("ein fehlender Schlüssel muss fehlschlagen");
+
+    assert_eq!(fehler, ConfigError::WindowDaysMissing);
+}
+
+// --- Kaputtes TOML: eigener, redigierter Fehlschlag (kein Rohwert) -----------------------
+
+#[test]
+fn eine_kaputte_config_schlaegt_redigiert_fehl() {
+    // Syntaktisch kaputtes TOML mit einem wiedererkennbaren Token: der Parsefehler darf es nicht in
+    // den redigierten Fehler durchreichen (der toml-Fehler zitiert sonst gern die kaputte Zeile).
+    let fehler =
+        FensterConfig::from_toml_str("geheimnis").expect_err("kaputtes TOML muss fehlschlagen");
+
+    assert_eq!(fehler, ConfigError::Malformed);
+    assert!(!fehler.to_string().contains("geheimnis"));
+}
+
+// --- Randfall window_days = 0: unkonstruierbare Seitengröße (ADR-0005) -------------------
+
+#[test]
+fn window_days_null_schlaegt_redigiert_fehl() {
+    // Eine Seitengröße 0 ist am Rand abzulehnen (`NonZeroU32`); danach trägt der Typ den Beweis.
+    let fehler = FensterConfig::from_toml_str("window_days = 0")
+        .expect_err("window_days = 0 muss fehlschlagen");
+
+    assert_eq!(fehler, ConfigError::WindowDaysInvalid);
+}
