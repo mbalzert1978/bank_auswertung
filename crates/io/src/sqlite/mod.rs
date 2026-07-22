@@ -303,6 +303,12 @@ impl From<rusqlite::Error> for SqliteCommitError {
 
 /// Das Outbox-Tabellen-Schema. `processed_on_utc IS NULL` markiert eine **offene** Nachricht.
 ///
+/// **Partieller Index auf offene Nachrichten:** [`deliver_open`](SqliteOutbox::deliver_open) fragt
+/// `WHERE processed_on_utc IS NULL` ab, und verarbeitete Zeilen werden (im Fundament-Scope) nie
+/// gelöscht — ohne Index wäre das ein Full-Table-Scan pro Lauf über eine wachsende Tabelle. Der
+/// **partielle** Index deckt genau dieses Prädikat und indiziert **nur** die (wenigen) offenen Zeilen,
+/// bleibt also klein, während verarbeitete Zeilen anwachsen.
+///
 /// **`attempt` ist bewusst mitgeführt, aber im Fundament-Scope (Issue 0052) ungenutzt:** die Spalte
 /// hält im Envelope den Zustellversuchs-Zähler bereit, den erst die attempt-basierte
 /// Retry → Dead-Letter-Eskalation (Build-Order Schritt 5) erhöht und honoriert. Bis dahin bleibt sie
@@ -316,7 +322,9 @@ CREATE TABLE IF NOT EXISTS outbox (
     occurred_on_utc INTEGER NOT NULL,
     attempt         INTEGER NOT NULL DEFAULT 0,
     processed_on_utc INTEGER
-);";
+);
+CREATE INDEX IF NOT EXISTS outbox_open_idx
+    ON outbox (processed_on_utc) WHERE processed_on_utc IS NULL;";
 
 const INSERT_MESSAGE: &str = "\
 INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc)
