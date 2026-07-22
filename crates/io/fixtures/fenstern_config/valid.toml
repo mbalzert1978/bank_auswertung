@@ -1,0 +1,4 @@
+# Gültige Fenster-Config (Fixture, Issue 0054). Trägt den einen konfigurierbaren Wert des
+# `fenstern`-Slice: die Paging-Seitengröße `window_days` (ADR-0013, real ~400 — hier klein
+# gehalten, damit sie sich gegen den Fixture-Bestand des `fenstern`-Tests prüfen lässt).
+window_days = 3

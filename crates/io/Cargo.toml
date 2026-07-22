@@ -11,6 +11,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["alloc"] }
 csv = "1.4.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 rust_decimal = { version = "1.42.1", default-features = false }
+toml = "0.9.8"
 application_kernel = { path = "../application_kernel" }
 auswerten_adapter = { path = "../auswerten_adapter" }
 einlesen_adapter = { path = "../einlesen_adapter" }
