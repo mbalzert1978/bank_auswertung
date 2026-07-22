@@ -197,6 +197,13 @@ impl UnitOfWork for SqliteUnit {
     /// Schritt, rollt die fallengelassene [`Transaction`] alles zurück (Rollback bei `Drop`,
     /// [ADR-0014](../../../../docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)) — nichts
     /// davon persistiert, die Nachricht bleibt offen.
+    ///
+    /// **Idempotenter Ack (Effekt-genau-einmal):** der Ack trifft nur eine **noch offene** Zeile
+    /// (`WHERE … AND processed_on_utc IS NULL`). Aktualisiert er `0` Zeilen — die Nachricht war schon
+    /// verarbeitet, etwa durch einen überlappenden Zusteller auf derselben Datei —, bricht der Commit
+    /// mit einem [`SqliteCommitError`] ab und **rollt die gestageten Seiteneffekte zurück**, statt sie
+    /// doppelt zu committen. Das härtet das Outbox-Pattern über die (dokumentierte) strikt serielle
+    /// Verarbeitung hinaus ab.
     fn commit(self) -> Result<(), SqliteCommitError> {
         let SqliteUnit {
             inner,
@@ -207,7 +214,12 @@ impl UnitOfWork for SqliteUnit {
 
         let conn = inner.conn.borrow();
         let transaction = conn.unchecked_transaction()?;
-        transaction.execute(ACK_MESSAGE, (message_id.as_str(),))?;
+        let acked = transaction.execute(ACK_MESSAGE, (message_id.as_str(),))?;
+        if acked != 1 {
+            // Kein offener Treffer (`id` ist PRIMARY KEY, also nie > 1): bereits verarbeitet →
+            // die Transaktion fällt hier ungecommittet und rollt die Seiteneffekte zurück.
+            return Err(SqliteCommitError::already_processed());
+        }
         staged
             .into_iter()
             .try_for_each(|write| write(&transaction))?;
@@ -228,30 +240,64 @@ impl UnitOfWork for SqliteUnit {
 /// nach außen gereicht.
 #[derive(Debug)]
 pub struct SqliteCommitError {
-    #[expect(
-        dead_code,
-        reason = "nur für die Entwickler-Diagnose im Debug gehalten — nie über Display oder source \
-                  nach außen gereicht (Redaktions-Pflicht des Commit-Pfades)"
-    )]
-    source: rusqlite::Error,
+    // Privat: der Grund ist io-intern und darf nicht Teil der öffentlichen Fläche werden (er hält im
+    // `RolledBack`-Fall den rohen `rusqlite`-Fehler — nur fürs Debug, nie über `Display`/`source`).
+    kind: CommitErrorKind,
+}
+
+/// Warum ein Commit scheiterte — **io-intern**, nie über die redigierte `Display` nach außen.
+#[derive(Debug)]
+enum CommitErrorKind {
+    /// Der schreibende Commit ist an SQLite gescheitert; die Transaktion wurde zurückgerollt.
+    RolledBack {
+        #[expect(
+            dead_code,
+            reason = "nur für die Entwickler-Diagnose im Debug gehalten — nie über Display oder \
+                      source nach außen gereicht (Redaktions-Pflicht des Commit-Pfades)"
+        )]
+        source: rusqlite::Error,
+    },
+    /// Der Ack traf **keine offene** Nachricht (bereits verarbeitet / überlappende Zustellung durch
+    /// einen zweiten Prozess auf derselben Datei). Zurückgerollt, damit keine Seiteneffekte doppelt
+    /// landen — das Effekt-genau-einmal-Verhalten des Outbox-Patterns.
+    AlreadyProcessed,
+}
+
+impl SqliteCommitError {
+    /// Der Ack traf keine offene Nachricht — der Commit wurde übersprungen und zurückgerollt.
+    const fn already_processed() -> Self {
+        Self {
+            kind: CommitErrorKind::AlreadyProcessed,
+        }
+    }
 }
 
 impl std::fmt::Display for SqliteCommitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Outbox-Commit fehlgeschlagen (Transaktion zurückgerollt)"
-        )
+        match self.kind {
+            CommitErrorKind::RolledBack { .. } => {
+                write!(
+                    f,
+                    "Outbox-Commit fehlgeschlagen (Transaktion zurückgerollt)"
+                )
+            }
+            CommitErrorKind::AlreadyProcessed => write!(
+                f,
+                "Outbox-Commit übersprungen: Nachricht bereits verarbeitet (Transaktion zurückgerollt)"
+            ),
+        }
     }
 }
 
-// `source` bewusst **nicht** überschrieben: der rohe Fehler bleibt im `Debug`, aber die
+// `source` bewusst **nicht** über `source()` gereicht: der rohe Fehler bleibt im `Debug`, aber die
 // öffentliche Fehler-Kette gibt ihn nicht preis (Redaktions-Pflicht des Commit-Pfades).
 impl std::error::Error for SqliteCommitError {}
 
 impl From<rusqlite::Error> for SqliteCommitError {
     fn from(source: rusqlite::Error) -> Self {
-        Self { source }
+        Self {
+            kind: CommitErrorKind::RolledBack { source },
+        }
     }
 }
 
@@ -287,8 +333,13 @@ FROM outbox
 WHERE processed_on_utc IS NULL
 ORDER BY rowid;";
 
+/// Ackt **nur eine noch offene** Nachricht (`AND processed_on_utc IS NULL`). Der Zusatz macht den
+/// Ack **idempotent**: trifft er keine offene Zeile (bereits verarbeitet / überlappende Zustellung
+/// durch einen zweiten Prozess auf derselben Datei), aktualisiert er `0` Zeilen — und der Commit von
+/// [`SqliteUnit`] scheitert, statt still Seiteneffekte doppelt zu committen.
 const ACK_MESSAGE: &str = "\
-UPDATE outbox SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE id = ?1;";
+UPDATE outbox SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+WHERE id = ?1 AND processed_on_utc IS NULL;";
 
 #[cfg(test)]
 mod tests {
@@ -652,6 +703,59 @@ mod tests {
         );
         assert!(is_processed(&outbox, &root)?, "und ist nun geackt");
         assert_eq!(calls.get(), 1, "genau einmal zugestellt");
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn ein_ack_auf_eine_bereits_verarbeitete_nachricht_rollt_seiteneffekte_zurueck()
+    -> rusqlite::Result<()> {
+        let outbox = SqliteOutbox::open_in_memory()?;
+        outbox
+            .inner
+            .conn
+            .borrow()
+            .execute_batch("CREATE TABLE results (note TEXT NOT NULL);")?;
+        let root = outbox.enqueue(ROOT_TYPE, "root-key")?;
+        // Ein überlappender Zusteller hat die Nachricht bereits verarbeitet (Ack gesetzt).
+        outbox.inner.conn.borrow().execute(
+            "UPDATE outbox SET processed_on_utc = 1 WHERE id = ?1;",
+            (root.as_str(),),
+        )?;
+
+        // Eine zweite Einheit, die dieselbe Nachricht erneut ackt, darf ihre Seiteneffekte **nicht**
+        // committen — der idempotente Ack trifft keine offene Zeile.
+        let unit = outbox.begin(MessageId(&root));
+        unit.stage(|tx| {
+            tx.execute("INSERT INTO results (note) VALUES ('doppelt');", ())
+                .map(|_| ())
+        });
+        unit.publish(NextCommand);
+        let ergebnis = unit.commit();
+
+        assert!(
+            matches!(
+                ergebnis,
+                Err(SqliteCommitError {
+                    kind: CommitErrorKind::AlreadyProcessed
+                })
+            ),
+            "der Ack traf keine offene Nachricht → Commit muss als AlreadyProcessed abbrechen: {ergebnis:?}"
+        );
+        // Alles rollte zurück: weder die gestagete Ablage noch die stromabwärtige Nachricht landeten.
+        assert_eq!(
+            results_count(&outbox, "doppelt")?,
+            0,
+            "keine doppelte Ablage darf committet werden"
+        );
+        assert_eq!(
+            published_of_type(&outbox, NEXT_TYPE)?,
+            0,
+            "kein doppelter Publish darf committet werden"
+        );
         Ok(())
     }
 }
