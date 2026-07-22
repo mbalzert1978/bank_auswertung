@@ -30,20 +30,27 @@
 //!   derselbe [`Dispatcher`] uniform über ihren `message_type` auflöst — die Maschinerie brauchte
 //!   dafür keine Erweiterung.
 //!
-//! **Bewusst draußen (Build-Order Schritt 5):** der echte SQLite-/`rusqlite`-Teil (Broker/Stores,
-//! CSV-/Datei-Beschaffung). Die Seams (`SourceSeam`/`StoreSeam`/…, `OutboxPublisher`,
-//! [`einlesen::UnitFactory`]) erfüllt heute der Integrationstest mit Fakes; die Maschinerie hier
-//! ist davon unabhängig und bleibt bei der echten io-Anbindung unverändert.
+//! **Das reale transaktionale Rückgrat** ([`sqlite`], Issue 0052,
+//! [ADR-0014](../../../docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)) ist gebaut: die
+//! [`sqlite::SqliteOutbox`] ist Broker **und** Unit-Quelle über `rusqlite` — sie reiht Nachrichten in
+//! die SQLite-Outbox-Tabelle, liest die offenen und dispatcht sie über **denselben, unveränderten**
+//! [`Dispatcher`]/[`OutboxConsumer`], und die [`sqlite::SqliteUnit`] committet Ack + Ablage + Publishes
+//! in **einer** Transaktion (at-least-once, resumierbar). **Noch draußen (Build-Order Schritt 5/6):**
+//! die **slice-spezifischen** Ergebnis-Stores hinter `StoreSeam`/… (Issue 0053) — bis dahin erfüllt
+//! die committenden Store-Seams weiter der Integrationstest mit Fakes ([`einlesen::UnitFactory`] &
+//! Co.); die generische Maschinerie hier ist davon unabhängig und bleibt unverändert.
 
 mod common;
 
 pub mod auswerten;
+pub mod config;
 pub mod einlesen;
 pub mod fenstern;
 pub mod obfuskierung;
+pub mod sqlite;
 
 pub use common::outbox;
 pub(crate) use common::run_in_unit;
 pub use common::{
-    Dispatcher, OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler,
+    Dispatcher, MessageId, OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler,
 };

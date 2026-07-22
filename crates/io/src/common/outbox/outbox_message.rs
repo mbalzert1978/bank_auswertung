@@ -11,10 +11,11 @@
 /// und die Consume-Bridge (Deserialisierung) mit derselben Konvention.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboxMessage {
-    /// Eindeutige Identität **der Nachricht** (UUID-Textform; die Erzeugung liegt in `io`).
-    /// **Konvention:** dies ist die Message-UUID, **nicht** der Aggregat-Zeiger — wer auf ein
-    /// Aggregat zeigt (z. B. der `Ingested`-ID-Zeiger der 0017-Pipeline), liest den
-    /// [`partition_key`](OutboxMessage::partition_key), nie dieses Feld.
+    /// Eindeutige Identität **der Nachricht** — eine **opake, io-erzeugte** Text-ID (die reale
+    /// `rusqlite`-Backbone vergibt heute 128 Bit Zufall als Hex-String; kein Konsument parst ihr
+    /// Format, sie ist nur ein eindeutiger Schlüssel). **Konvention:** dies ist die Message-ID,
+    /// **nicht** der Aggregat-Zeiger — wer auf ein Aggregat zeigt (z. B. der `Ingested`-ID-Zeiger der
+    /// 0017-Pipeline), liest den [`partition_key`](OutboxMessage::partition_key), nie dieses Feld.
     pub id: String,
     /// Dispatch-Key, auf den der Prozessor den passenden
     /// [`OutboxHandler`](super::OutboxHandler) auflöst — dieselbe Quelle wie
@@ -24,7 +25,7 @@ pub struct OutboxMessage {
     /// nach, verschiedene Keys nebenläufig). **Konvention:** dies ist zugleich der
     /// **Aggregat-Zeiger** — ein ID-Zeiger auf ein Aggregat (etwa der `Ingested`-Zeiger,
     /// den `obfuskieren` im einlesen-Speicher auflöst) reist **hier**, nicht in
-    /// [`id`](OutboxMessage::id) (das die Message-UUID trägt).
+    /// [`id`](OutboxMessage::id) (das die Message-ID trägt).
     pub partition_key: String,
     /// Serialisierte Nutzlast (JSON-Text nach der hier beschriebenen Konvention).
     ///

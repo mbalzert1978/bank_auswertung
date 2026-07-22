@@ -120,7 +120,7 @@ impl FakeDb {
 impl UnitFactory for FakeDb {
     type Unit = FakeUnit;
 
-    fn begin(&self) -> FakeUnit {
+    fn begin(&self, _ack: io::MessageId<'_>) -> FakeUnit {
         FakeUnit {
             committed: Rc::clone(&self.committed),
             pending: RefCell::new(Committed::default()),
