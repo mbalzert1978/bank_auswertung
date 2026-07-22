@@ -320,7 +320,7 @@ fn ein_bhd_betrag_skaliert_auf_drei_nachkommastellen() {
 }
 
 // --- Deutung: eine unbekannte Währung scheitert terminal ---------------------------------
-// „Kennt die Domäne diese Währung?" ist eine Domänen-Deutungsentscheidung (`Currency::from_code`),
+// „Kennt die Domäne diese Währung?" ist eine Domänen-Deutungsentscheidung (`Currencies::resolve`),
 // kein Präsenz-/Format-Check: die Zelle ist da, aber nicht deutbar → terminaler `CurrencyUnknown`.
 
 #[test]

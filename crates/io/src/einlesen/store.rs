@@ -473,8 +473,8 @@ mod tests {
     )]
     #[test]
     fn nicht_zwei_stellen_waehrungen_skalieren_real_per_iso_4217() -> rusqlite::Result<()> {
-        // Der **reale** Minor-Unit-Seam ([`IsoMinorUnit`] über `rusty_money`, ISO 4217) skaliert
-        // währungs-korrekt end-to-end durch die echte Kette (CSV → Geld-/Minor-Unit-Seam → Bridge →
+        // Der **reale** Währungs-Seam (`IsoCurrencies` über `rusty_money`, ISO 4217) skaliert
+        // währungs-korrekt end-to-end durch die echte Kette (CSV → Geld-/Währungs-Seam → Bridge →
         // Store): JPY hat **0** Nachkommastellen (`1234` → 1234 Minor Units), BHD **3** (`1,234` → 1234)
         // — **nicht** die feste Skala 2. Am committeten Betrag abgelesen, nicht als io-Unit-Test.
         for (fixture, currency) in [("jpy.csv", "JPY"), ("bhd.csv", "BHD")] {

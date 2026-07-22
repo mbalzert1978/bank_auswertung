@@ -4,7 +4,7 @@ use crate::abstractions::{DecodedAmount, MoneySeam, Sign};
 /// streift das Vorzeichen ab und zerlegt die Restziffern naiv (Tausenderpunkt entfällt, Komma
 /// trennt die Nachkommastellen) in die **unskalierten** Bestandteile (`units`, `decimal_places`) —
 /// genug für die Fixtures. Die währungs-bewusste Skalierung auf die Minor Units macht die
-/// `MoneyBridge` über den `MinorUnitSeam`, **nicht** dieser Fake; die echten deutschen Formatregeln
+/// `MoneyBridge` über den `CurrencySeam`, **nicht** dieser Fake; die echten deutschen Formatregeln
 /// (Gruppierung, Stellenzahl) sind io-Aufgabe hinter dem echten Seam. Ohne deutbares Vorzeichen oder
 /// bei Nicht-Ziffern ergibt sich `None` (die Domäne sieht dann `AmountInvalid`).
 pub(crate) struct FakeMoneySeam;

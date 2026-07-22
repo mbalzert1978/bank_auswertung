@@ -7,7 +7,7 @@
 //! Der Seam ist **bewusst währungs-agnostisch**: er dekodiert das Feld nur in seine **unskalierten**
 //! Bestandteile (Ziffernmenge `units`, Nachkommastellen-Zahl `decimal_places`, Vorzeichen) — die
 //! **währungs-bewusste** Skalierung auf die Minor Units per ISO 4217 macht die `MoneyBridge` des
-//! Adapters, indem sie diesen Seam mit dem Minor-Unit-Seam (rusty_money) paart. `rust_decimal` rechnet
+//! Adapters, indem sie diesen Seam mit dem `CurrencySeam` (rusty_money) paart. `rust_decimal` rechnet
 //! exakt (kein `f64`-Rundungsfehler); unsere **dünne** Nutzungslogik streift das führende Vorzeichen ab
 //! und bringt die deutsche Gruppierung/Dezimalstelle in die Form, die die Lib parst, und liest daraus
 //! Mantisse und Skala. Ein undeutbarer Wert ergibt `None`, was das Aggregat terminal auf
