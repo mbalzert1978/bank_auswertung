@@ -29,11 +29,13 @@ fn eine_gueltige_config_liefert_die_erwartete_seitengroesse() {
 
 #[test]
 fn eine_fehlende_config_schlaegt_redigiert_fehl() {
-    // Ein Pfad, unter dem keine Datei liegt — der Loader gibt ein `Result`, nie einen Panic.
-    let fehler = FensterConfig::load(Path::new(
-        "crates/io/fixtures/fenstern_config/existiert-nicht.toml",
-    ))
-    .expect_err("eine fehlende Datei muss fehlschlagen");
+    // Ein Pfad, unter dem keine Datei liegt — der Loader gibt ein `Result`, nie einen Panic. Der Pfad
+    // wird crate-relativ über `CARGO_MANIFEST_DIR` gebaut (wie der `architecture`-Test), damit er nicht
+    // vom Working Directory des Test-Runners abhängt.
+    let fehlender_pfad =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/fenstern_config/existiert-nicht.toml");
+    let fehler =
+        FensterConfig::load(&fehlender_pfad).expect_err("eine fehlende Datei muss fehlschlagen");
 
     // Redigiert: der Fehler nennt die statische Ursache, nie den Pfad (kein Rohwert).
     assert_eq!(fehler, ConfigError::Unreadable);
