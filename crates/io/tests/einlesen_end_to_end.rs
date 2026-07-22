@@ -1,41 +1,49 @@
 //! io-Integrationstest ([Issue 0020](../../../docs/issues/0020-einlesen-end-to-end-ber-die-generische-outboxconsumer-in-io-kernel-flip.md),
-//! Quelle real seit [Issue 0051](../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)):
-//! ein `ReadTransactions`-Envelope läuft **end-to-end** durch die generische Consumer-Maschinerie
-//! in `io` → den echten `einlesen`-Slice → bis zur publizierten „Ingested"-Nachricht. Getestet wird
-//! die **io-Verdrahtung** (Envelope-Extraktion, `CommandDecoder`-Aufruf, atomarer
-//! `UnitOfWork`-Commit, message_type-Auflösung, Dead-Letter-Taktik) **zusammen mit** der echten
-//! Beschaffung: seit 0051 steht an der Stelle des früheren Quell-Fakes der echte
-//! CSV-CAMT-v8-Reader ([`CsvCamtV8Source`](io::einlesen::CsvCamtV8Source)) auf **synthetischen
-//! Fixture-Dateien** nach echtem Sparkassen-Header.
+//! **end-to-end real** seit [Issue 0053](../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md)):
+//! ein `ReadTransactions`-Envelope läuft durch die generische Consumer-Maschinerie in `io` → den
+//! echten `einlesen`-Slice → gegen **ausschließlich reale** Bausteine — echte CSV-Quelle
+//! ([Issue 0051](../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)),
+//! echte Geld-/Kalender-Dekodierung
+//! ([Issue 0050](../../../docs/issues/0050-money-calendar-decode-seams-real.md)) und der echte
+//! rusqlite-Ergebnis-Store hinter dem `StoreSeam` ([`EinlesenSqliteStore`](io::einlesen::EinlesenSqliteStore)).
+//! **Kein Fake mehr** im einlesen-io-Pfad.
 //!
-//! **Geld-/Kalender-Seam sind seit [Issue 0050](../../../docs/issues/0050-money-calendar-decode-seams-real.md)
-//! die echten io-Adapter** ([`GermanMoney`](io::einlesen::GermanMoney) über `rust_decimal`,
-//! [`GermanCalendar`](io::einlesen::GermanCalendar) über `chrono`) — so läuft das **komplette
-//! Konstrukt gegen die echten Libs verdrahtet**. Fake bleibt nur die Arbeitseinheit (der echte
-//! SQLite-/`rusqlite`-Teil folgt in Build-Order Schritt 5). Verifiziert wird das Verhalten
-//! **downstream über den einlesen-Bridge-Weg** gegen Fakes (Fixture → `RawRecord`s → `RawLine`s →
-//! committete `Line`), **nicht** als isolierter Reader-Unit-Test.
+//! Dieser Test prüft das über den **öffentlichen** Dispatch-Ausgang beobachtbare Verhalten: die
+//! **terminalen, redigierten** Fehler jedes fehlbaren Schritts (Quelle / Präsenz / Decode) und die
+//! Dispatch-Ebene (unbekannter `message_type`). Den committeten DB-Zustand (Zeile in der echten
+//! Tabelle + `Ingested`-Zeiger, atomar) prüft der crate-interne Store-Test mit privatem
+//! Verbindungszugriff (`crates/io/src/einlesen/store.rs`); alle diese Fehlerfälle steigen **vor** dem
+//! Commit aus, sodass der Dispatch-Ausgang sie unmittelbar trägt.
 //!
-//! Die Fake-Arbeitseinheit, der Fixture-Reader-Helfer und die erwartete Zeile liegen in den
-//! Fixtures nebenan (`fixtures/einlesen/mod.rs`).
+//! Der Fixture-Reader-Helfer und der Auslöser-Envelope liegen in den Fixtures nebenan
+//! (`fixtures/einlesen/mod.rs`).
 
 use io::Dispatcher;
-use io::einlesen::{GermanCalendar, GermanMoney};
+use io::einlesen::{EinlesenSqliteStore, GermanCalendar, GermanMoney};
 use io::outbox::OutboxError;
+use io::sqlite::SqliteOutbox;
 
 #[path = "../fixtures/einlesen/mod.rs"]
 mod fixtures;
-use fixtures::{FakeDb, csv_source, erwartete_gueltige_zeile, read_transactions_envelope};
+use fixtures::{csv_source, read_transactions_envelope};
 
-/// Registriert den `einlesen`-Consumer über die gegebene Fixture-Datei und dispatcht **einen**
-/// `ReadTransactions`-Envelope — die gemeinsame Verdrahtung aller Fälle.
+/// Verdrahtet den `einlesen`-Consumer über die gegebene Fixture-Datei und den **realen** Store und
+/// dispatcht **einen** `ReadTransactions`-Envelope — die gemeinsame Real-Verdrahtung aller Fälle. Alle
+/// hier geprüften Fälle failen **vor** dem Commit, darum genügt der direkte Dispatch (ohne Einreihen).
 #[expect(
     clippy::panic_in_result_fn,
     reason = "Test-Helfer: das assert! prüft die Registrierungs-Invariante, bevor dispatcht wird"
 )]
-fn dispatch_ueber(db: &FakeDb, fixture: &str) -> Result<(), OutboxError> {
+#[expect(
+    clippy::unwrap_in_result,
+    reason = "Test-Helfer: das In-Memory-Setup kann nicht fehlschlagen; der Result-Rückgabewert ist \
+              der Dispatch-Ausgang, den die Tests prüfen"
+)]
+fn dispatch_ueber(fixture: &str) -> Result<(), OutboxError> {
+    let outbox = SqliteOutbox::open_in_memory().expect("In-Memory-Rückgrat öffnet");
+    let store = EinlesenSqliteStore::new(outbox).expect("einlesen-Tabelle wird angelegt");
     let source = csv_source(fixture);
-    let consumer = io::einlesen::consumer(&source, &GermanCalendar, &GermanMoney, db.clone());
+    let consumer = io::einlesen::consumer(&source, &GermanCalendar, &GermanMoney, store);
 
     let mut dispatcher = Dispatcher::new();
     assert!(
@@ -48,43 +56,52 @@ fn dispatch_ueber(db: &FakeDb, fixture: &str) -> Result<(), OutboxError> {
     dispatcher.dispatch(read_transactions_envelope())
 }
 
-// --- Happy Path: Fixture-Datei → OutboxConsumer → einlesen → publiziertes „Ingested" -----
+// --- Quelle terminal: eine fehlende Datei ist ein terminaler, redigierter Beschaffungs-Fehler ----
 
 #[test]
-fn eine_fixture_datei_wird_end_to_end_verarbeitet_und_atomar_committet() {
-    let db = FakeDb::default();
+fn eine_fehlende_quell_datei_wird_terminal_und_redigiert() {
+    let ergebnis = dispatch_ueber("existiert_nicht.csv");
 
-    let ergebnis = dispatch_ueber(&db, "gueltig.csv");
-
-    assert_eq!(ergebnis, Ok(()));
-    // Die eine Fixture-Zeile wird feld-treu zur erwarteten `Line` projiziert (Fixture → erwarteter
-    // `RawRecord` → `Line`) — ein `assert_eq!` über die ganze DTO beweist zugleich, dass **kein**
-    // anderes Feld abweicht.
-    assert_eq!(db.committed_lines(), vec![erwartete_gueltige_zeile()]);
-    // Atomar committet: genau eine „Ingested"-Nachricht, deren Zeiger sich mit der Speicher-ID
-    // deckt (Tabelle = Wahrheit, Message = Pointer).
-    assert_eq!(db.committed_message_types(), vec!["Ingested"]);
-    assert_eq!(db.committed_partition_keys(), db.committed_line_ids());
+    assert!(
+        matches!(&ergebnis, Err(OutboxError::Warning { reason })
+            if reason.contains("source unavailable")),
+        "eine fehlende Quelldatei muss terminal (Warning) mit io-Diagnose failen: {ergebnis:?}"
+    );
 }
 
 // --- Fehlendes Pflichtfeld: terminal + redigiert, nie ein Rohwert im Fehler --------------
 
 #[test]
-fn ein_fehlendes_pflichtfeld_wird_redigiert_dead_lettered() {
+fn ein_fehlendes_pflichtfeld_wird_redigiert_terminal() {
     // Der Betrag der einzigen Zeile ist leer → die Adapter-ACL (`RawLine::try_from`) failt den
     // Batch terminal mit **nur** dem statischen Feldnamen, nie einem Rohwert.
     let leck = "DE89370400440532013000";
-    let db = FakeDb::default();
 
-    let ergebnis = dispatch_ueber(&db, "pflichtfeld_fehlt.csv");
+    let ergebnis = dispatch_ueber("pflichtfeld_fehlt.csv");
 
     assert!(
         matches!(&ergebnis, Err(OutboxError::Warning { reason })
             if reason.contains("amount") && !reason.contains(leck)),
-        "erwartet redigiertes Dead-Letter mit Feldname, ohne Rohwert: {ergebnis:?}"
+        "erwartet redigiertes Warning mit Feldname, ohne Rohwert: {ergebnis:?}"
     );
-    assert!(db.committed_lines().is_empty());
-    assert!(db.committed_message_types().is_empty());
+}
+
+// --- Undeutbarer Betrag: ein vorhandener, aber nicht dekodierbarer Wert failt terminal -----------
+
+#[test]
+fn ein_undeutbarer_betrag_wird_redigiert_terminal() {
+    // Der Betrag ist vorhanden (Präsenz erfüllt), aber nicht dekodierbar → der Money-Seam gibt `None`,
+    // das Aggregat mappt terminal auf `AmountInvalid`; der Grund benennt nur die Fehlerart, nie den
+    // Rohwert.
+    let leck = "kein-betrag";
+
+    let ergebnis = dispatch_ueber("betrag_undeutbar.csv");
+
+    assert!(
+        matches!(&ergebnis, Err(OutboxError::Warning { reason })
+            if reason.contains("not a decodable money amount") && !reason.contains(leck)),
+        "erwartet redigiertes Warning zum undeutbaren Betrag, ohne Rohwert: {ergebnis:?}"
+    );
 }
 
 // --- Dispatch: ein unbekannter message_type ist auf der Dispatch-Ebene unzustellbar -----

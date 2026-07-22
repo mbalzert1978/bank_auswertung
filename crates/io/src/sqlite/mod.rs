@@ -9,9 +9,13 @@
 //! Prozess-Ende, und darauf ruht die Resume-Zusage über einen echten Absturz hinaus.
 //! [`SqliteOutbox::open_in_memory`] ist die bewusst **flüchtige** Variante für Tests/ephemere Läufe.
 //!
-//! **Noch kein slice-spezifischer Ergebnis-Store** — der erste Store kommt in
-//! [0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md). Dieses Modul liefert
-//! nur **Broker + UnitOfWork** als Fundament.
+//! Der erste **slice-spezifische Ergebnis-Store** sitzt seit
+//! [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) auf diesem
+//! Fundament: [`EinlesenSqliteStore`](crate::einlesen::EinlesenSqliteStore) legt seine
+//! `einlesen`-Tabelle über die crate-interne `SqliteOutbox::with_connection` an und stagt das
+//! Zeilen-`INSERT` über `SqliteUnit::stage` in **dieselbe** committende Transaktion wie Ack und
+//! `Ingested`-Publish. Dieses Modul selbst bleibt slice-blind — es liefert nur **Broker + UnitOfWork**
+//! und die crate-internen Ablage-/Verbindungs-Primitive, auf die ein Store aufsetzt.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -82,6 +86,17 @@ impl SqliteOutbox {
             (message_type, partition_key),
             |row| row.get(0),
         )
+    }
+
+    /// Reicht die geteilte Verbindung an `f` — der crate-interne Zugriff, über den ein Slice-Store
+    /// seine Ergebnis-Tabelle **anlegt** (Schema, `IF NOT EXISTS`) und aus ihr **liest**. Die
+    /// Outbox-Tabelle selbst rührt er nicht an; die schreibende Ablage einer verarbeiteten Nachricht
+    /// läuft ausschließlich über die [`SqliteUnit`] und ihren Commit.
+    pub(crate) fn with_connection<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> rusqlite::Result<R>,
+    ) -> rusqlite::Result<R> {
+        f(&self.inner.conn.borrow())
     }
 
     /// Öffnet eine Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
@@ -162,18 +177,31 @@ pub struct SqliteUnit {
 
 type StagedWrite = Box<dyn FnOnce(&Transaction<'_>) -> rusqlite::Result<()>>;
 
-#[cfg(test)]
 impl SqliteUnit {
     /// Stellt eine Ablage-Schreibung für die committende Transaktion bereit — die generische
-    /// Ablage-Primitive, auf die ein Slice-Store
-    /// ([0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md)) künftig seine
-    /// `INSERT`s legt. Heute treibt nur der Backbone-Test damit die „Ack + Ablage + Publish"-Atomarität,
-    /// darum `#[cfg(test)]` (YAGNI, bis 0053 den realen Store-Seam einzieht).
-    fn stage<F>(&self, write: F)
+    /// Ablage-Primitive, auf die ein Slice-Store seine `INSERT`s legt. Seit
+    /// [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) trägt sie den
+    /// realen `einlesen`-Ergebnis-Store ([`EinlesenSqliteStore`](crate::einlesen::EinlesenSqliteStore)):
+    /// dessen `store` stagt hierüber das Zeilen-`INSERT`, sodass Ablage, `Ingested`-Publish und Ack in
+    /// **einer** Transaktion committen (der Backbone-Test treibt zusätzlich dieselbe Atomarität).
+    pub(crate) fn stage<F>(&self, write: F)
     where
         F: FnOnce(&Transaction<'_>) -> rusqlite::Result<()> + 'static,
     {
         self.staged.borrow_mut().push(Box::new(write));
+    }
+
+    /// Reicht die geteilte Verbindung an `f` — der crate-interne Lese-/Prüf-Zugriff, über den ein
+    /// Slice-Store seine ID **synchron** an der DB mintet und die Store-Verfügbarkeit prüft (der
+    /// `INSERT` selbst wird über [`stage`](SqliteUnit::stage) in die committende Transaktion gelegt).
+    /// **Nur außerhalb des Commit-Rands** aufrufen: der Handler läuft, bevor [`commit`](UnitOfWork::commit)
+    /// die Verbindung für die schreibende Transaktion leiht (strikt serielle Verarbeitung), also
+    /// überlappt diese Leihgabe nie mit jener.
+    pub(crate) fn with_connection<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> rusqlite::Result<R>,
+    ) -> rusqlite::Result<R> {
+        f(&self.inner.conn.borrow())
     }
 }
 
