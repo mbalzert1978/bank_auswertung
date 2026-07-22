@@ -4,7 +4,7 @@
 //! (Seed, Fenstergröße, Eigene-Konten-Pfad …), sobald deren Loader landen.
 //!
 //! **Woher die Werte kommen:** heute konstruiert der Aufrufer die `AppConfig` direkt (Test/ephemer);
-//! der reale **TOML-Loader** ([Issue 0054](../../../../docs/issues/0054-config-loader-toml-fenster-config.md))
+//! der reale **TOML-Loader** ([Issue 0054](../../../docs/issues/0054-config-loader-toml-fenster-config.md))
 //! liest sie später aus einer Konfigurationsdatei. So bleibt die eine ripple-schwere Entscheidung —
 //! *wohin* die Outbox persistiert — **konfigurierbar** statt im Code verdrahtet.
 
