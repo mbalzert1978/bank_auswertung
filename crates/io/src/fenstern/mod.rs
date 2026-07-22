@@ -21,6 +21,10 @@
 //! io-Adapter (Build-Order Schritt 5). Sie geht **nur** den Fenster-Schritt an: der Anstoß ist
 //! einzweckig und weiß nichts von Seitengrößen.
 
+mod config;
+
+pub use config::{ConfigError, FensterConfig};
+
 use std::num::NonZeroU32;
 
 use application_kernel::Handler;

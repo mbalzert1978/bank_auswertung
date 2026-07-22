@@ -9,6 +9,7 @@
 //! Die Seam-Fakes, die Fake-Arbeitseinheit, die Dispatcher-Verdrahtung und die Broker-Schleife
 //! liegen in den Fixtures nebenan (`fixtures/fenstern/mod.rs`).
 
+use io::fenstern::FensterConfig;
 use io::outbox::OutboxError;
 
 #[path = "../fixtures/fenstern/mod.rs"]
@@ -16,6 +17,10 @@ mod fixtures;
 use fixtures::{
     FakeDb, FakeSource, bestand, dispatcher_mit, envelope, fahre_lauf, fenster, nachricht, zeile,
 };
+
+/// Dieselbe gültige Fixture-Config wie im Loader-Test (`fenstern_config.rs`), hier als Beleg, dass
+/// der aus der toml **geladene** Wert real in den `fenstern`-Schritt einspeist.
+const VALID_CONFIG: &str = include_str!("../fixtures/fenstern_config/valid.toml");
 
 // --- Happy Path: StartAnalysis → drei Seiten → HistorieVollständig ----------------------
 
@@ -52,6 +57,44 @@ fn ein_start_analysis_laeuft_ueber_mehrere_seiten_bis_historie_vollstaendig() {
             nachricht("WindowClosed", "fenster-3"),
             nachricht("HistoryComplete", "88:100"),
         ]
+    );
+}
+
+// --- Config-Loader speist die Seitengröße in den Fenster-Schritt (Issue 0054) ------------
+
+#[test]
+fn die_aus_der_toml_geladene_seitengroesse_paginiert_entlang_der_buchungstag_achse() {
+    // Der Loader liest `window_days` aus der Datei; genau dieser Wert geht — als Wert, nicht als Datei
+    // — in den `fenstern`-Schritt, der entlang der fixierten Buchungstag-Achse (ADR-0013 C) paginiert.
+    let config = FensterConfig::from_toml_str(VALID_CONFIG).expect("gültige Config lädt");
+    let source = bestand();
+    let db = FakeDb::default();
+
+    let mut dispatcher = io::Dispatcher::new();
+    assert!(
+        dispatcher
+            .register(
+                io::fenstern::CONSUMED_MESSAGE_TYPE,
+                Box::new(io::fenstern::consumer(
+                    config.window_days(),
+                    &source,
+                    db.clone()
+                )),
+            )
+            .is_none(),
+        "frische Registrierung darf keinen Consumer verdrängen"
+    );
+
+    assert_eq!(
+        dispatcher.dispatch(envelope(io::fenstern::CONSUMED_MESSAGE_TYPE, "100:100")),
+        Ok(())
+    );
+
+    // Seitengröße 3 aus der toml → Seite `[100 − 3 + 1 … 100] = [98 … 100]`; die Untergrenze 98 ist
+    // genau `anchor − window_days + 1`, beweist also, dass der geladene Wert die Achsen-Arithmetik trägt.
+    assert_eq!(
+        db.committed_windows(),
+        vec![fenster(98, 100, &["b-1", "b-2"])]
     );
 }
 
