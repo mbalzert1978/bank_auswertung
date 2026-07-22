@@ -1,5 +1,6 @@
-/// Ein Geldbetrag als **vorzeichenlose** Menge in Cent — das Vorzeichen lebt allein in der
-/// [`Direction`], ein negativer Betrag ist dadurch unkonstruierbar (ADR-0005).
+/// Ein Geldbetrag als **vorzeichenlose** Menge in **Minor Units** der Währung (ISO 4217) — das
+/// Vorzeichen lebt allein in der [`Direction`], ein negativer Betrag ist dadurch unkonstruierbar
+/// (ADR-0005). Die Menge ist die kleinste Einheit **dieser** Währung, nicht die feste Skala 2 (Cent).
 ///
 /// **Ohne Währung, bewusst:** anders als `einlesen`s `Amount` trägt dieser Betrag sie nicht mit. Die
 /// **eine** Währung steht einmal am Auswertungsfenster — `fenstern` hat sie **an der Konstruktion**
@@ -10,12 +11,12 @@ pub struct Amount(u64);
 
 impl Amount {
     #[must_use]
-    pub fn from_cent(cent: u64) -> Self {
-        Self(cent)
+    pub fn from_minor_units(minor_units: u64) -> Self {
+        Self(minor_units)
     }
 
     #[must_use]
-    pub fn cent(self) -> u64 {
+    pub fn minor_units(self) -> u64 {
         self.0
     }
 

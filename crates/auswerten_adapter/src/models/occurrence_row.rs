@@ -24,7 +24,7 @@ pub struct OccurrenceRow {
     pub fingerprint: String,
     /// Der Buchungstag als sortierbarer Tag-Stamp (ADR-0013, Entscheidung C).
     pub booking_day: i64,
-    pub amount_cent: u64,
+    pub amount_minor_units: u64,
     pub direction: BookingDirection,
 }
 
@@ -34,7 +34,7 @@ impl From<&Occurrence> for OccurrenceRow {
         Self {
             fingerprint: occurrence.fingerprint().as_str().to_string(),
             booking_day: occurrence.day().value(),
-            amount_cent: occurrence.amount().cent(),
+            amount_minor_units: occurrence.amount().minor_units(),
             direction: match occurrence.direction() {
                 Direction::Incoming => BookingDirection::Incoming,
                 Direction::Outgoing => BookingDirection::Outgoing,

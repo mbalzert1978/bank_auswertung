@@ -4,12 +4,14 @@
 //! [`crate::adapter::CalendarBridge`]) mappen zwischen beiden Welten.
 
 mod calendar_seam;
+mod currency_seam;
 mod money_seam;
 mod publish_seam;
 mod source_seam;
 mod store_seam;
 
 pub use calendar_seam::{CalendarDay, CalendarSeam};
+pub use currency_seam::{CurrencySeam, ResolvedCurrency};
 pub use money_seam::{DecodedAmount, MoneySeam, Sign};
 pub use publish_seam::{PublishSeam, PublishUnavailable};
 pub use source_seam::{SourceSeam, SourceUnavailable};

@@ -21,9 +21,11 @@
 //! sind fehlbar und terminal.
 //!
 //! **Öffentliche Fläche:** die Fluent-[`ReadTestApi`], die DTOs ([`Line`], [`RawRecord`]) samt
-//! adapter-eigener [`Direction`]/[`Currency`], die von `io` erfüllten Seams ([`SourceSeam`] +
+//! adapter-eigener [`Direction`] (die Währung reist als kanonischer ISO-Code-`String` im [`Line`]),
+//! die von `io` erfüllten Seams ([`SourceSeam`] +
 //! [`SourceUnavailable`], [`CalendarSeam`] + [`CalendarDay`], [`MoneySeam`] + [`DecodedAmount`]/
-//! [`Sign`], [`StoreSeam`] + [`StoreUnavailable`], [`PublishSeam`] + [`PublishUnavailable`]) und
+//! [`Sign`], [`CurrencySeam`] + [`ResolvedCurrency`], [`StoreSeam`] + [`StoreUnavailable`],
+//! [`PublishSeam`] + [`PublishUnavailable`]) und
 //! der von `io` verdrahtete Slice-Vertrag ([`ReadingHandler`], [`ReadCommand`]/
 //! [`ReadCommandDecoder`], das opake [`IngestedMessage`], [`CONSUMED_MESSAGE_TYPE`], der
 //! re-exportierte [`ReadError`]). **Crate-privat** bleiben der Domänen-`ReadHandler`, alle Bridges
@@ -44,20 +46,21 @@ mod models;
 mod testapi;
 
 pub use abstractions::{
-    CalendarDay, CalendarSeam, DecodedAmount, MoneySeam, PublishSeam, PublishUnavailable, Sign,
-    SourceSeam, SourceUnavailable, StoreSeam, StoreUnavailable,
+    CalendarDay, CalendarSeam, CurrencySeam, DecodedAmount, MoneySeam, PublishSeam,
+    PublishUnavailable, ResolvedCurrency, Sign, SourceSeam, SourceUnavailable, StoreSeam,
+    StoreUnavailable,
 };
 pub use handler::ReadingHandler;
 pub use models::{
-    CONSUMED_MESSAGE_TYPE, Currency, Direction, IngestedMessage, Line, RawRecord, ReadCommand,
+    CONSUMED_MESSAGE_TYPE, Direction, IngestedMessage, Line, RawRecord, ReadCommand,
     ReadCommandDecoder,
 };
 pub use testapi::ReadTestApi;
 
 /// Der **nackte Domänen-Fehler** des Slice, re-exportiert (ADR-0011, Entscheidung B): der
 /// [`ReadingHandler`] gibt ihn 1:1 zurück, `io` spiegelt seine **redigierte** `Display`. Bewusst
-/// re-exportiert statt adapter-lokal re-deklariert — anders als die projizierten DTO-Summentypen
-/// ([`Direction`]/[`Currency`]) ist der Fehler kein Datenwert, sondern der Redaktions-Vertrag
+/// re-exportiert statt adapter-lokal re-deklariert — anders als der projizierte DTO-Summentyp
+/// [`Direction`] ist der Fehler kein Datenwert, sondern der Redaktions-Vertrag
 /// selbst: seine `Display` ist der **alleinige** Eigentümer des Meldungssatzes, ein Re-Deklarat
 /// wäre ein Satz-Duplikat über Crates.
 pub use einlesen_domain::ReadError;

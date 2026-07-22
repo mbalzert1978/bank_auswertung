@@ -37,7 +37,7 @@
 //! Slice-Verhalten, kein io-Detail — darum prüfen Specs es. Ebenso sind die Abbildung „Quelle
 //! nicht beschaffbar → terminaler Fehler mit durchgereichter io-Diagnose" (Bridge-Verhalten,
 //! kein io-Format-Detail) und „unbekannte Währung" (eine **Domänen**-Deutungsentscheidung,
-//! `Currency::from_code`) Slice-Verhalten. Weiterhin **nicht** getestet wird reine io-Mechanik
+//! `Currencies::resolve`) Slice-Verhalten. Weiterhin **nicht** getestet wird reine io-Mechanik
 //! (Datei lesen, echtes Dekodieren von deutschem Datum/Zahlenformat) — die liegt hinter den Seams.
 //!
 //! **`RawRecord` trägt keine Test-Ergonomie** (bewusst): die Fixtures liegen spec-lokal in
@@ -96,7 +96,7 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
 
 // --- Feld-Treue: die gestagete Zeile übernimmt alle Felder originalgetreu ----------
 // Realer Durchlauf, Beobachtung am konkreten `Line`-DTO des Speicher-Seams (`stored_lines`):
-// jedes projizierte Feld — inkl. der **Währung** neben dem Cent-Betrag — kommt originalgetreu an.
+// jedes projizierte Feld — inkl. der **Währung** neben dem Minor-Unit-Betrag — kommt originalgetreu an.
 
 #[test]
 fn die_gestagte_zeile_übernimmt_alle_felder_originalgetreu() {
@@ -105,7 +105,7 @@ fn die_gestagte_zeile_übernimmt_alle_felder_originalgetreu() {
     api.run(QUELLE).expect("gültige Zeile");
 
     // Die gestagete `Line` als Ganzes gegen die erwartete Projektion — ein `assert_eq!` statt
-    // Feld-für-Feld, inkl. der Währung neben dem Cent-Betrag.
+    // Feld-für-Feld, inkl. der Währung neben dem Minor-Unit-Betrag.
     assert_eq!(api.stored_lines(), vec![erwartete_zeile()]);
 }
 
@@ -210,7 +210,7 @@ fn ein_währungsbruch_über_den_batch_scheitert_terminal_redigiert() {
 }
 
 // --- Ein-Währung: gleiche Währung in anderer Schreibung ist KEIN Bruch -------------------
-// Die Zusicherung teilt die Deutung des Domänen-Decodes (`Currency::from_code`, case-insensitiv):
+// Die Zusicherung teilt die Deutung des Domänen-Decodes (`Currencies::resolve`, case-insensitiv):
 // `eur` und `EUR` sind dieselbe Währung, kein Bruch. Beide Zeilen laufen durch.
 
 #[test]
@@ -270,6 +270,53 @@ fn eine_nicht_beschaffbare_quelle_scheitert_terminal() {
     // Terminal und leer: nichts wird abgelegt oder veröffentlicht.
     assert!(api.stored_lines().is_empty());
     assert!(api.published_message_types().is_empty());
+}
+
+// --- Minor Units: eine Nicht-2-Stellen-Währung skaliert währungs-korrekt (ISO 4217) ------
+// Der Geldwert trägt **währungs-korrekte Minor Units**, nicht die feste Skala 2 (Cent). JPY hat
+// 0 Nachkommastellen: „1234 JPY" sind 1234 Minor Units (nicht 123 400). Verifiziert end-to-end
+// über den Bridge-Weg — die Minor-Unit-Skalierung lebt in der `MoneyBridge` (`MoneySeam` ×
+// `CurrencySeam`), hier real gegen die währungs-bewussten Fakes gefahren. Der ISO-4217-Exponent
+// selbst kommt in `io` aus der battle-tested Lib; hier zählt die korrekte Skalierung end-to-end.
+
+#[test]
+fn ein_jpy_betrag_skaliert_auf_null_nachkommastellen() {
+    let mut jpy = gültiger_rohsatz();
+    jpy.amount = feld("+1234");
+    jpy.currency = feld("JPY");
+    let api = ReadTestApi::new().with_line(jpy);
+
+    api.run(QUELLE).expect("gültige JPY-Zeile");
+
+    // 1234 JPY = 1234 Minor Units (Skala 0), nicht 123 400 wie unter fester Skala 2.
+    let lines = api.stored_lines();
+    assert!(
+        matches!(lines.as_slice(),
+            [line] if line.amount_minor_units == 1234 && line.currency == "JPY"),
+        "JPY skaliert auf 0 Nachkommastellen: {lines:?}"
+    );
+}
+
+// --- Minor Units: eine 3-Stellen-Währung skaliert auf drei Nachkommastellen ---------------
+// BHD hat 3 Nachkommastellen: „1,234 BHD" sind 1234 Minor Units (nicht 123 400 wie unter der
+// alten Skala-2-Annahme). Dieselbe Bridge, ein anderer ISO-Exponent — die Skala folgt der Währung.
+
+#[test]
+fn ein_bhd_betrag_skaliert_auf_drei_nachkommastellen() {
+    let mut bhd = gültiger_rohsatz();
+    bhd.amount = feld("+1,234");
+    bhd.currency = feld("BHD");
+    let api = ReadTestApi::new().with_line(bhd);
+
+    api.run(QUELLE).expect("gültige BHD-Zeile");
+
+    // 1,234 BHD = 1234 Minor Units (Skala 3), nicht 123 400 wie unter fester Skala 2.
+    let lines = api.stored_lines();
+    assert!(
+        matches!(lines.as_slice(),
+            [line] if line.amount_minor_units == 1234 && line.currency == "BHD"),
+        "BHD skaliert auf 3 Nachkommastellen: {lines:?}"
+    );
 }
 
 // --- Deutung: eine unbekannte Währung scheitert terminal ---------------------------------

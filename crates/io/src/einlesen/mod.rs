@@ -10,18 +10,23 @@
 //! [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) real** — der Slice
 //! läuft end-to-end **ohne einen einzigen Fake**: **Kalender und Geld** seit
 //! [Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md) echte io-Adapter
-//! ([`GermanCalendar`] über `chrono`, [`GermanMoney`] über `rust_decimal`), die **Quelle** seit
+//! ([`GermanCalendar`] über `chrono`, [`GermanMoney`] über `rust_decimal` — währungs-bewusst zur
+//! Minor Unit skaliert, deren Quelle der [`IsoCurrencies`]-Seam auflöst (`rusty_money`, ISO 4217),
+//! [Issue 0055](../../../../docs/issues/0055-waehrungs-bewusster-betrags-decode-minor-unit-per-iso-4217-von-der-domaene-hoch.md)),
+//! die **Quelle** seit
 //! [Issue 0051](../../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)
 //! der echte CSV-CAMT-v8-Reader ([`CsvCamtV8Source`] über `fs` + `csv`), und die **Unit-Quelle** seit
 //! 0053 der reale [`EinlesenSqliteStore`] über `rusqlite`: er backt je Nachricht **eine**
 //! `rusqlite`-Transaktion, in der Zeilen-Ablage, `Ingested`-Publish und Ack atomar committen.
 
 mod calendar;
+mod currency;
 mod money;
 mod source;
 mod store;
 
 pub use calendar::GermanCalendar;
+pub use currency::IsoCurrencies;
 pub use money::GermanMoney;
 pub use source::CsvCamtV8Source;
 pub use store::{EinlesenSqliteStore, EinlesenUnit};
@@ -29,8 +34,8 @@ pub use store::{EinlesenSqliteStore, EinlesenUnit};
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
 use einlesen_adapter::{
-    CalendarSeam, MoneySeam, ReadCommand, ReadCommandDecoder, ReadError, ReadingHandler,
-    SourceSeam, StoreSeam,
+    CalendarSeam, CurrencySeam, MoneySeam, ReadCommand, ReadCommandDecoder, ReadError,
+    ReadingHandler, SourceSeam, StoreSeam,
 };
 
 use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
@@ -62,6 +67,7 @@ pub struct EinlesenTransactionalHandler<'a, F: UnitFactory> {
     source: &'a dyn SourceSeam,
     calendar: &'a dyn CalendarSeam,
     money: &'a dyn MoneySeam,
+    currency: &'a dyn CurrencySeam,
     units: F,
 }
 
@@ -79,8 +85,15 @@ impl<F: UnitFactory> TransactionalHandler for EinlesenTransactionalHandler<'_, F
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
         // Unit — was der Handler staged, committet mit ihr (und dem Ack von `ack`) oder gar nicht.
         run_in_unit(self.units.begin(ack), |unit, publishing| {
-            ReadingHandler::new(self.source, self.calendar, self.money, unit, publishing)
-                .handle(command)
+            ReadingHandler::new(
+                self.source,
+                self.calendar,
+                self.money,
+                self.currency,
+                unit,
+                publishing,
+            )
+            .handle(command)
         })
     }
 }
@@ -90,12 +103,14 @@ pub fn consumer<'a, F: UnitFactory>(
     source: &'a dyn SourceSeam,
     calendar: &'a dyn CalendarSeam,
     money: &'a dyn MoneySeam,
+    currency: &'a dyn CurrencySeam,
     units: F,
 ) -> OutboxConsumer<EinlesenTransactionalHandler<'a, F>> {
     OutboxConsumer::new(EinlesenTransactionalHandler {
         source,
         calendar,
         money,
+        currency,
         units,
     })
 }

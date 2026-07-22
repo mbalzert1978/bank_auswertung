@@ -21,14 +21,14 @@ pub struct AnalysisWindowRow {
 }
 
 /// Eine **Buchung des Fensters** als rohe Zeile — die drei Zellen, die der Cashflow verwertet (der
-/// Buchungstag, der den Monats-Bucket bestimmt; der **vorzeichenlose** Betrag in Cent; die Richtung,
+/// Buchungstag, der den Monats-Bucket bestimmt; der **vorzeichenlose** Betrag in Minor Units; die Richtung,
 /// in der das Vorzeichen lebt, ADR-0005), plus die zwei, aus denen der **Fingerabdruck** entsteht:
 /// die obfuskierte Gegenpartei und der obfuskierte Verwendungszweck.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WindowBookingRow {
     /// Der Buchungstag als sortierbarer Tag-Stamp (ADR-0013, Entscheidung C).
     pub booking_day: i64,
-    pub amount_cent: u64,
+    pub amount_minor_units: u64,
     pub direction: BookingDirection,
     /// Die Gegenpartei, wie `obfuskieren` sie abgelegt hat (Firma/Person/keine).
     pub recipient: BookingRecipient,
@@ -97,7 +97,7 @@ impl WindowBookingRow {
     pub(crate) fn to_booking(&self) -> Result<WindowedBooking, MissingMandatoryField> {
         Ok(WindowedBooking::hydrate(
             DayStamp::new(self.booking_day),
-            Amount::from_cent(self.amount_cent),
+            Amount::from_minor_units(self.amount_minor_units),
             match self.direction {
                 BookingDirection::Incoming => Direction::Incoming,
                 BookingDirection::Outgoing => Direction::Outgoing,

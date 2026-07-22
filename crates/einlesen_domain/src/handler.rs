@@ -1,8 +1,8 @@
-use crate::ports::{Calendar, EventSink, Money, RawLineSource, Store};
+use crate::ports::{Calendar, Currencies, EventSink, Money, RawLineSource, Store};
 use crate::{LineAggregate, ReadError, ReadTransactions};
 
 /// Orchestriert das Einlesen — er **lebt in der Domäne** und hängt **nur** an den von ihr
-/// verlangten Ports (`RawLineSource`, `Calendar`, `Money`, `Store`, `EventSink`); die
+/// verlangten Ports (`RawLineSource`, `Calendar`, `Money`, `Currencies`, `Store`, `EventSink`); die
 /// Verdrahtung an die Außenwelt (io/Fakes) besorgt der Adapter über Port-Bridges.
 ///
 /// **Ablauf je Kommando:** erst den Batch über [`RawLineSource::fetch`] **beschaffen** (das
@@ -22,6 +22,7 @@ pub struct ReadHandler<'a> {
     source: &'a dyn RawLineSource,
     calendar: &'a dyn Calendar,
     money: &'a dyn Money,
+    currencies: &'a dyn Currencies,
     store: &'a dyn Store,
     event_sink: &'a dyn EventSink,
 }
@@ -31,6 +32,7 @@ impl<'a> ReadHandler<'a> {
         source: &'a dyn RawLineSource,
         calendar: &'a dyn Calendar,
         money: &'a dyn Money,
+        currencies: &'a dyn Currencies,
         store: &'a dyn Store,
         event_sink: &'a dyn EventSink,
     ) -> Self {
@@ -38,6 +40,7 @@ impl<'a> ReadHandler<'a> {
             source,
             calendar,
             money,
+            currencies,
             store,
             event_sink,
         }
@@ -49,7 +52,9 @@ impl<'a> ReadHandler<'a> {
         self.source
             .fetch(&command.configuration)?
             .into_iter()
-            .map(|line| LineAggregate::from_raw_line(line, self.calendar, self.money))
+            .map(|line| {
+                LineAggregate::from_raw_line(line, self.calendar, self.money, self.currencies)
+            })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .try_for_each(|aggregate| -> Result<(), ReadError> {

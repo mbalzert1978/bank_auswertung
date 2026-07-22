@@ -11,7 +11,7 @@ use obfuskierung_domain::{
 pub struct IngestedRow {
     pub ordering_account: String,
     pub counter_account: Option<String>,
-    pub amount_cent: u64,
+    pub amount_minor_units: u64,
     pub currency: String,
     pub direction: String,
     pub recipient_name: Option<String>,
@@ -41,7 +41,7 @@ impl IngestedRow {
             as_nonempty(&self.booking_text),
         );
         let pass_through = PassThrough::from_parts(
-            self.amount_cent,
+            self.amount_minor_units,
             mandatory(&self.currency, "currency")?,
             mandatory(&self.direction, "direction")?,
             mandatory(&self.booking_day, "booking_day")?,

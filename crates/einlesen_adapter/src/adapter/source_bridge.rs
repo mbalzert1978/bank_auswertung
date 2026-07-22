@@ -48,7 +48,7 @@ impl RawLineSource for SourceBridge<'_> {
 /// zählen (leere/fehlende scheitern ohnehin stromabwärts an der Präsenz-Prüfung); weichen sie
 /// voneinander ab, ist der Batch terminal → redigiertes [`SourceError::MixedCurrency`] (datenlos,
 /// nie ein Code). Der Vergleich ist **case-insensitiv** — dieselbe Deutung wie der spätere
-/// Domänen-Decode (`Currency::from_code`), damit `eur`/`EUR` kein falscher Bruch ist.
+/// Währungs-Decode über den `Currencies`-Port, damit `eur`/`EUR` kein falscher Bruch ist.
 fn ensure_single_currency(records: &[RawRecord]) -> Result<(), SourceError> {
     let mut currencies = records
         .iter()

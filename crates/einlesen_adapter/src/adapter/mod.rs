@@ -8,12 +8,14 @@
 //! bündelt die Bridges als reine `Command → Domäne → Response`-Pipeline.
 
 mod calendar_bridge;
+mod currency_bridge;
 mod ingested_publisher;
 mod money_bridge;
 mod source_bridge;
 mod store_bridge;
 
 pub(crate) use calendar_bridge::CalendarBridge;
+pub(crate) use currency_bridge::CurrencyBridge;
 pub(crate) use ingested_publisher::IngestedPublisher;
 pub(crate) use money_bridge::MoneyBridge;
 pub(crate) use source_bridge::SourceBridge;

@@ -1,8 +1,12 @@
 use application_kernel::Handler;
 use einlesen_domain::{ReadError, ReadHandler, ReadTransactions, RunConfiguration};
 
-use crate::abstractions::{CalendarSeam, MoneySeam, PublishSeam, SourceSeam, StoreSeam};
-use crate::adapter::{CalendarBridge, IngestedPublisher, MoneyBridge, SourceBridge, StoreBridge};
+use crate::abstractions::{
+    CalendarSeam, CurrencySeam, MoneySeam, PublishSeam, SourceSeam, StoreSeam,
+};
+use crate::adapter::{
+    CalendarBridge, CurrencyBridge, IngestedPublisher, MoneyBridge, SourceBridge, StoreBridge,
+};
 use crate::models::ReadCommand;
 
 /// Der **`application_kernel::Handler` des Slice**: die reine `Command → Domäne → Response`-Pipeline,
@@ -22,17 +26,20 @@ pub struct ReadingHandler<'a> {
     source: SourceBridge<'a>,
     calendar: CalendarBridge<'a>,
     money: MoneyBridge<'a>,
+    currency: CurrencyBridge<'a>,
     store: StoreBridge<'a>,
     publisher: IngestedPublisher<'a>,
 }
 
 impl<'a> ReadingHandler<'a> {
     /// Verdrahtet den Handler gegen die öffentlichen Seams (die `io` oder ein Slice-Test erfüllt).
-    /// Die Bridges mappen sie auf die internen Domänen-Ports.
+    /// Die Bridges mappen sie auf die internen Domänen-Ports; die `CurrencyBridge` löst die Währung
+    /// samt Minor Unit auf, mit der die `MoneyBridge` den Betrag währungs-bewusst skaliert.
     pub fn new(
         source: &'a dyn SourceSeam,
         calendar: &'a dyn CalendarSeam,
         money: &'a dyn MoneySeam,
+        currency: &'a dyn CurrencySeam,
         store: &'a dyn StoreSeam,
         publisher: &'a dyn PublishSeam,
     ) -> Self {
@@ -40,6 +47,7 @@ impl<'a> ReadingHandler<'a> {
             source: SourceBridge { seam: source },
             calendar: CalendarBridge { seam: calendar },
             money: MoneyBridge { seam: money },
+            currency: CurrencyBridge { seam: currency },
             store: StoreBridge { seam: store },
             publisher: IngestedPublisher { seam: publisher },
         }
@@ -59,6 +67,7 @@ impl Handler for ReadingHandler<'_> {
             &self.source,
             &self.calendar,
             &self.money,
+            &self.currency,
             &self.store,
             &self.publisher,
         )

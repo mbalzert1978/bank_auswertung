@@ -71,22 +71,22 @@ pub(crate) fn fenster_mit_marker(
     }
 }
 
-/// Ein **Abfluss** an einem Buchungstag (Betrag vorzeichenlos in Cent — das Vorzeichen lebt allein
+/// Ein **Abfluss** an einem Buchungstag (Betrag vorzeichenlos in Minor Units — das Vorzeichen lebt allein
 /// in der Richtung, ADR-0005) — **ohne Gegenpartei**, wie eine Entgeltzeile.
-pub(crate) fn ausgang(booking_day: i64, cent: u64) -> WindowBookingRow {
+pub(crate) fn ausgang(booking_day: i64, minor_units: u64) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
         ..WindowBookingRow::default()
     }
 }
 
 /// Ein **Zufluss** an einem Buchungstag — ebenfalls ohne Gegenpartei.
-pub(crate) fn eingang(booking_day: i64, cent: u64) -> WindowBookingRow {
+pub(crate) fn eingang(booking_day: i64, minor_units: u64) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Incoming,
         ..WindowBookingRow::default()
     }
@@ -97,14 +97,14 @@ pub(crate) fn eingang(booking_day: i64, cent: u64) -> WindowBookingRow {
 /// Verwendungszweck als obfuskierter Freitext.
 pub(crate) fn firma(
     booking_day: i64,
-    cent: u64,
+    minor_units: u64,
     creditor_id: &str,
     name: &str,
     purpose: Option<&str>,
 ) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
         recipient: BookingRecipient::Company {
             name: Some(name.to_string()),
@@ -119,13 +119,13 @@ pub(crate) fn firma(
 /// `einlesen` an durchweg optional ist, die Gläubiger-ID an einer Firma dagegen Pflicht.
 pub(crate) fn firma_ohne_namen(
     booking_day: i64,
-    cent: u64,
+    minor_units: u64,
     creditor_id: &str,
     purpose: Option<&str>,
 ) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
         recipient: BookingRecipient::Company {
             name: None,
@@ -139,10 +139,10 @@ pub(crate) fn firma_ohne_namen(
 /// Ein Abfluss an eine **fail-safe Privatperson** — sie trägt **nur** ihr seed-basiertes Pseudonym
 /// (`PERSON_…`), das `obfuskieren` vergeben hat. Ein anderer Seed ergibt stromaufwärts ein anderes
 /// Pseudonym; dieser Slice sieht den Seed nie (ADR-0010).
-pub(crate) fn person(booking_day: i64, cent: u64, pseudonym: &str) -> WindowBookingRow {
+pub(crate) fn person(booking_day: i64, minor_units: u64, pseudonym: &str) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
         recipient: BookingRecipient::Person {
             pseudonym: pseudonym.to_string(),
@@ -155,10 +155,10 @@ pub(crate) fn person(booking_day: i64, cent: u64, pseudonym: &str) -> WindowBook
 /// Ein Abfluss auf ein **Gegenkonto**, das nur als Token vorliegt (`KONTO_…`) — so, wie
 /// `obfuskieren` es an der Datenschutz-Grenze abgelegt hat. Genau dieses Token prüft die Auflösung
 /// gegen die Eigen-Menge; eine rohe IBAN erreicht diesen Slice nie (ADR-0013, Entscheidung F).
-pub(crate) fn gegenkonto(booking_day: i64, cent: u64, token: &str) -> WindowBookingRow {
+pub(crate) fn gegenkonto(booking_day: i64, minor_units: u64, token: &str) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
         counter_account: Some(token.to_string()),
         ..WindowBookingRow::default()
@@ -203,8 +203,8 @@ pub(crate) fn monat(year: i64, month: i64, incoming: u64, outgoing: u64) -> Mont
     MonthlyCashflowRow {
         year,
         month,
-        incoming_cent: incoming,
-        outgoing_cent: outgoing,
+        incoming_minor_units: incoming,
+        outgoing_minor_units: outgoing,
     }
 }
 
@@ -224,17 +224,17 @@ pub(crate) fn historie_api() -> HistoryTestApi {
 
 /// Eine Buchung **derselben wiederkehrenden Art** an einem Buchungstag — derselbe Händler, also
 /// derselbe Fingerabdruck, egal in welchem Fenster sie liegt.
-pub(crate) fn wiederkehrend(booking_day: i64, cent: u64) -> WindowBookingRow {
-    firma(booking_day, cent, HAENDLER, "Netflix", None)
+pub(crate) fn wiederkehrend(booking_day: i64, minor_units: u64) -> WindowBookingRow {
+    firma(booking_day, minor_units, HAENDLER, "Netflix", None)
 }
 
 /// Dieselbe wiederkehrende Art, aber als **Zufluss** — eine Rückerstattung desselben Händlers. Sie
 /// trägt denselben Fingerabdruck: die *Art* der Buchung hängt an der Gegenpartei, nicht an der
 /// Richtung.
-pub(crate) fn eingang_wiederkehrend(booking_day: i64, cent: u64) -> WindowBookingRow {
+pub(crate) fn eingang_wiederkehrend(booking_day: i64, minor_units: u64) -> WindowBookingRow {
     WindowBookingRow {
         direction: BookingDirection::Incoming,
-        ..wiederkehrend(booking_day, cent)
+        ..wiederkehrend(booking_day, minor_units)
     }
 }
 
@@ -243,13 +243,13 @@ pub(crate) fn eingang_wiederkehrend(booking_day: i64, cent: u64) -> WindowBookin
 pub(crate) fn vorkommen(
     fingerprint: &str,
     booking_day: i64,
-    cent: u64,
+    minor_units: u64,
     direction: BookingDirection,
 ) -> OccurrenceRow {
     OccurrenceRow {
         fingerprint: fingerprint.to_string(),
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction,
     }
 }

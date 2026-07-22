@@ -1,7 +1,9 @@
 use application_kernel::{CommandDecoder, Handler};
 use einlesen_domain::ReadError;
 
-use super::fakes::{FakeCalendarSeam, FakeMoneySeam, FakePublisher, FakeSourceSeam, FakeStoreSeam};
+use super::fakes::{
+    FakeCalendarSeam, FakeCurrencySeam, FakeMoneySeam, FakePublisher, FakeSourceSeam, FakeStoreSeam,
+};
 use crate::handler::ReadingHandler;
 use crate::models::ReadCommandDecoder;
 use crate::models::{Line, RawRecord};
@@ -24,6 +26,7 @@ pub struct ReadTestApi {
     source_seam: FakeSourceSeam,
     calendar_seam: FakeCalendarSeam,
     money_seam: FakeMoneySeam,
+    currency_seam: FakeCurrencySeam,
     store_seam: FakeStoreSeam,
     publisher: FakePublisher,
 }
@@ -36,6 +39,7 @@ impl ReadTestApi {
             source_seam: FakeSourceSeam::default(),
             calendar_seam: FakeCalendarSeam,
             money_seam: FakeMoneySeam,
+            currency_seam: FakeCurrencySeam,
             store_seam: FakeStoreSeam::default(),
             publisher: FakePublisher::default(),
         }
@@ -89,6 +93,7 @@ impl ReadTestApi {
             &self.source_seam,
             &self.calendar_seam,
             &self.money_seam,
+            &self.currency_seam,
             &self.store_seam,
             &self.publisher,
         );

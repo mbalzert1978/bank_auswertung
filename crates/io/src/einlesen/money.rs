@@ -1,20 +1,22 @@
 //! Die echte io-Erfüllung des öffentlichen [`MoneySeam`] des `einlesen`-Adapters
-//! ([Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md)): ein **Adapter**,
-//! der die battle-tested [`rust_decimal`]-Lib auf unsere Seam-Signatur andockt — rein, kein I/O. Sie
-//! tritt im End-to-End-Test an die Stelle des In-Memory-Fakes.
+//! ([Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md), währungs-bewusst
+//! verfeinert in [Issue 0055](../../../../docs/issues/0055-waehrungs-bewusster-betrags-decode-minor-unit-per-iso-4217-von-der-domaene-hoch.md)):
+//! ein **Adapter**, der die battle-tested [`rust_decimal`]-Lib auf unsere Seam-Signatur andockt — rein,
+//! kein I/O. Sie tritt im End-to-End-Test an die Stelle des In-Memory-Fakes.
 //!
-//! Der Seam ist **bewusst währungs-agnostisch** bei fester Skala 2 (Cent); die währungs-bewusste
-//! Minor-Unit-Deutung per ISO 4217 ist ausgelagert
-//! ([Issue 0055](../../../../docs/issues/0055-waehrungs-bewusster-betrags-decode-minor-unit-per-iso-4217-von-der-domaene-hoch.md)).
-//! `rust_decimal` rechnet exakt (kein `f64`-Rundungsfehler); unsere **dünne** Nutzungslogik streift
-//! das führende Vorzeichen ab und bringt die deutsche Gruppierung/Dezimalstelle in die Form, die die
-//! Lib parst. Ein undeutbarer Wert ergibt `None`, was das Aggregat terminal auf `AmountInvalid` mappt.
+//! Der Seam ist **bewusst währungs-agnostisch**: er dekodiert das Feld nur in seine **unskalierten**
+//! Bestandteile (Ziffernmenge `units`, Nachkommastellen-Zahl `decimal_places`, Vorzeichen) — die
+//! **währungs-bewusste** Skalierung auf die Minor Units per ISO 4217 macht die `MoneyBridge` des
+//! Adapters, indem sie diesen Seam mit dem Minor-Unit-Seam (rusty_money) paart. `rust_decimal` rechnet
+//! exakt (kein `f64`-Rundungsfehler); unsere **dünne** Nutzungslogik streift das führende Vorzeichen ab
+//! und bringt die deutsche Gruppierung/Dezimalstelle in die Form, die die Lib parst, und liest daraus
+//! Mantisse und Skala. Ein undeutbarer Wert ergibt `None`, was das Aggregat terminal auf
+//! `AmountInvalid` mappt.
 
 use core::str::FromStr;
 
 use einlesen_adapter::{DecodedAmount, MoneySeam, Sign};
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 
 /// Der echte Geld-Seam: dockt `rust_decimal` auf [`MoneySeam`] an. **Zustandslos** — ein Wert genügt.
 pub struct GermanMoney;
@@ -43,13 +45,15 @@ impl MoneySeam for GermanMoney {
             Some(fraction) => format!("{integer_digits}.{}", validated_fraction(fraction)?),
         };
 
-        // `rust_decimal` parst exakt (kein `f64`-Rundungsfehler). Der Nachkomma-Teil ist auf ≤2
-        // Stellen begrenzt (feste Skala 2 = Cent), darum geht `× 100` immer in ganzen Cent auf.
-        let cents = Decimal::from_str(&normalised)
-            .ok()?
-            .checked_mul(Decimal::ONE_HUNDRED)?;
+        // `rust_decimal` parst exakt (kein `f64`-Rundungsfehler). Die **unskalierten** Bestandteile
+        // (Mantisse = vorzeichenlose Ziffernmenge, Skala = Nachkommastellen) reisen so, wie sie im Feld
+        // stehen; die währungs-bewusste Skalierung auf die Minor Units macht die `MoneyBridge`. Die
+        // Nachkommastellen sind **nicht** auf 2 begrenzt (keine feste Cent-Skala mehr) — eine für die
+        // Zielwährung zu genaue Zahl weist die Bridge ab, nicht dieser Seam.
+        let decimal = Decimal::from_str(&normalised).ok()?;
         Some(DecodedAmount {
-            cent: cents.to_u64()?,
+            units: u64::try_from(decimal.mantissa()).ok()?,
+            decimal_places: decimal.scale(),
             sign,
         })
     }
@@ -80,8 +84,9 @@ fn normalise_grouped_integer(integer_part: &str) -> Option<String> {
     valid.then(|| groups.concat())
 }
 
-/// Prüft den Nachkomma-Teil: **1–2** Ziffern, sonst `None` (ein leerer Teil = nachgestelltes Komma
-/// wie „50," ist ungültig; drei+ Stellen sprengen die Cent-Skala).
+/// Prüft den Nachkomma-Teil: **mindestens eine** Ziffer, alle ASCII-Ziffern, sonst `None` (ein
+/// leerer Teil = nachgestelltes Komma wie „50," ist ungültig). **Keine** obere Grenze mehr — die
+/// Minor Unit der Zielwährung entscheidet später (in der Bridge), ob die Genauigkeit passt.
 fn validated_fraction(fraction: &str) -> Option<&str> {
-    ((1..=2).contains(&fraction.len()) && all_digits(fraction)).then_some(fraction)
+    all_digits(fraction).then_some(fraction)
 }
