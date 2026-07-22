@@ -6,20 +6,25 @@
 //! [`CONSUMED_MESSAGE_TYPE`] (message_type-Auflösung).
 //!
 //! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle ([`UnitFactory`])
-//! reicht der Aufrufer herein. **Kalender und Geld sind seit
-//! [Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md) echte, reine
-//! io-Adapter** ([`GermanCalendar`] über `chrono`, [`GermanMoney`] über `rust_decimal`); die **Quelle
-//! ist seit [Issue 0051](../../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)
-//! der echte CSV-CAMT-v8-Reader** ([`CsvCamtV8Source`] über `fs` + `csv`). Fake bleibt nur die
-//! Unit-Quelle bis Build-Order Schritt 5 (die reale `rusqlite`-Transaktion pro Nachricht folgt dort).
+//! reicht der Aufrufer herein. **Alle sind seit
+//! [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) real** — der Slice
+//! läuft end-to-end **ohne einen einzigen Fake**: **Kalender und Geld** seit
+//! [Issue 0050](../../../../docs/issues/0050-money-calendar-decode-seams-real.md) echte io-Adapter
+//! ([`GermanCalendar`] über `chrono`, [`GermanMoney`] über `rust_decimal`), die **Quelle** seit
+//! [Issue 0051](../../../../docs/issues/0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)
+//! der echte CSV-CAMT-v8-Reader ([`CsvCamtV8Source`] über `fs` + `csv`), und die **Unit-Quelle** seit
+//! 0053 der reale [`EinlesenSqliteStore`] über `rusqlite`: er backt je Nachricht **eine**
+//! `rusqlite`-Transaktion, in der Zeilen-Ablage, `Ingested`-Publish und Ack atomar committen.
 
 mod calendar;
 mod money;
 mod source;
+mod store;
 
 pub use calendar::GermanCalendar;
 pub use money::GermanMoney;
 pub use source::CsvCamtV8Source;
+pub use store::{EinlesenSqliteStore, EinlesenUnit};
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;

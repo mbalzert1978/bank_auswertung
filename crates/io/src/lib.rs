@@ -35,10 +35,13 @@
 //! [`sqlite::SqliteOutbox`] ist Broker **und** Unit-Quelle über `rusqlite` — sie reiht Nachrichten in
 //! die SQLite-Outbox-Tabelle, liest die offenen und dispatcht sie über **denselben, unveränderten**
 //! [`Dispatcher`]/[`OutboxConsumer`], und die [`sqlite::SqliteUnit`] committet Ack + Ablage + Publishes
-//! in **einer** Transaktion (at-least-once, resumierbar). **Noch draußen (Build-Order Schritt 5/6):**
-//! die **slice-spezifischen** Ergebnis-Stores hinter `StoreSeam`/… (Issue 0053) — bis dahin erfüllt
-//! die committenden Store-Seams weiter der Integrationstest mit Fakes ([`einlesen::UnitFactory`] &
-//! Co.); die generische Maschinerie hier ist davon unabhängig und bleibt unverändert.
+//! in **einer** Transaktion (at-least-once, resumierbar). Der **erste slice-spezifische Ergebnis-Store**
+//! sitzt seit [Issue 0053](../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) darauf:
+//! [`einlesen::EinlesenSqliteStore`] erfüllt `einlesen`s `StoreSeam` über eine echte `rusqlite`-Tabelle
+//! (DB-vergebene ID; Zeilen-`INSERT`, `Ingested`-Publish und Ack in **einer** Transaktion), sodass der
+//! `einlesen`-Slice end-to-end **ohne einen Fake** läuft — das **Muster** für obfuskieren/fenstern/
+//! auswerten (je hinter dem eigenen Seam, danach geschnitten). **Noch draußen (Build-Order Schritt 5/6):**
+//! die übrigen slice-spezifischen Stores und die Config-Loader (`toml`/`fs`).
 
 mod common;
 
