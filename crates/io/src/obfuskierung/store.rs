@@ -273,14 +273,12 @@ INSERT INTO obfuskiert (
 mod tests {
     use super::*;
     use crate::Dispatcher;
-    use crate::einlesen::{
-        CONSUMED_MESSAGE_TYPE as EINLESEN_CONSUMED, EinlesenSqliteStore, GermanCalendar,
-        GermanMoney, IsoCurrencies, consumer as einlesen_consumer,
-    };
+    use crate::einlesen::EinlesenSqliteStore;
     use crate::obfuskierung::{
         CONSUMED_MESSAGE_TYPE, EinlesenRowSource, SeededObfuscator, consumer,
     };
     use crate::outbox::OutboxError;
+    use crate::pipeline_test_support::{SEED, Stage, seed_through};
     use application_kernel::PublishCommand;
     use obfuskierung_adapter::ObfuscatedMessage;
 
@@ -289,20 +287,9 @@ mod tests {
     /// still am Test vorbeidriftet.
     const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MESSAGE_TYPE;
 
-    const SEED: u64 = 42;
     /// Die rohe Auftraggeber-IBAN der `gueltig.csv`-Fixture — sie darf in **keinem** obfuskiert-Token
     /// und in **keinem** Fehlergrund auftauchen (Datenschutz-Redaktion).
     const ROH_IBAN: &str = "DE89370400440532013000";
-
-    /// Baut den echten CSV-CAMT-v8-Reader auf die benannte `einlesen`-Fixture (Pfad relativ zum
-    /// io-Crate) — dieselben Fixtures wie der `einlesen`-Store-Test.
-    fn csv_source(name: &str) -> crate::einlesen::CsvCamtV8Source {
-        let path = format!(
-            "{}/fixtures/einlesen/csv/{name}",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        crate::einlesen::CsvCamtV8Source::new(path)
-    }
 
     /// Eine flach zurückgelesene `obfuskiert`-Zeile (nur die verwerteten Spalten) — genug, um
     /// Feld-Treue und die Datenschutz-Invariante am realen Bestand zu prüfen, ohne die
@@ -365,13 +352,14 @@ mod tests {
         })
     }
 
-    /// Fährt die **reale** zweistufige Pipeline auf **einem** Rückgrat: erst der `einlesen`-Consumer
-    /// über der CSV-Fixture (landet die reale `einlesen_lines`-Zeile und publiziert `Ingested`), dann
-    /// der `obfuskierung`-Consumer, der genau diese `Ingested`-Nachricht konsumiert. Gibt die Ausgänge
-    /// des **zweiten** (obfuskierung-)Laufs zurück.
+    /// Fährt die **reale** zweistufige Pipeline auf **einem** Rückgrat: erst die `einlesen`-Vorstufe
+    /// über der CSV-Fixture (per [`seed_through`] — landet die reale `einlesen_lines`-Zeile und
+    /// publiziert `Ingested`), dann der `obfuskierung`-Consumer mit dem **gegebenen** Store und Seed,
+    /// der genau diese `Ingested`-Nachricht konsumiert. Gibt die Ausgänge des **zweiten**
+    /// (obfuskierung-)Laufs zurück.
     #[expect(
         clippy::panic_in_result_fn,
-        reason = "Test-Helfer: die assert! prüfen die Pipeline-Invarianten vor dem obfuskierung-Lauf"
+        reason = "Test-Helfer: das assert! prüft die Registrierungs-Invariante vor dem obfuskierung-Lauf"
     )]
     fn run_pipeline(
         outbox: &SqliteOutbox,
@@ -379,41 +367,21 @@ mod tests {
         fixture: &str,
         seed: u64,
     ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
-        // Stufe einlesen: realer Store + reale Seams über der Fixture.
-        let einlesen_store = EinlesenSqliteStore::new(outbox.clone())?;
-        let einlesen_source = csv_source(fixture);
-        let einlesen = einlesen_consumer(
-            &einlesen_source,
-            &GermanCalendar,
-            &GermanMoney,
-            &IsoCurrencies,
-            einlesen_store,
-        );
-        // Stufe obfuskierung: realer Store, reale Lese-Quelle, realer Obfuskator.
+        // Vorstufe einlesen seeden: die reale einlesen-Zeile landet, `Ingested` wird publiziert.
+        seed_through(outbox, Stage::Einlesen, fixture)?;
+
+        // Stufe obfuskierung: der **gegebene** Store (ggf. bewusst unerreichbar) und Seed über der
+        // offenen `Ingested`-Nachricht.
         let source = EinlesenRowSource::new(outbox.clone());
         let obfuscator = SeededObfuscator;
         let obfuskierung = consumer(&source, &obfuscator, seed, obfuskierung_store);
-
         let mut dispatcher = Dispatcher::new();
         assert!(
             dispatcher
-                .register(EINLESEN_CONSUMED, Box::new(einlesen))
-                .is_none()
-                && dispatcher
-                    .register(CONSUMED_MESSAGE_TYPE, Box::new(obfuskierung))
-                    .is_none(),
-            "frische Registrierungen dürfen keinen Consumer verdrängen"
+                .register(CONSUMED_MESSAGE_TYPE, Box::new(obfuskierung))
+                .is_none(),
+            "frische Registrierung darf keinen Consumer verdrängen"
         );
-
-        // Lauf 1 treibt einlesen: der Auslöser wird verarbeitet, `Ingested` publiziert.
-        outbox.enqueue(EINLESEN_CONSUMED, "auszug-juni")?;
-        let einlesen_out = outbox.deliver_open(&dispatcher)?;
-        assert!(
-            matches!(einlesen_out.as_slice(), [(_, Ok(()))]),
-            "der einlesen-Lauf muss atomar verarbeiten: {einlesen_out:?}"
-        );
-
-        // Lauf 2 treibt obfuskierung: die offene `Ingested`-Nachricht wird nun zugestellt.
         outbox.deliver_open(&dispatcher)
     }
 

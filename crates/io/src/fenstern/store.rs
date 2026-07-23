@@ -203,21 +203,13 @@ mod tests {
 
     use super::*;
     use crate::Dispatcher;
-    use crate::einlesen::{
-        CONSUMED_MESSAGE_TYPE as EINLESEN_CONSUMED, EinlesenSqliteStore, GermanCalendar,
-        GermanMoney, IsoCurrencies, consumer as einlesen_consumer,
-    };
     use crate::fenstern::{
         CONSUMED_MESSAGE_TYPE as FENSTERN_CONSUMED, ObfuskiertWindowSource, START_MESSAGE_TYPE,
         consumer as fenstern_consumer, start_consumer,
     };
-    use crate::obfuskierung::{
-        CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, ObfuskierungSqliteStore,
-        SeededObfuscator, consumer as obfuskierung_consumer,
-    };
+    use crate::obfuskierung::ObfuskierungSqliteStore;
     use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage};
-
-    const SEED: u64 = 42;
+    use crate::pipeline_test_support::{Stage, seed_through};
 
     /// Die `message_type`s der stromabwärtigen Nachrichten — aus den kanonischen
     /// `PublishCommand::MESSAGE_TYPE`s der DTOs statt als String-Literal, damit eine Umbenennung
@@ -226,16 +218,6 @@ mod tests {
     const WINDOW_CLOSED_MESSAGE_TYPE: &str = <WindowClosedMessage as PublishCommand>::MESSAGE_TYPE;
     const HISTORY_COMPLETE_MESSAGE_TYPE: &str =
         <HistoryCompleteMessage as PublishCommand>::MESSAGE_TYPE;
-
-    /// Baut den echten CSV-CAMT-v8-Reader auf die benannte `einlesen`-Fixture (Pfad relativ zum
-    /// io-Crate) — dieselben Fixtures wie der `obfuskierung`-Store-Test.
-    fn csv_source(name: &str) -> crate::einlesen::CsvCamtV8Source {
-        let path = format!(
-            "{}/fixtures/einlesen/csv/{name}",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        crate::einlesen::CsvCamtV8Source::new(path)
-    }
 
     /// Der `i64`-Tag-Stamp eines Kalendertags, wie ihn dieser Store ablegt — dasselbe
     /// `num_days_from_ce`, das der reale Lese-Seam ([`super::super::source`]) benutzt.
@@ -300,55 +282,6 @@ mod tests {
         panic!("Broker-Schleife terminierte nicht (32 Runden)");
     }
 
-    /// Fährt die reale zweistufige Vorstufe auf **einem** Rückgrat: `einlesen` über der Fixture,
-    /// dann `obfuskierung` über **allen** dabei publizierten `Ingested`-Nachrichten.
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test-Helfer: die assert! prüfen die Vorstufen-Invarianten vor dem fenstern-Lauf"
-    )]
-    fn seed_obfuskiert_bestand(outbox: &SqliteOutbox, fixture: &str) -> rusqlite::Result<()> {
-        let einlesen_store = EinlesenSqliteStore::new(outbox.clone())?;
-        let einlesen_source = csv_source(fixture);
-        let einlesen = einlesen_consumer(
-            &einlesen_source,
-            &GermanCalendar,
-            &GermanMoney,
-            &IsoCurrencies,
-            einlesen_store,
-        );
-        let mut stage1 = Dispatcher::new();
-        assert!(
-            stage1
-                .register(EINLESEN_CONSUMED, Box::new(einlesen))
-                .is_none(),
-            "frische Registrierung darf keinen Consumer verdrängen"
-        );
-        outbox.enqueue(EINLESEN_CONSUMED, fixture)?;
-        let einlesen_out = outbox.deliver_open(&stage1)?;
-        assert!(
-            einlesen_out.iter().all(|(_, outcome)| outcome.is_ok()),
-            "einlesen muss atomar verarbeiten: {einlesen_out:?}"
-        );
-
-        let source = EinlesenRowSource::new(outbox.clone());
-        let obfuscator = SeededObfuscator;
-        let store = ObfuskierungSqliteStore::new(outbox.clone())?;
-        let obfuskierung = obfuskierung_consumer(&source, &obfuscator, SEED, store);
-        let mut stage2 = Dispatcher::new();
-        assert!(
-            stage2
-                .register(OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung))
-                .is_none(),
-            "frische Registrierung darf keinen Consumer verdrängen"
-        );
-        let obfuskierung_out = outbox.deliver_open(&stage2)?;
-        assert!(
-            obfuskierung_out.iter().all(|(_, outcome)| outcome.is_ok()),
-            "obfuskierung muss atomar verarbeiten: {obfuskierung_out:?}"
-        );
-        Ok(())
-    }
-
     /// Ein zurückgelesenes Fenster (nur für Tests): `(from_day, to_day, currency, booking_ids)`.
     type StoredWindow = (i64, i64, String, Vec<String>);
 
@@ -408,7 +341,7 @@ mod tests {
     fn mehrere_seiten_werden_real_paginiert_gespeichert_und_schliessen_mit_historie_vollstaendig()
     -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
-        seed_obfuskiert_bestand(&outbox, "mehrseitig.csv")?;
+        seed_through(&outbox, Stage::Obfuskierung, "mehrseitig.csv")?;
 
         // Die vier realen, DB-geminteten obfuskiert-IDs — über den je CSV-Zeile eindeutigen Betrag
         // zugeordnet (A=20.06., B=19.06., C=15.06., D=10.06.).
@@ -609,7 +542,7 @@ mod tests {
     fn ein_unerreichbarer_fenster_store_failt_terminal_und_redigiert_ohne_zu_publizieren()
     -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
-        seed_obfuskiert_bestand(&outbox, "gueltig.csv")?;
+        seed_through(&outbox, Stage::Obfuskierung, "gueltig.csv")?;
 
         let source = ObfuskiertWindowSource::new(outbox.clone());
         // Bewusst an `new` vorbeigebaut: die Ergebnis-Tabellen fehlen → unerreichbar.

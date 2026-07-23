@@ -292,16 +292,8 @@ mod tests {
         CONSUMED_MESSAGE_TYPE, GermanCalendar, GermanMoney, IsoCurrencies, consumer,
     };
     use crate::outbox::OutboxError;
+    use crate::pipeline_test_support::csv_source;
     use crate::sqlite::SqliteOutbox;
-
-    /// Baut den echten CSV-CAMT-v8-Reader auf die benannte Fixture-Datei (Pfad relativ zum io-Crate).
-    fn csv_source(name: &str) -> crate::einlesen::CsvCamtV8Source {
-        let path = format!(
-            "{}/fixtures/einlesen/csv/{name}",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        crate::einlesen::CsvCamtV8Source::new(path)
-    }
 
     /// Die erwartete `Line`-Projektion der einzigen Zeile aus `gueltig.csv` (EDEKA, `-50,00 EUR`) —
     /// unabhängige Wahrheit für den Feld-Treue-Vergleich der committeten Zeile.
