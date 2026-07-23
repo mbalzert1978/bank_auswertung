@@ -1,7 +1,7 @@
 ---
 id: "0073"
 title: "`fenstern`-Store: Preflight in `save` probt nur `INSERT_WINDOW`, nicht `INSERT_BOOKING`"
-status: open
+status: closed
 ---
 
 # `fenstern`-Store: Preflight in `save` probt nur `INSERT_WINDOW`, nicht `INSERT_BOOKING`

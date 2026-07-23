@@ -1,7 +1,7 @@
 ---
 id: "0072"
 title: "io/Stores: leere Platzhalter-ID in `obfuskierung`/`fenstern`-Rows unkonstruierbar machen"
-status: open
+status: closed
 ---
 
 # io/Stores: leere Platzhalter-ID in `obfuskierung`/`fenstern`-Rows unkonstruierbar machen
