@@ -16,7 +16,8 @@
 //! **stagt** das Zeilen-`INSERT` in **dieselbe** committende Transaktion wie der `Obfuscated`-Publish
 //! und der Ack — eine gestagete Schreibung committet mit der Nachricht oder gar nicht. **Genau die
 //! neue ID** reist als `partition_key` der `Obfuscated`-Nachricht weiter; die Zeile referenziert die
-//! Quell-Buchung **nur per `source_id`** (Fremdschlüssel), nie als eingebettetes Roh-Aggregat.
+//! Quell-Buchung **nur per `source_id`** (Referenz-per-ID auf `einlesen_lines.id`), nie als
+//! eingebettetes Roh-Aggregat.
 //!
 //! **Datenschutz-Grenze:** in diese Tabelle fließen **nur Token** — die Konten stehen als
 //! `KONTO_…`/`PERSON_…`, Freitext als obfuskierter Text; **keine rohe IBAN**. Einziger Klartext-Anker
@@ -231,13 +232,15 @@ impl BookingRow {
 /// Das Schema der `obfuskiert`-Ergebnis-Tabelle: die abgeflachte obfuskierte Buchung unter der
 /// DB-vergebenen ID. Sie trägt **nur Token** (`KONTO_…`/`PERSON_…`, obfuskierter Freitext); einzige
 /// Klartext-Ausnahme ist die öffentliche `recipient_creditor_id` (Analyse-Anker, ADR-0010). Die
-/// Quell-Buchung ist **nur per `source_id`** referenziert (Fremdschlüssel auf `einlesen_lines.id`),
-/// nie eingebettet.
+/// Quell-Buchung ist **nur per `source_id`** referenziert (eine Referenz-per-ID auf
+/// `einlesen_lines.id`, **kein** DB-`FOREIGN KEY`-Constraint — SQLite erzwingt FKs nur mit
+/// aktiviertem `PRAGMA foreign_keys`, das die synchrone Outbox-Spine bewusst nicht schaltet), nie
+/// eingebettet.
 ///
 /// `direction` und `recipient_kind` sind enum-artig und per `CHECK`-Constraint erzwungen;
 /// `created_at`/`updated_at` (Epoch-Millis) tragen den Audit-Zeitstempel jeder Zeile — beide
 /// Konventionen aus `.rules/sql/schema-konventionen.md`. Die Tabelle ist append-only, daher fällt
-/// `updated_at` mit `created_at` zusammen. Der **Fremdschlüssel `source_id` ist indiziert**
+/// `updated_at` mit `created_at` zusammen. Die **Referenz-Spalte `source_id` ist indiziert**
 /// (`.rules/sql/queries-und-performance.md`), damit ein späterer Rückbezug auf die Quell-Zeile keinen
 /// Full-Table-Scan erzwingt.
 const SCHEMA: &str = "\
@@ -292,6 +295,13 @@ mod tests {
         CONSUMED_MESSAGE_TYPE, EinlesenRowSource, SeededObfuscator, consumer,
     };
     use crate::outbox::OutboxError;
+    use application_kernel::PublishCommand;
+    use obfuskierung_adapter::ObfuscatedMessage;
+
+    /// Der `message_type` der stromabwärtigen `Obfuscated`-Nachricht — aus dem kanonischen
+    /// `PublishCommand::MESSAGE_TYPE` des DTOs statt als String-Literal, damit eine Umbenennung nicht
+    /// still am Test vorbeidriftet.
+    const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MESSAGE_TYPE;
 
     const SEED: u64 = 42;
     /// Die rohe Auftraggeber-IBAN der `gueltig.csv`-Fixture — sie darf in **keinem** obfuskiert-Token
@@ -437,7 +447,7 @@ mod tests {
         );
 
         let bookings = stored_bookings(&store)?;
-        let einlesen_ids = partition_keys(&outbox, "Ingested")?;
+        let einlesen_ids = partition_keys(&outbox, CONSUMED_MESSAGE_TYPE)?;
         let buchung = match bookings.as_slice() {
             [buchung] => buchung,
             other => panic!("genau eine obfuskierte Buchung erwartet: {other:?}"),
@@ -507,7 +517,7 @@ mod tests {
         // Tabelle = Wahrheit, Message = Zeiger: genau eine `Obfuscated`-Nachricht, deren Zeiger die
         // **neue** obfuskiert-ID ist — atomar in derselben Transaktion committet.
         assert_eq!(
-            partition_keys(&outbox, "Obfuscated")?,
+            partition_keys(&outbox, OBFUSCATED_MESSAGE_TYPE)?,
             [buchung.id.clone()],
             "genau eine Obfuscated-Nachricht, deren partition_key die neue obfuskiert-ID ist"
         );
@@ -540,7 +550,7 @@ mod tests {
         );
         // … und **nichts** ist stromabwärts publiziert (kein Dead-Letter/Retry, keine halbe Kette).
         assert!(
-            partition_keys(&outbox, "Obfuscated")?.is_empty(),
+            partition_keys(&outbox, OBFUSCATED_MESSAGE_TYPE)?.is_empty(),
             "ein terminaler Store-Fehler darf nichts publizieren"
         );
         Ok(())
@@ -587,7 +597,7 @@ mod tests {
             "eine fehlende Quell-Zeile darf nichts ablegen"
         );
         assert!(
-            partition_keys(&outbox, "Obfuscated")?.is_empty(),
+            partition_keys(&outbox, OBFUSCATED_MESSAGE_TYPE)?.is_empty(),
             "eine fehlende Quell-Zeile darf nichts publizieren"
         );
         Ok(())
