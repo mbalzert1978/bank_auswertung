@@ -9,7 +9,7 @@
 //! Die Seam-Fakes, die Fake-Arbeitseinheit, die Dispatcher-Verdrahtung und die Broker-Schleife
 //! liegen in den Fixtures nebenan (`fixtures/fenstern/mod.rs`).
 
-use io::fenstern::FensterConfig;
+use io::config::FensterConfig;
 use io::outbox::OutboxError;
 
 #[path = "../fixtures/fenstern/mod.rs"]

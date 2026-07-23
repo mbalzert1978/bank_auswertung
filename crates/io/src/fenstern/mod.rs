@@ -19,11 +19,8 @@
 //! **Die Seitengröße reicht der Aufrufer als [`NonZeroU32`] herein** (io liest sie aus der Config —
 //! die Domäne liest keine Datei), heute der Integrationstest mit Fakes, später die realen
 //! io-Adapter (Build-Order Schritt 5). Sie geht **nur** den Fenster-Schritt an: der Anstoß ist
-//! einzweckig und weiß nichts von Seitengrößen.
-
-mod config;
-
-pub use config::{ConfigError, FensterConfig};
+//! einzweckig und weiß nichts von Seitengrößen. Der reale toml-Loader
+//! [`FensterConfig`](crate::config::FensterConfig) liegt zentral in [`crate::config`].
 
 use std::num::NonZeroU32;
 
