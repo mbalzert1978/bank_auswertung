@@ -11,7 +11,9 @@
 //! **message-unabhängige Seams**, die der Aufrufer separat hereinreicht — die direkten Gegenparts zu
 //! einlesens `source` bzw. `calendar`/`money`; der idempotente Lesevorgang (die einlesen-Zeile ist
 //! append-only/unveränderlich) bleibt **außerhalb** der Transaktion und weitet sie nicht. Den Seed
-//! reicht der Aufrufer als rohen `u64` herein (io liest ihn aus der Config).
+//! reicht der Aufrufer als rohen `u64` herein; der reale toml-Loader
+//! [`SeedConfig`](crate::config::SeedConfig) liegt zentral in [`crate::config`] und liest ihn aus
+//! der Config.
 //!
 //! **Alle Seams sind seit [Issue 0056](../../../../docs/issues/0056-obfuskierung-store-real-und-end-to-end.md)
 //! real** — der Slice läuft end-to-end **ohne einen einzigen Fake** (die Replikation des

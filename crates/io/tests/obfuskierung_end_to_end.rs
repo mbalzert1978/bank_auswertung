@@ -14,8 +14,8 @@ use io::outbox::OutboxError;
 #[path = "../fixtures/obfuskierung/mod.rs"]
 mod fixtures;
 use fixtures::{
-    EIGENE_IBAN, FakeDb, FakeObfuscator, FakeSource, dispatcher_mit, gültige_zeile,
-    ingested_envelope,
+    EIGENE_IBAN, FakeDb, FakeObfuscator, FakeSource, dispatcher_mit, dispatcher_mit_seed,
+    gültige_zeile, ingested_envelope,
 };
 
 // --- Happy Path: Envelope → OutboxConsumer → obfuskierung → publiziertes „Obfuscated" ---
@@ -122,4 +122,35 @@ fn ein_blanker_partition_key_wird_critical() {
         "ein blanker Zeiger muss zu Critical auf Envelope-Ebene führen: {ergebnis:?}"
     );
     assert!(db.committed_bookings().is_empty());
+}
+
+// --- Config-Loader speist den Seed in den obfuskierung-Consumer (Issue 0059) -------------
+
+#[test]
+fn der_aus_der_toml_geladene_seed_wird_in_den_consumer_gereicht() {
+    // Der Loader liest den Seed über den **echten Dateisystem-Pfad** `load` aus der Fixture-Datei;
+    // genau dieser Wert geht — als `u64`-Wert, nicht als Datei — in den `obfuskierung`-Consumer. Der
+    // Slice liest **keine** Datei. Beweisbar am committeten Aggregat: es persistiert den Seed, mit dem
+    // es obfuskiert wurde (ADR-0010), also muss dieser exakt der geladene Wert sein. Der Pfad wird
+    // crate-relativ über `CARGO_MANIFEST_DIR` gebaut (unabhängig vom Working Directory des Runners).
+    let config_pfad = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures/obfuskierung_seed/valid.toml");
+    let config =
+        io::config::SeedConfig::load(&config_pfad).expect("gültige Seed-Config lädt über load");
+    let source = FakeSource::with("buchung-1", gültige_zeile());
+    let db = FakeDb::default();
+
+    // Der geladene Seed (nicht die Fixture-Konstante) reist explizit über den zentralen Helfer in den
+    // Consumer — dieselbe „frische Registrierung"-Zusicherung wie im Standard-Pfad, ohne Duplizierung.
+    let dispatcher = dispatcher_mit_seed(&source, &FakeObfuscator, config.seed(), db.clone());
+
+    assert_eq!(dispatcher.dispatch(ingested_envelope("buchung-1")), Ok(()));
+
+    // Der geladene Seed reiste bis ins committete Aggregat — nicht eine hartverdrahtete Konstante.
+    let bookings = db.committed_bookings();
+    assert_eq!(bookings.len(), 1, "genau eine committete Buchung erwartet");
+    let buchung = bookings
+        .first()
+        .expect("genau eine committete Buchung erwartet");
+    assert_eq!(buchung.seed, config.seed());
 }

@@ -1,0 +1,4 @@
+# Gültige Seed-Config (Fixture, Issue 0059). Trägt den einen konfigurierbaren Wert des letzten
+# `obfuskierung`-Hereingriffs: den Obfuskierungs-Seed. Gleicher Seed → gleiche PERSON_x/KONTO_x über
+# Importe hinweg (ADR-0010). Der Wert ist ein Fixture-Beispiel, kein echter Produktions-Seed.
+seed = 42

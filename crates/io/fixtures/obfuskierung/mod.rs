@@ -237,7 +237,19 @@ pub(crate) fn dispatcher_mit<'a>(
     obfuscator: &'a FakeObfuscator,
     db: FakeDb,
 ) -> Dispatcher<'a> {
-    let consumer = io::obfuskierung::consumer(source, obfuscator, SEED, db);
+    dispatcher_mit_seed(source, obfuscator, SEED, db)
+}
+
+/// Wie [`dispatcher_mit`], aber mit **explizit übergebenem** Seed. Für den Config-Loader-Test, der
+/// beweist, dass der aus der toml **geladene** Seed (nicht die Fixture-Konstante [`SEED`]) in den
+/// Consumer reist — die „frische Registrierung"-Zusicherung teilt er sich mit dem Standard-Helfer.
+pub(crate) fn dispatcher_mit_seed<'a>(
+    source: &'a FakeSource,
+    obfuscator: &'a FakeObfuscator,
+    seed: u64,
+    db: FakeDb,
+) -> Dispatcher<'a> {
+    let consumer = io::obfuskierung::consumer(source, obfuscator, seed, db);
     let mut dispatcher = Dispatcher::new();
     assert!(
         dispatcher
