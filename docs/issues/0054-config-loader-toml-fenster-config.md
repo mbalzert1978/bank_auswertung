@@ -1,7 +1,7 @@
 ---
 id: "0054"
 title: "Config-Loader (toml): Fenster-Config"
-status: open
+status: closed
 ---
 
 # Config-Loader (toml): Fenster-Config

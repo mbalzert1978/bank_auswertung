@@ -1,7 +1,7 @@
 ---
 id: "0050"
 title: "Money/Calendar-Decode-Seams real (io, hinter einlesen)"
-status: open
+status: closed
 ---
 
 # Money/Calendar-Decode-Seams real (io, hinter einlesen)

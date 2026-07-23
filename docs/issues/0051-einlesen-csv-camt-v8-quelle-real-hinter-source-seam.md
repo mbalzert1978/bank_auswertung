@@ -1,7 +1,7 @@
 ---
 id: "0051"
 title: "einlesen: CSV-CAMT-v8-Quelle real hinter dem Source-Seam"
-status: open
+status: closed
 ---
 
 # einlesen: CSV-CAMT-v8-Quelle real hinter dem Source-Seam

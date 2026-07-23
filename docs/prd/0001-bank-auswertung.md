@@ -1,8 +1,10 @@
 # PRD: Bank-Auswertung
 
-> **Entwurf (lokal).** Es existiert kein Issue-Tracker (kein Remote/GitHub-Repo);
-> dieser PRD liegt als lokaler Entwurf unter `docs/prd/`. Veröffentlichung später,
-> falls gewünscht.
+> **Entwurf (lokal).** Dieser PRD liegt als lokaler Entwurf unter `docs/prd/`.
+> Inzwischen existiert ein GitHub-Repo
+> ([mbalzert1978/bank_auswertung](https://github.com/mbalzert1978/bank_auswertung))
+> mit Issue-Tracker; laufende Arbeit ist in [docs/issues/](../issues/) (samt
+> [PROGRESS.md](../issues/PROGRESS.md)) verortet.
 >
 > Quelle der Wahrheit für **Zweck, Umfang und Datenschutz**:
 > [README.md](../../README.md); für die **Architektur**: [docs/adr/](../adr/) (die README
@@ -262,6 +264,11 @@ verschoben (s. dort den Supersession-Hinweis).
   Fluent-TestApi mit **Fakes** (Fake-`OutboxPublisher`, Fake-Stores, Fake-Quelle);
   das echte `io`-Crate (SQLite-Outbox + -Stores, Datei/CSV-Parse) erfüllt später
   dieselben Seams.
+  > **Teilweise überholt** ([ADR-0014](../adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md),
+  > Issues 0050–0054): `einlesen` läuft inzwischen end-to-end gegen echtes `io`
+  > (rusqlite-Outbox + -Store, CSV-Quelle, `Calendar`/`Money`-Seams) — kein Fake
+  > mehr in diesem Slice. `obfuskieren`/`fenstern`/`auswerten` fahren weiterhin
+  > gegen Fakes.
 - **Referenz:** die interne C#-Vorlage unter `examples/` (Slices `Downloader`/
   `Stager`, `Outbox`, `Common`) ist das kanonische Vorbild für Handler, Bridges und
   Outbox-Verträge.
@@ -379,6 +386,13 @@ Invarianten aus Nutzersicht._
 
 ### Baureihenfolge (Tracer-Bullet, vertikale Slices)
 
+> **Überholt** durch [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md)/
+> [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)/
+> [ADR-0014](../adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md): die Liste unten ist
+> die ursprüngliche Planung vor der event-getriebenen Pipeline. Die aktuelle Baureihenfolge
+> und der reale Stand stehen im Status-Abschnitt und unter „Build order" in
+> [CLAUDE.md](../../CLAUDE.md).
+
 1. **Cargo-Workspace + Domänen-Skelett**: `Buchung` aus Value Objects (`Betrag`,
    `Richtung`, `Empfänger::Firma|Person`, `Gegenkonto::Eigen(Rolle)|Fremd`) plus der
    schmale `KategorieAnfrage`-Ausgangstyp (Freitext als `ObfuskierterText`). Test
@@ -471,9 +485,12 @@ Config und Zuordnungs-Speicher oben unter „Lokale Konfiguration & Speicher"):
 - **Scrubbing-Regeln** für `ObfuskierterText` (IBAN/BIC-Muster, bekannte
   Personen-Token), fail-safe — verbindlich vor Schritt 5.
 
-**Veröffentlichung**: Es existiert kein Issue-Tracker (kein Remote/GitHub-Repo).
-Dieser PRD liegt als lokaler Entwurf unter `docs/prd/`; Veröffentlichung in einen
-Tracker später, falls gewünscht.
+**Veröffentlichung**: Dieser PRD liegt als lokaler Entwurf unter `docs/prd/` (siehe
+Hinweis zum GitHub-Repo + Issue-Tracker im Kopf dieses Dokuments).
 
 **Prozess**: Schritt 1 (Cargo-Workspace + Domänen-Skelett) startet erst auf Markus'
 explizites „Go". Schritt 2 wartet auf die echte Beispiel-Datei.
+> **Überholt:** Der Bau ist seither weit über Schritt 1/2 hinaus fortgeschritten (die
+> `Baureihenfolge` oben ist die ursprüngliche Planung vor ADR-0008/0013/0014);
+> aktueller Stand + Baureihenfolge stehen im Status-Abschnitt von
+> [CLAUDE.md](../../CLAUDE.md).

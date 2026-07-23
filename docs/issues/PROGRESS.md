@@ -1,31 +1,38 @@
 # Issue-Fortschritt
 
-Stand: 2026-07-21
+Stand: 2026-07-23
 
-## Neu (offen) — event-getriebene Pipeline (ADR-0008)
+## Erledigt — event-getriebene Pipeline (ADR-0008)
 
 Aus der Fortschreibung der PRD nach [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md)
 (event-getriebene Pipeline aus Slices mit Outbox) abgeleitet — deckt die bislang
 unbelegten Messaging-/Pipeline-Teile ab. Die Fachfunktions-Issues (0004–0013)
 bleiben gültig; nur ihre Verortung wandert in die Pipeline-Slices.
 
-- [ ] **[0015-einlesen-slice-als-pipeline-consumer.md](0015-einlesen-slice-als-pipeline-consumer.md)**
-  `einlesen`-Slice als Pipeline-Consumer (Umbau von `csv_camt_v8`), Message `Eingelesen`.
-- [ ] **[0016-obfuskieren-slice-als-pipeline-consumer.md](0016-obfuskieren-slice-als-pipeline-consumer.md)**
-  `obfuskieren`-Slice als Consumer von `Eingelesen`, Message `Obfuskiert` (Datenschutz-Grenze).
+- [x] **[0015-einlesen-slice-als-pipeline-consumer.md](0015-einlesen-slice-als-pipeline-consumer.md)**
+  `einlesen`-Slice als Pipeline-Consumer (Umbau von `csv_camt_v8`), Message `Eingelesen` — as-built
+  über spätere Folge-Issues (0017–0022) weiter geschärft. Das Frontmatter des Tickets selbst steht
+  noch auf `status: blocked` (bekannter, hier bewusst unangetasteter Drift — nicht als Status
+  misszuverstehen; die Umsetzung ist gemergt).
+- [x] **[0016-obfuskieren-slice-als-pipeline-consumer.md](0016-obfuskieren-slice-als-pipeline-consumer.md)**
+  `obfuskieren`-Slice als Consumer von `Eingelesen`, Message `Obfuskiert` (Datenschutz-Grenze) —
+  as-built seed-basiert statt First-Seen (siehe Ticket-Hinweis + [Plan 0016-1](../plans/0016-1-obfuskieren-slice-pipeline-consumer.md)).
 
-Vertagt (Zielbild ADR-0008, bewusst noch kein Issue): `report`-Consumer und der echte
-`io`-Outbox-Broker (SQLite). Der `auswerten`-Consumer ist seit
-[ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) durch 0040–0045
-belegt.
+Der `auswerten`-Consumer ist seit [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)
+durch 0040–0045 belegt. Der reale `io`-Outbox-Broker (SQLite/`rusqlite`) ist seit
+[0052](0052-sqlite-outbox-broker-und-unitofwork-real-rusqlite.md) gebaut (siehe „io-Adapter-Spine"
+unten) — **weiterhin vertagt** bleibt nur der `report`-Consumer.
 
 ## Erledigt — Bau nach ADR-0013 (`fenstern` + `auswerten`-Split)
 
 Zerlegung des Baus hinter dem akzeptierten
 [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) in vertikale
 Tracer-Bullet-Slices — jeder Schnitt geht durch alle Schichten und ist für sich verifizierbar
-(gegen Fakes). **Out of scope bleibt** echtes `io` (SQLite/`rusqlite`, Tag-Stamp-Persistenz,
-Broker-Trigger) und der `report`. Die Fach-Analyzer sind **nicht** dupliziert — 0004/0005/0006/0007
+(gegen Fakes). **Out of scope für diese Kette (0036–0045) war** echtes `io`
+(SQLite/`rusqlite`, Tag-Stamp-Persistenz, Broker-Trigger) und der `report`. Der reale
+`io`-Outbox-Broker ist inzwischen als eigene Nachfolge-Kette gebaut (siehe
+„io-Adapter-Spine" unten); **weiterhin offen** bleiben die `fenstern`-/`auswerten`-Stores
+und der `report`. Die Fach-Analyzer sind **nicht** dupliziert — 0004/0005/0006/0007
 bleiben gültig und wurden nur neu verdrahtet.
 
 Prefactor:
@@ -74,7 +81,32 @@ Abschluss:
 - [ ] **[0046-doku-drift-nach-den-merges-0036-0045-auf-den-realen-stand-ziehen.md](0046-doku-drift-nach-den-merges-0036-0045-auf-den-realen-stand-ziehen.md)**
   Doku **einmal am Ende** auf den realen Stand: Issue-Status, `PROGRESS.md`, Crate-Liste und
   Status-Abschnitt in CLAUDE.md, ADR-0013-Kopf sowie das Rustdoc der Crates. Gegenstück zum
-  Prefactor 0035. *In Arbeit — durch das Merge von 0045 freigegeben.*
+  Prefactor 0035. *Größtenteils nachgezogen (Issue-Status, `PROGRESS.md`, CLAUDE.md-Status-Abschnitt,
+  ADR-0013-Zitat) — das Rustdoc der Crates steht noch aus.*
+
+## `io`-Adapter-Spine (nach ADR-0014)
+
+Realer `io`-Persistenz-Bau nach dem in [ADR-0014](../adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)
+festgelegten Stack (rusqlite, synchron), als eigene Tracer-Bullet-Kette hinter der ADR-0013-Kette.
+
+- [x] **[0049-persistenz-stack-rusqlite-synchron-kein-sqlx.md](0049-persistenz-stack-rusqlite-synchron-kein-sqlx.md)**
+  (2026-07-21, PR #47) ADR-0014: `io`-Persistenz = rusqlite, Outbox-Spine bleibt synchron, `sqlx` verworfen.
+- [x] **[0050-money-calendar-decode-seams-real.md](0050-money-calendar-decode-seams-real.md)**
+  (2026-07-21, PR #48) `Calendar`/`Money`-Seams real hinter `einlesen` (`chrono`, `rust_decimal`).
+- [x] **[0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md](0051-einlesen-csv-camt-v8-quelle-real-hinter-source-seam.md)**
+  (2026-07-21, PR #49) `SourceSeam` real über einen CSV-CAMT-v8-Reader (`fs` + `csv`).
+- [x] **[0052-sqlite-outbox-broker-und-unitofwork-real-rusqlite.md](0052-sqlite-outbox-broker-und-unitofwork-real-rusqlite.md)**
+  (2026-07-22, PR #50) SQLite-Outbox-Broker + `UnitOfWork` real über `rusqlite`, at-least-once + resumierbar.
+- [x] **[0053-einlesen-store-real-und-end-to-end.md](0053-einlesen-store-real-und-end-to-end.md)**
+  (2026-07-22, PR #51) `einlesen`-Store real (rusqlite); `einlesen`-Slice läuft end-to-end ohne Fake.
+- [x] **[0054-config-loader-toml-fenster-config.md](0054-config-loader-toml-fenster-config.md)**
+  (2026-07-22, PR #52) toml-Loader für die Fenster-Config (`WindowDays`).
+- [ ] **[0055-waehrungs-bewusster-betrags-decode-minor-unit-per-iso-4217-von-der-domaene-hoch.md](0055-waehrungs-bewusster-betrags-decode-minor-unit-per-iso-4217-von-der-domaene-hoch.md)**
+  Währungs-bewusster Betrags-Decode (Minor Unit per ISO 4217) — noch nicht in `main` gemergt.
+
+Noch offen: die `obfuskierung`/`fenstern`/`auswerten`-Stores (laufen weiterhin gegen In-Memory-Doubles),
+die restlichen Config-Loader (Seed, Eigene-Konten) samt `fs`-Adaptern, sowie `Speicher` für
+DTOs/Kategorie-Register.
 
 ## Erledigt
 

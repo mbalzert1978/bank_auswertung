@@ -1,7 +1,7 @@
 ---
 id: "0052"
 title: "SQLite-Outbox-Broker + UnitOfWork real (rusqlite)"
-status: open
+status: closed
 ---
 
 # SQLite-Outbox-Broker + UnitOfWork real (rusqlite)
