@@ -11,8 +11,24 @@
 //! **message-unabhängige Seams**, die der Aufrufer separat hereinreicht — die direkten Gegenparts zu
 //! einlesens `source` bzw. `calendar`/`money`; der idempotente Lesevorgang (die einlesen-Zeile ist
 //! append-only/unveränderlich) bleibt **außerhalb** der Transaktion und weitet sie nicht. Den Seed
-//! reicht der Aufrufer als rohen `u64` herein (io liest ihn aus der Config), heute der
-//! Integrationstest mit Fakes, später die realen io-Adapter (Build-Order Schritt 5).
+//! reicht der Aufrufer als rohen `u64` herein (io liest ihn aus der Config).
+//!
+//! **Alle Seams sind seit [Issue 0056](../../../../docs/issues/0056-obfuskierung-store-real-und-end-to-end.md)
+//! real** — der Slice läuft end-to-end **ohne einen einzigen Fake** (die Replikation des
+//! `einlesen`-Musters, [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md),
+//! über die Datenschutz-Grenze): die **Unit-Quelle** ist der reale [`ObfuskierungSqliteStore`] über
+//! `rusqlite` (eine `rusqlite`-Transaktion je Nachricht, in der Ablage, `Obfuscated`-Publish und Ack
+//! atomar committen), die **Lese-Quelle** die reale [`EinlesenRowSource`] (liest die
+//! `einlesen_lines`-Zeile per ID) und der **Obfuskator** der reale [`SeededObfuscator`] (seed-gekeytes
+//! `siphasher`).
+
+mod obfuscator;
+mod source;
+mod store;
+
+pub use obfuscator::SeededObfuscator;
+pub use source::EinlesenRowSource;
+pub use store::{ObfuskierungSqliteStore, ObfuskierungUnit};
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
