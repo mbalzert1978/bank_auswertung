@@ -1,0 +1,6 @@
+# Regressionsschutz: jeder cargo-Lauf der Workspace-Crates behandelt Warnungen als
+# Fehler (rustc UND clippy). So kann ein neu-standardmäßiger Lint nicht mehr als bloße
+# Warnung am `cargo clippy`-Gate vorbeirutschen (Exit 0 trotz Warnung). Fremd-Crates
+# bleiben durch Cargos automatisches cap-lints unberührt.
+[target.'cfg(all())']
+rustflags = ["-Dwarnings"]
