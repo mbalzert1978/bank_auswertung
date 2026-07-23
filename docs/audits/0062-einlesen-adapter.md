@@ -23,7 +23,9 @@ Auditiert wurde die gesamte öffentliche und crate-private Fläche der Crate
 - Manifest: `Cargo.toml`
 - Boundary/Fläche: `src/lib.rs`, `src/handler.rs`
 - Modelle/DTOs: `src/models/{raw_record,line,ingested_message,read_command}.rs`
-- Port-Bridges: `src/adapter/{source,store,ingested_publisher,calendar,money,currency}_bridge.rs`
+- Port-Bridges: `src/adapter/{source,store,calendar,money,currency}_bridge.rs` und
+  `src/adapter/ingested_publisher.rs` (die Publisher-Bridge trägt bewusst **kein**
+  `_bridge`-Suffix)
 - Öffentliche Seams: `src/abstractions/{source,store,publish,calendar,money,currency}_seam.rs`
 - Test-Fläche: `src/testapi/read_test_api.rs`
 
