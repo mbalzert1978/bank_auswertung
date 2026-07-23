@@ -135,8 +135,8 @@ fn der_aus_der_toml_geladene_seed_wird_in_den_consumer_gereicht() {
     // crate-relativ über `CARGO_MANIFEST_DIR` gebaut (unabhängig vom Working Directory des Runners).
     let config_pfad = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("fixtures/obfuskierung_seed/valid.toml");
-    let config = io::obfuskierung::SeedConfig::load(&config_pfad)
-        .expect("gültige Seed-Config lädt über load");
+    let config =
+        io::config::SeedConfig::load(&config_pfad).expect("gültige Seed-Config lädt über load");
     let source = FakeSource::with("buchung-1", gültige_zeile());
     let db = FakeDb::default();
 

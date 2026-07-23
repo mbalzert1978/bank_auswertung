@@ -2,18 +2,22 @@
 //! [ADR-0013](../../../../docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).
 //!
 //! `io` liest die Config aus einer Datei und reicht die Paging-Seitengröße [`FensterConfig::window_days`]
-//! als **Wert** in den `fenstern`-Slice — genau wie den `seed` bei `obfuskierung` (die Domäne liest
-//! keine Datei). Die **Tag-Stamp-Achse** (Buchungstag, ADR-0013 Entscheidung C) ist eine **fixierte**
-//! Determinismus-Entscheidung, kein Config-Knopf: sie kommt als sortierbare `i64`-Werte über den
-//! Source-Seam herein, und `window_days` ist die Seitengröße **entlang** dieser Achse. Darum trägt die
-//! Config genau **einen** Wert.
+//! als **Wert** in den `fenstern`-Slice — genau wie den `seed` bei `obfuskierung`
+//! ([`SeedConfig`](super::SeedConfig); die Domäne liest keine Datei). Die **Tag-Stamp-Achse**
+//! (Buchungstag, ADR-0013 Entscheidung C) ist eine **fixierte** Determinismus-Entscheidung, kein
+//! Config-Knopf: sie kommt als sortierbare `i64`-Werte über den Source-Seam herein, und
+//! `window_days` ist die Seitengröße **entlang** dieser Achse. Darum trägt die Config genau **einen**
+//! Wert.
 //!
-//! **Fehlbar + redigiert:** eine fehlende oder ungültige Config schlägt über [`ConfigError`] sauber
-//! fehl — **kein Panic**, und der Fehlertext zitiert **nie** einen Rohwert (weder Dateiinhalt noch
-//! Pfad noch den gelesenen Wert), nur die statische Ursache.
+//! **Fehlbar + redigiert:** eine fehlende oder ungültige Config schlägt über den geteilten
+//! [`ConfigError`](super::ConfigError) sauber fehl — **kein Panic**, und der Fehlertext zitiert
+//! **nie** einen Rohwert (weder Dateiinhalt noch Pfad noch den gelesenen Wert), nur die statische
+//! Ursache.
 
 use std::num::NonZeroU32;
 use std::path::Path;
+
+use super::ConfigError;
 
 /// Die geladene Fenster-Config als reiner Wert-Typ: die Paging-Seitengröße des `fenstern`-Pagers.
 /// `window_days` ist als [`NonZeroU32`] getypt — eine Seitengröße 0 ist **unkonstruierbar**, nicht
@@ -31,7 +35,7 @@ impl FensterConfig {
     }
 
     /// Lädt die Config aus einer Datei. Ein unlesbarer/fehlender Pfad ist ein **redigierter**
-    /// [`ConfigError::Unreadable`] — der Pfad selbst bleibt draußen.
+    /// [`ConfigError::Unreadable`](super::ConfigError::Unreadable) — der Pfad selbst bleibt draußen.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         // Die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt): sie könnte den
         // Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
@@ -57,34 +61,3 @@ impl FensterConfig {
         Ok(Self { window_days })
     }
 }
-
-/// Warum das Laden der Fenster-Config misslang — **redigiert**: jede Variante trägt eine **statische**
-/// Ursache und **nie** einen Rohwert (Dateiinhalt, Pfad, gelesener Wert). So kann der Fehler nirgends
-/// zum Leck-Pfad werden, und der Aufrufer bleibt panikfrei.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConfigError {
-    /// Die Config-Datei ließ sich nicht lesen (fehlt oder ist nicht zugänglich).
-    Unreadable,
-    /// Der Inhalt ist kein gültiges TOML.
-    Malformed,
-    /// Der Schlüssel `window_days` fehlt.
-    WindowDaysMissing,
-    /// `window_days` ist keine positive Ganzzahl (kein Integer, negativ, zu groß oder null).
-    WindowDaysInvalid,
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let reason = match self {
-            Self::Unreadable => "Fenster-Konfiguration ist nicht lesbar",
-            Self::Malformed => "Fenster-Konfiguration ist kein gültiges TOML",
-            Self::WindowDaysMissing => "Fenster-Konfiguration: window_days fehlt",
-            Self::WindowDaysInvalid => {
-                "Fenster-Konfiguration: window_days muss eine positive Ganzzahl sein"
-            }
-        };
-        f.write_str(reason)
-    }
-}
-
-impl std::error::Error for ConfigError {}

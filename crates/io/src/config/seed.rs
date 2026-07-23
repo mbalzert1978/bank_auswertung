@@ -3,18 +3,21 @@
 //!
 //! `io` liest den Seed aus einer Datei und reicht ihn als rohen `u64`-**Wert** in den
 //! `obfuskierung`-Slice ([`consumer`](crate::obfuskierung::consumer)) — genau das Muster der
-//! Fenster-Config ([`FensterConfig`](crate::fenstern::FensterConfig)), nur für den Seed: der Slice
-//! liest **keine** Datei, `io` liest die Config und übergibt den fertigen Wert. Damit steht der
-//! letzte hereingereichte Wert des `obfuskierung`-Laufs auf einer echten Quelle: gleicher Seed →
-//! gleiche `PERSON_x`/`KONTO_x` über Importe hinweg (ADR-0010). Der Seed bleibt dabei **lokal** — er
+//! Fenster-Config ([`FensterConfig`](super::FensterConfig)), nur für den Seed: der Slice liest
+//! **keine** Datei, `io` liest die Config und übergibt den fertigen Wert. Damit steht der letzte
+//! hereingereichte Wert des `obfuskierung`-Laufs auf einer echten Quelle: gleicher Seed → gleiche
+//! `PERSON_x`/`KONTO_x` über Importe hinweg (ADR-0010). Der Seed bleibt dabei **lokal** — er
 //! erreicht nie ein Egress-DTO.
 //!
-//! **Fehlbar + redigiert:** eine fehlende oder ungültige Config schlägt über [`ConfigError`] sauber
-//! fehl — **kein Panic**, und der Fehlertext zitiert **nie** einen Rohwert (weder Dateiinhalt noch
-//! Pfad noch den gelesenen Seed), nur die statische Ursache. Ein geleakter Seed ist so schädlich wie
-//! ein geleakter Klartext, darum bleibt er strikt aus dem Fehler-Chain.
+//! **Fehlbar + redigiert:** eine fehlende oder ungültige Config schlägt über den geteilten
+//! [`ConfigError`](super::ConfigError) sauber fehl — **kein Panic**, und der Fehlertext zitiert
+//! **nie** einen Rohwert (weder Dateiinhalt noch Pfad noch den gelesenen Seed), nur die statische
+//! Ursache. Ein geleakter Seed ist so schädlich wie ein geleakter Klartext, darum bleibt er strikt
+//! aus dem Fehler-Chain.
 
 use std::path::Path;
+
+use super::ConfigError;
 
 /// Der geladene Obfuskierungs-Seed als reiner Wert-Typ. Trägt genau **einen** Wert, den rohen
 /// `u64`-Seed, den `io` dem `obfuskierung`-Consumer als Wert hereinreicht. Der Seed ist so sensibel
@@ -47,7 +50,7 @@ impl SeedConfig {
     }
 
     /// Lädt den Seed aus einer Datei. Ein unlesbarer/fehlender Pfad ist ein **redigierter**
-    /// [`ConfigError::Unreadable`] — der Pfad selbst bleibt draußen.
+    /// [`ConfigError::Unreadable`](super::ConfigError::Unreadable) — der Pfad selbst bleibt draußen.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         // Die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt): sie könnte den
         // Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
@@ -72,32 +75,3 @@ impl SeedConfig {
         Ok(Self { seed })
     }
 }
-
-/// Warum das Laden des Seeds misslang — **redigiert**: jede Variante trägt eine **statische** Ursache
-/// und **nie** einen Rohwert (Dateiinhalt, Pfad, gelesener Seed). So kann der Fehler nirgends zum
-/// Leck-Pfad werden, und der Aufrufer bleibt panikfrei.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConfigError {
-    /// Die Config-Datei ließ sich nicht lesen (fehlt oder ist nicht zugänglich).
-    Unreadable,
-    /// Der Inhalt ist kein gültiges TOML.
-    Malformed,
-    /// Der Schlüssel `seed` fehlt.
-    SeedMissing,
-    /// `seed` ist keine nicht-negative Ganzzahl (kein Integer, negativ oder außerhalb von `u64`).
-    SeedInvalid,
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let reason = match self {
-            Self::Unreadable => "Seed-Konfiguration ist nicht lesbar",
-            Self::Malformed => "Seed-Konfiguration ist kein gültiges TOML",
-            Self::SeedMissing => "Seed-Konfiguration: seed fehlt",
-            Self::SeedInvalid => "Seed-Konfiguration: seed muss eine nicht-negative Ganzzahl sein",
-        };
-        f.write_str(reason)
-    }
-}
-
-impl std::error::Error for ConfigError {}

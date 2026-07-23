@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use io::fenstern::{ConfigError, FensterConfig};
+use io::config::{ConfigError, FensterConfig};
 
 /// Die gültige Fixture-Config, gegen die der Loader den erwarteten Wert liefern muss.
 const VALID: &str = include_str!("../fixtures/fenstern_config/valid.toml");

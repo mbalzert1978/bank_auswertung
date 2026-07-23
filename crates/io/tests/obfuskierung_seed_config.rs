@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use io::obfuskierung::{ConfigError, SeedConfig};
+use io::config::{ConfigError, SeedConfig};
 
 /// Die gültige Fixture-Config, gegen die der Loader den erwarteten Seed liefern muss.
 const VALID: &str = include_str!("../fixtures/obfuskierung_seed/valid.toml");
