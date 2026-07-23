@@ -13,8 +13,11 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/obfuskierung_domain` gegen die nach `.rules/`
-ausgelagerten Regeln. **Reines Audit** — je einschlägiger Regel ein Befund; **kein Code wird
-geändert**.
+ausgelagerten Regeln. **Umsetzungs-Ticket** — der Code von `crates/obfuskierung_domain` wird
+gegen jede unten gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt
+ist, im Code angepasst**, bis die Crate ihren `.rules` entspricht. Ist die Crate bereits
+konform, bleibt sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein
+Audit-Report**. Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln (der Privacy-Kern — hier liegen die härtesten Invarianten):
 
@@ -32,12 +35,13 @@ Einschlägige Regeln (der Privacy-Kern — hier liegen die härtesten Invariante
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] Belegt: Seed bleibt im Prozess/lokal, erreicht keine ausgehende Struktur; kein Klartext↔Token-Store.
-- [ ] Belegt: Freitext läuft ausschließlich durch `ObfuskierterText`; Fail-safe-`Person`-Pfad vorhanden.
-- [ ] Dependency-Freiheit der Domäne verifiziert.
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] Seed bleibt im Prozess/lokal, erreicht keine ausgehende Struktur; kein Klartext↔Token-Store — sonst hergestellt.
+- [ ] Freitext läuft ausschließlich durch `ObfuskierterText`; Fail-safe-`Person`-Pfad vorhanden — sonst ergänzt.
+- [ ] Dependency-Freiheit der Domäne; fehlte sie, hergestellt.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

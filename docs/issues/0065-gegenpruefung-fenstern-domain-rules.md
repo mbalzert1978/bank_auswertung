@@ -13,7 +13,11 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/fenstern_domain` gegen die nach `.rules/` ausgelagerten
-Regeln. **Reines Audit** — je einschlägiger Regel ein Befund; **kein Code wird geändert**.
+Regeln. **Umsetzungs-Ticket** — der Code von `crates/fenstern_domain` wird gegen jede unten
+gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt ist, im Code
+angepasst**, bis die Crate ihren `.rules` entspricht. Ist die Crate bereits konform, bleibt
+sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein Audit-Report**.
+Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln:
 
@@ -30,12 +34,13 @@ Einschlägige Regeln:
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] Fenster-Invarianten (non-empty + eine Währung) als konstruktions-erzwungen belegt.
-- [ ] Belegt: keine Kalender-/Uhr-Bindung in der Domäne; Tagesstempel-Achse kommt als Wert herein.
-- [ ] Dependency-Freiheit der Domäne verifiziert.
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] Fenster-Invarianten (non-empty + eine Währung) konstruktions-erzwungen; sonst hergestellt.
+- [ ] Keine Kalender-/Uhr-Bindung in der Domäne; Tagesstempel-Achse kommt als Wert herein — sonst umgestellt.
+- [ ] Dependency-Freiheit der Domäne; fehlte sie, hergestellt.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

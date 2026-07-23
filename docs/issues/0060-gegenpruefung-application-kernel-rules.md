@@ -13,9 +13,12 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/application_kernel` gegen die frisch nach `.rules/`
-ausgelagerten Regeln (Format: kurze Aussage + Do/Don't). **Reines Audit** — der Crate-Code
-wird je einschlägiger Regel geprüft; **kein Code wird in diesem Ticket geändert**.
-Abweichungen werden redigiert festgehalten und als Folge-Ticket-Vorschläge geschnitten.
+ausgelagerten Regeln (Format: kurze Aussage + Do/Don't). **Umsetzungs-Ticket** — der Code von
+`crates/application_kernel` wird gegen jede unten gelistete einschlägige `.rules`-Regel
+geprüft und, **wo eine Regel verletzt ist, im Code angepasst**, bis die Crate ihren `.rules`
+entspricht. Ist die Crate bereits konform, bleibt sie unverändert — **keine künstliche
+Änderung, kein neues Ticket, kein Audit-Report**. Redigiert bleibt Pflicht: keine rohen
+Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln (nur die zutreffenden — der Kernel ist ein interface-only Vertrag, kein
 I/O, keine DB, keine Domänen-Rechnung):
@@ -31,12 +34,12 @@ I/O, keine DB, keine Domänen-Rechnung):
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform /
-      Abweichung mit `file:line`).
-- [ ] `Cargo.toml` ohne Fremd-Dependency verifiziert (dependency-frei); `[lints] workspace = true` bestätigt.
-- [ ] Bestätigt, dass keine Slice-/`io`-internen Typen im Kernel auftauchen.
-- [ ] Ergebnis als kurzer, redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] `Cargo.toml` ohne Fremd-Dependency (dependency-frei); `[lints] workspace = true` gesetzt.
+- [ ] Keine Slice-/`io`-internen Typen im Kernel.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

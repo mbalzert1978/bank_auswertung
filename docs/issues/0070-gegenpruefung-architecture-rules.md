@@ -13,9 +13,13 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes der Top-Level-Crate `architecture` (Test-only, außerhalb `crates/`)
-gegen die nach `.rules/` ausgelagerten Regeln. **Reines Audit** — je einschlägiger Regel ein
-Befund; **kein Code wird geändert**. Diese Crate **erzwingt** selbst die Dependency-Richtung —
-geprüft wird also, ob der Test die in `.rules/` kodifizierten Regeln vollständig abbildet.
+gegen die nach `.rules/` ausgelagerten Regeln. **Umsetzungs-Ticket** — der Code von
+`architecture` wird gegen jede unten gelistete einschlägige `.rules`-Regel geprüft und, **wo
+eine Regel verletzt ist, im Code angepasst**, bis die Crate ihren `.rules` entspricht. Ist die
+Crate bereits konform, bleibt sie unverändert — **keine künstliche Änderung, kein neues
+Ticket, kein Audit-Report**. Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte
+in Commit/PR. Diese Crate **erzwingt** selbst die Dependency-Richtung — geprüft (und wo nötig
+ergänzt) wird also, ob der Test die in `.rules/` kodifizierten Regeln vollständig abbildet.
 
 Einschlägige Regeln:
 
@@ -29,11 +33,12 @@ Einschlägige Regeln:
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] Jede Kapselungs-Regel aus `dependencies-und-kapselung.md` einer Assertion im Test zugeordnet; nicht abgedeckte Regeln als Lücke benannt.
-- [ ] Bestätigt, dass `cargo test -p architecture` als Gate greift und die Testnamen der Sprachkonvention folgen.
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen/Lücken als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] Jede Kapselungs-Regel aus `dependencies-und-kapselung.md` ist einer Assertion im Test zugeordnet; nicht abgedeckte Regeln als fehlende Assertion ergänzt.
+- [ ] `cargo test -p architecture` greift als Gate und die Testnamen folgen der Sprachkonvention; sonst hergestellt.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

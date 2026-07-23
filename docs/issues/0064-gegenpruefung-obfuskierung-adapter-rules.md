@@ -13,8 +13,11 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/obfuskierung_adapter` gegen die nach `.rules/`
-ausgelagerten Regeln. **Reines Audit** — je einschlägiger Regel ein Befund; **kein Code wird
-geändert**.
+ausgelagerten Regeln. **Umsetzungs-Ticket** — der Code von `crates/obfuskierung_adapter` wird
+gegen jede unten gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt
+ist, im Code angepasst**, bis die Crate ihren `.rules` entspricht. Ist die Crate bereits
+konform, bleibt sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein
+Audit-Report**. Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln:
 
@@ -33,12 +36,13 @@ Einschlägige Regeln:
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] `assert_not_impl_any!(ObfuscatedBooking: Serialize)`-Guard nachgewiesen.
-- [ ] Belegt: kein Fingerabdruck-/Domänenwissen im Adapter; kein roher Identifikator im Egress.
-- [ ] ID-Handoff belegt: liest per ID, publiziert die neue Store-ID als Zeiger.
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] `assert_not_impl_any!(ObfuscatedBooking: Serialize)`-Guard vorhanden; fehlte er, ergänzt.
+- [ ] Kein Fingerabdruck-/Domänenwissen im Adapter; kein roher Identifikator im Egress — sonst bereinigt.
+- [ ] ID-Handoff: liest per ID, publiziert die neue Store-ID als Zeiger; sonst hergestellt.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

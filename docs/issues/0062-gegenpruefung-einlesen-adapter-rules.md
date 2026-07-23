@@ -13,7 +13,11 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/einlesen_adapter` gegen die nach `.rules/` ausgelagerten
-Regeln. **Reines Audit** — je einschlägiger Regel ein Befund; **kein Code wird geändert**.
+Regeln. **Umsetzungs-Ticket** — der Code von `crates/einlesen_adapter` wird gegen jede unten
+gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt ist, im Code
+angepasst**, bis die Crate ihren `.rules` entspricht. Ist die Crate bereits konform, bleibt
+sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein Audit-Report**.
+Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln:
 
@@ -36,12 +40,13 @@ Einschlägige Regeln:
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] Presence-Enforcement als redigiert + batch-terminal belegt (`RawLine::try_from` im `SourceBridge`).
-- [ ] Dependency-Richtung bestätigt: kein I/O-Crate im `Cargo.toml`, `application_kernel` nur hier gebunden.
-- [ ] Status des Egress-`Serialize`-Guards dokumentiert (vorhanden / bekannt offen).
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] Presence-Enforcement ist redigiert + batch-terminal (`RawLine::try_from` im `SourceBridge`); sonst hergestellt.
+- [ ] Dependency-Richtung eingehalten: kein I/O-Crate im `Cargo.toml`, `application_kernel` nur hier gebunden.
+- [ ] Egress-`Serialize`-Guard: der `Line`-Guard ist laut CLAUDE.md bekannt offen — bleibt vertagt, kein künstlicher Nachbau; die Projektion leitet faktisch keinen rohen Identifikator aus.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

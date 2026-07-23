@@ -13,7 +13,11 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/einlesen_domain` gegen die nach `.rules/` ausgelagerten
-Regeln. **Reines Audit** — je einschlägiger Regel ein Befund; **kein Code wird geändert**.
+Regeln. **Umsetzungs-Ticket** — der Code von `crates/einlesen_domain` wird gegen jede unten
+gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt ist, im Code
+angepasst**, bis die Crate ihren `.rules` entspricht. Ist die Crate bereits konform, bleibt
+sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein Audit-Report**.
+Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln (dependency-freie Domäne — SQL-/Nebenläufigkeits-/Serialize-Guard-Regeln
 greifen hier bewusst nicht):
@@ -35,11 +39,12 @@ greifen hier bewusst nicht):
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] Dependency-Freiheit verifiziert (kein `serde`/`thiserror`/I/O-Crate im `Cargo.toml`).
-- [ ] Bestätigt, dass Pflichtfelder als Typ (non-`Option`) statt per Laufzeit-Check getragen werden.
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] Dependency-Freiheit (kein `serde`/`thiserror`/I/O-Crate im `Cargo.toml`); fehlte sie, hergestellt.
+- [ ] Pflichtfelder als Typ (non-`Option`) statt per Laufzeit-Check getragen; sonst umgestellt.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

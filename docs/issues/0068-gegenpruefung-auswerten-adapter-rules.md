@@ -13,7 +13,11 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/auswerten_adapter` gegen die nach `.rules/` ausgelagerten
-Regeln. **Reines Audit** — je einschlägiger Regel ein Befund; **kein Code wird geändert**.
+Regeln. **Umsetzungs-Ticket** — der Code von `crates/auswerten_adapter` wird gegen jede unten
+gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt ist, im Code
+angepasst**, bis die Crate ihren `.rules` entspricht. Ist die Crate bereits konform, bleibt
+sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein Audit-Report**.
+Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln:
 
@@ -33,12 +37,13 @@ Einschlägige Regeln:
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] `Serialize`-Guard auf der Kategorisierer-Anfrage nachgewiesen; Schlüssel = Fingerabdruck, kein Text/Seed.
-- [ ] Belegt: kein Publish-Seam; die zwei Handler auf getrennten Dispatch-Keys.
-- [ ] Dependency-Richtung bestätigt (kein I/O-Crate; `application_kernel` nur hier).
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] `Serialize`-Guard auf der Kategorisierer-Anfrage vorhanden; Schlüssel = Fingerabdruck, kein Text/Seed — sonst hergestellt.
+- [ ] Kein Publish-Seam; die zwei Handler auf getrennten Dispatch-Keys — sonst hergestellt.
+- [ ] Dependency-Richtung eingehalten (kein I/O-Crate; `application_kernel` nur hier).
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

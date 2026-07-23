@@ -14,9 +14,12 @@ status: open
 
 Gegenprüfung der vier `_specs`-Crates — `crates/einlesen_specs`, `crates/obfuskierung_specs`,
 `crates/fenstern_specs`, `crates/auswerten_specs` — gegen die nach `.rules/` ausgelagerten
-Regeln. **Reines Audit** — je einschlägiger Regel ein Befund **pro Crate**; **kein Code wird
-geändert**. Die vier Crates teilen dieselbe Regel-Menge (reine Black-Box-Testkultur), daher
-gebündelt.
+Regeln. **Umsetzungs-Ticket** — der Code der vier `_specs`-Crates wird gegen jede unten
+gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt ist, im Code
+angepasst**, bis jede Crate ihren `.rules` entspricht. Ist eine Crate bereits konform, bleibt
+sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein Audit-Report**.
+Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR. Die vier Crates
+teilen dieselbe Regel-Menge (reine Black-Box-Testkultur), daher gebündelt.
 
 Einschlägige Regeln (für jede der vier `_specs`-Crates):
 
@@ -34,11 +37,12 @@ Einschlägige Regeln (für jede der vier `_specs`-Crates):
 
 ## Acceptance criteria
 
-- [ ] Für **jede** der vier `_specs`-Crates jede gelistete Regel geprüft; je Regel + Crate ein Befund (konform / `file:line`).
-- [ ] Belegt: keine Format-Mechanik-Ablehnung, keine Konstruktor-/Interna-/Outbox-Typ-Tests; Verhalten läuft durch die `*TestApi`.
-- [ ] Belegt: kein `application_kernel`- und kein `_domain`-Import in den Specs.
-- [ ] Redigierter Prüf-Report je Crate abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Für **jede** der vier `_specs`-Crates ist jede gelistete Regel erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] Keine Format-Mechanik-Ablehnung, keine Konstruktor-/Interna-/Outbox-Typ-Tests; Verhalten läuft durch die `*TestApi` — sonst umgestellt.
+- [ ] Kein `application_kernel`- und kein `_domain`-Import in den Specs; sonst entfernt.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist eine Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

@@ -13,7 +13,11 @@ status: open
 ## What to build
 
 Gegenprüfung des Codes von `crates/fenstern_adapter` gegen die nach `.rules/` ausgelagerten
-Regeln. **Reines Audit** — je einschlägiger Regel ein Befund; **kein Code wird geändert**.
+Regeln. **Umsetzungs-Ticket** — der Code von `crates/fenstern_adapter` wird gegen jede unten
+gelistete einschlägige `.rules`-Regel geprüft und, **wo eine Regel verletzt ist, im Code
+angepasst**, bis die Crate ihren `.rules` entspricht. Ist die Crate bereits konform, bleibt
+sie unverändert — **keine künstliche Änderung, kein neues Ticket, kein Audit-Report**.
+Redigiert bleibt Pflicht: keine rohen Identifikatoren/Klartexte in Commit/PR.
 
 Einschlägige Regeln:
 
@@ -31,12 +35,13 @@ Einschlägige Regeln:
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
-- [ ] Belegt: die zwei Handler koppeln nur über die Outbox; „leerer Store = Ok, publiziert nichts".
-- [ ] Belegt: kein roher Identifikator, kein Egress-DTO (und damit keine fehlende Guard-Pflicht).
-- [ ] Dependency-Richtung bestätigt (kein I/O-Crate; `application_kernel` nur hier).
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
+- [ ] Die zwei Handler koppeln nur über die Outbox; „leerer Store = Ok, publiziert nichts" — sonst hergestellt.
+- [ ] Kein roher Identifikator, kein Egress-DTO (und damit keine Guard-Pflicht); bleibt so.
+- [ ] Dependency-Richtung eingehalten (kein I/O-Crate; `application_kernel` nur hier).
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).

@@ -12,9 +12,13 @@ status: open
 
 ## What to build
 
-Gegenprüfung des Codes von `crates/io` gegen die nach `.rules/` ausgelagerten Regeln. **Reines
-Audit** — je einschlägiger Regel ein Befund; **kein Code wird geändert**. `io` ist der einzige
-Ort mit Fremd-Crates, SQL und Nebenläufigkeit, daher greifen hier die meisten Regeln.
+Gegenprüfung des Codes von `crates/io` gegen die nach `.rules/` ausgelagerten Regeln.
+**Umsetzungs-Ticket** — der Code von `crates/io` wird gegen jede unten gelistete einschlägige
+`.rules`-Regel geprüft und, **wo eine Regel verletzt ist, im Code angepasst**, bis die Crate
+ihren `.rules` entspricht. Ist die Crate bereits konform, bleibt sie unverändert — **keine
+künstliche Änderung, kein neues Ticket, kein Audit-Report**. Redigiert bleibt Pflicht: keine
+rohen Identifikatoren/Klartexte in Commit/PR. `io` ist der einzige Ort mit Fremd-Crates, SQL
+und Nebenläufigkeit, daher greifen hier die meisten Regeln.
 
 Einschlägige Regeln:
 
@@ -44,13 +48,14 @@ Einschlägige Regeln:
 
 ## Acceptance criteria
 
-- [ ] Jede gelistete Regel gegen den Crate-Code geprüft; je Regel ein Befund (konform / `file:line`).
+- [ ] Jede gelistete Regel ist erfüllt; wo sie verletzt war, wurde der Code an die Regel angepasst.
 - [ ] SQL-Schema/Queries/Migrationen der real gelandeten Adapter (Outbox-Broker, `einlesen`-Store,
-      Calendar/Money, CSV-Source, `toml`-Loader) einzeln gegen die drei SQL-Regeldateien abgehakt.
-- [ ] Belegt: alle Fremd-Crates ausschließlich in `io`; keine zweite Async-Runtime (Spine synchron, ADR-0014).
-- [ ] Fuzz-Ziel für den CSV-CAMT-v8-Parser als vorhanden/fehlend dokumentiert; Release-Profil (LTO/codegen-units) geprüft.
-- [ ] Redigierter Prüf-Report abgelegt; Abweichungen als Folge-Ticket-Vorschlag notiert — **kein Code geändert**.
+      Calendar/Money, CSV-Source, `toml`-Loader) entsprechen den drei SQL-Regeldateien; wo verletzt, angepasst.
+- [ ] Alle Fremd-Crates ausschließlich in `io`; keine zweite Async-Runtime (Spine synchron, ADR-0014) — sonst hergestellt.
+- [ ] Fuzz-Ziel für den CSV-CAMT-v8-Parser vorhanden; fehlte es, ergänzt (oder bewusst vertagt begründet); Release-Profil (LTO/codegen-units) regelkonform, sonst gesetzt.
+- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [ ] PR nur bei echter Code-Anpassung; ist die Crate bereits konform, keine Änderung und kein PR.
 
 ## Blocked by
 
-- None — kann sofort starten (unabhängiges Audit-Ticket).
+- None — kann sofort starten (unabhängiges Umsetzungs-Ticket).
