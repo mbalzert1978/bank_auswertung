@@ -6,9 +6,26 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/enforce-dependency-direction.py\"",
-            "timeout": 15,
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/enforce-dependency-direction.py\"",
+            "timeout": 20,
             "statusMessage": "Prüfe Dependency-Richtung (nach innen)…"
+          },
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/rule-reminder.py\"",
+            "timeout": 20,
+            "statusMessage": "Prüfe passende .rules-Regel…"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/rule-read-tracker.py\"",
+            "timeout": 20,
+            "statusMessage": "Notiere gelesene .rules-Datei…"
           }
         ]
       }

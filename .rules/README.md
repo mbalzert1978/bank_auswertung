@@ -63,3 +63,53 @@ anwendbar. Zwei bewusst so belassene Fälle:
 - **SQL-Dialekt** ([sql/](sql/)): Die Beispiele sind allgemein (teils Postgres-Features wie
   `uuid_generate_v4`/Materialized Views). Die reale io-Persistenz ist **SQLite**; wo eine
   Regel zutrifft, sinngemäß auf den SQLite-Dialekt übertragen.
+
+## Signal-Tabelle (Regel-Reminder-Hook)
+
+**Einzige Quelle der Wahrheit** dafür, welche Datei-Edits an welche Regel erinnern. Die
+`@`-Importe in [CLAUDE.md](../CLAUDE.md) laden zwar *alle* Regeln in jede Session — diese
+Tabelle holt in langen Sitzungen die **eine** am Edit relevante Regel just-in-time wieder
+hoch, direkt bevor der Edit läuft.
+
+Der Hook [`rule-reminder.py`](../.claude/hooks/rule-reminder.py) parst **genau diese
+Tabelle** (zwischen den `SIGNAL-TABELLE`-Markern) über **eine** gemeinsame Funktion —
+derselbe Treffer speist sowohl den informativen `additionalContext` als auch das Read-Gate.
+Neue Zeile hier = neuer Trigger; keine zweite Heuristik im Code.
+
+Spaltenvertrag: `Typ` ∈ {`pfad`, `inhalt`}; `Muster` ist eine Python-Regex (in Backticks;
+`pfad` matcht den repo-relativen Editpfad, `inhalt` den Datei-Inhalt **nach** dem Edit);
+`Ziel` beginnt **immer** mit dem `.rules/`-relativen Regel-Pfad (Read-Gate vergleicht darauf),
+optional gefolgt von `— Abschnitt`; mehrere Ziele mit `;` trennen.
+
+<!-- SIGNAL-TABELLE:START -->
+
+| Typ | Muster | Ziel |
+|-----|--------|------|
+| pfad | `crates/[^/]+_domain/` | `rust/idiome.md — „<slice>_domain ist dependency-frei"; common/domaenenmodell.md — „Value Objects statt Primitiven"` |
+| pfad | `crates/[^/]+_adapter/` | `common/privacy-invarianten.md — „Kein Serialize auf Egress-DTOs"; crates/dependencies-und-kapselung.md — „Slice erreicht fremden Slice nur über dessen _adapter"` |
+| pfad | `crates/[^/]+_specs/` | `common/testing.md — „*_specs sind reine Black-Box"` |
+| pfad | `crates/[^/]+/Cargo\.toml$` | `crates/dependencies-und-kapselung.md — „Nur io bindet konkrete Fremd-Crates" (harte Durchsetzung zusätzlich in enforce-dependency-direction.py)` |
+| pfad | `crates/io/` | `common/architektur.md — „Externe Information hinter einem Port"` |
+| pfad | `\.sql$` | `sql/schema-konventionen.md; sql/queries-und-performance.md` |
+| pfad | `docs/issues/` | `common/tickets.md — „Tickets doppelt anlegen — GitHub UND docs/issues/"` |
+| pfad | `\bmemory/` | `common/kein-automatisches-memory.md — „Nichts selbsttätig ins Memory schreiben"` |
+| inhalt | `#\[derive\([^)]*\bSerialize\b` | `common/privacy-invarianten.md — „Kein Serialize auf Egress-DTOs"` |
+| inhalt | `Arc\s*<\s*Mutex\b` | `rust/nebenlaeufigkeit.md — „Message-Passing statt geteiltem Mutex"` |
+| inhalt | `\basync\s+fn\b` | `rust/nebenlaeufigkeit.md — „Tokio als Async-Runtime"` |
+| inhalt | `#\[tokio::` | `rust/nebenlaeufigkeit.md — „Tokio als Async-Runtime"` |
+| inhalt | `SELECT\s+\*` | `sql/queries-und-performance.md — „Nur benötigte Spalten selektieren — nie SELECT *"` |
+
+<!-- SIGNAL-TABELLE:END -->
+
+Der Hook ist **fail-open** (jeder Fehler → Edit läuft durch). Trifft ein Edit ein Signal,
+dessen Regel-Datei in dieser Session noch **nicht** per `Read` geöffnet wurde, **blockt** er
+**sofort** (`exit 2`, auch in Turn 1) und verlangt, die Regel-Datei zuerst aufzuschlagen.
+Bewusst so: die Regeln sind zwar via `@`-Import geladen, der erzwungene `Read` stellt aber
+sicher, dass der Agent genau die betroffene Regel vor dem Edit ansieht (der bloße Reminder
+wurde wiederholt überlesen). Ist die Regel gelesen, bleibt nur der gedrosselte informative
+Reminder (`exit 0`).
+
+Achtung Reichweite: Inhalts-Heuristiken matchen **überall** im Datei-Inhalt, auch in Prosa,
+Tabellen oder Code-Beispielen. Diese README selbst enthält z. B. `SELECT *` und `async fn`
+als Beispiel — ein Edit hier blockt daher, bis `sql/queries-und-performance.md` und
+`rust/nebenlaeufigkeit.md` gelesen sind. Das ist gewollt (lieber ein Read zu viel).
