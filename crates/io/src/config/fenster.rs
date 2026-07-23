@@ -17,7 +17,7 @@
 use std::num::NonZeroU32;
 use std::path::Path;
 
-use super::ConfigError;
+use super::{ConfigError, ConfigKind};
 
 /// Die geladene Fenster-Config als reiner Wert-Typ: die Paging-Seitengröße des `fenstern`-Pagers.
 /// `window_days` ist als [`NonZeroU32`] getypt — eine Seitengröße 0 ist **unkonstruierbar**, nicht
@@ -39,7 +39,8 @@ impl FensterConfig {
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         // Die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt): sie könnte den
         // Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
-        let raw = std::fs::read_to_string(path).map_err(|_err| ConfigError::Unreadable)?;
+        let raw = std::fs::read_to_string(path)
+            .map_err(|_err| ConfigError::Unreadable(ConfigKind::Fenster))?;
         Self::from_toml_str(&raw)
     }
 
@@ -48,7 +49,9 @@ impl FensterConfig {
     pub fn from_toml_str(raw: &str) -> Result<Self, ConfigError> {
         // Der toml-Parsefehler wird verworfen — er kann Zeilen-/Feldinhalt zitieren; redigiert heißt,
         // nur die statische Ursache reist weiter.
-        let table: toml::Table = raw.parse().map_err(|_err| ConfigError::Malformed)?;
+        let table: toml::Table = raw
+            .parse()
+            .map_err(|_err| ConfigError::Malformed(ConfigKind::Fenster))?;
 
         let window_days = table
             .get("window_days")

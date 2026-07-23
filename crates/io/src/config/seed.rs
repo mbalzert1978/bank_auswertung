@@ -17,7 +17,7 @@
 
 use std::path::Path;
 
-use super::ConfigError;
+use super::{ConfigError, ConfigKind};
 
 /// Der geladene Obfuskierungs-Seed als reiner Wert-Typ. Trägt genau **einen** Wert, den rohen
 /// `u64`-Seed, den `io` dem `obfuskierung`-Consumer als Wert hereinreicht. Der Seed ist so sensibel
@@ -54,7 +54,8 @@ impl SeedConfig {
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         // Die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt): sie könnte den
         // Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
-        let raw = std::fs::read_to_string(path).map_err(|_err| ConfigError::Unreadable)?;
+        let raw = std::fs::read_to_string(path)
+            .map_err(|_err| ConfigError::Unreadable(ConfigKind::Seed))?;
         Self::from_toml_str(&raw)
     }
 
@@ -63,7 +64,9 @@ impl SeedConfig {
     pub fn from_toml_str(raw: &str) -> Result<Self, ConfigError> {
         // Der toml-Parsefehler wird verworfen — er kann Zeilen-/Feldinhalt (bis hin zum Seed) zitieren;
         // redigiert heißt, nur die statische Ursache reist weiter.
-        let table: toml::Table = raw.parse().map_err(|_err| ConfigError::Malformed)?;
+        let table: toml::Table = raw
+            .parse()
+            .map_err(|_err| ConfigError::Malformed(ConfigKind::Seed))?;
 
         let seed = table
             .get("seed")

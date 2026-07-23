@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use io::config::{ConfigError, SeedConfig};
+use io::config::{ConfigError, ConfigKind, SeedConfig};
 
 /// Die gültige Fixture-Config, gegen die der Loader den erwarteten Seed liefern muss.
 const VALID: &str = include_str!("../fixtures/obfuskierung_seed/valid.toml");
@@ -61,7 +61,7 @@ fn eine_fehlende_config_schlaegt_redigiert_fehl() {
         SeedConfig::load(&fehlender_pfad).expect_err("eine fehlende Datei muss fehlschlagen");
 
     // Redigiert: der Fehler nennt die statische Ursache, nie den Pfad (kein Rohwert).
-    assert_eq!(fehler, ConfigError::Unreadable);
+    assert_eq!(fehler, ConfigError::Unreadable(ConfigKind::Seed));
     assert!(!fehler.to_string().contains("existiert-nicht"));
 }
 
@@ -113,7 +113,7 @@ fn eine_kaputte_config_schlaegt_redigiert_fehl() {
     let fehler =
         SeedConfig::from_toml_str("nichtssagend").expect_err("kaputtes TOML muss fehlschlagen");
 
-    assert_eq!(fehler, ConfigError::Malformed);
+    assert_eq!(fehler, ConfigError::Malformed(ConfigKind::Seed));
     assert!(!fehler.to_string().contains("nichtssagend"));
 }
 

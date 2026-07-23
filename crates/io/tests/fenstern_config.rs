@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use io::config::{ConfigError, FensterConfig};
+use io::config::{ConfigError, ConfigKind, FensterConfig};
 
 /// Die gültige Fixture-Config, gegen die der Loader den erwarteten Wert liefern muss.
 const VALID: &str = include_str!("../fixtures/fenstern_config/valid.toml");
@@ -38,7 +38,7 @@ fn eine_fehlende_config_schlaegt_redigiert_fehl() {
         FensterConfig::load(&fehlender_pfad).expect_err("eine fehlende Datei muss fehlschlagen");
 
     // Redigiert: der Fehler nennt die statische Ursache, nie den Pfad (kein Rohwert).
-    assert_eq!(fehler, ConfigError::Unreadable);
+    assert_eq!(fehler, ConfigError::Unreadable(ConfigKind::Fenster));
     assert!(!fehler.to_string().contains("existiert-nicht"));
 }
 
@@ -74,7 +74,7 @@ fn eine_kaputte_config_schlaegt_redigiert_fehl() {
     let fehler =
         FensterConfig::from_toml_str("geheimnis").expect_err("kaputtes TOML muss fehlschlagen");
 
-    assert_eq!(fehler, ConfigError::Malformed);
+    assert_eq!(fehler, ConfigError::Malformed(ConfigKind::Fenster));
     assert!(!fehler.to_string().contains("geheimnis"));
 }
 
