@@ -23,9 +23,26 @@
         "hooks": [
           {
             "type": "command",
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/read-size-gate.py\"",
+            "timeout": 20,
+            "statusMessage": "Prüfe Read-Größe (limit gesetzt?)…"
+          },
+          {
+            "type": "command",
             "command": "uv run --script \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/rule-read-tracker.py\"",
             "timeout": 20,
             "statusMessage": "Notiere gelesene .rules-Datei…"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Grep|Glob|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/explore-delegate-nudge.py\"",
+            "timeout": 20,
+            "statusMessage": "Prüfe Explorations-Zähler…"
           }
         ]
       }
