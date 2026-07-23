@@ -17,10 +17,17 @@
 //! weitet sie nicht.
 //!
 //! **Die Seitengröße reicht der Aufrufer als [`NonZeroU32`] herein** (io liest sie aus der Config —
-//! die Domäne liest keine Datei), heute der Integrationstest mit Fakes, später die realen
-//! io-Adapter (Build-Order Schritt 5). Sie geht **nur** den Fenster-Schritt an: der Anstoß ist
-//! einzweckig und weiß nichts von Seitengrößen. Der reale toml-Loader
-//! [`FensterConfig`](crate::config::FensterConfig) liegt zentral in [`crate::config`].
+//! die Domäne liest keine Datei); der reale toml-Loader
+//! [`FensterConfig`](crate::config::FensterConfig) liegt zentral in [`crate::config`]. Sie geht
+//! **nur** den Fenster-Schritt an: der Anstoß ist einzweckig und weiß nichts von Seitengrößen.
+//!
+//! **Alle Seams sind seit [Issue 0057](../../../../docs/issues/0057-fenstern-store-real-und-end-to-end.md)
+//! real** — der Slice läuft end-to-end **ohne einen einzigen Fake** (die Replikation des
+//! `obfuskierung`-Musters, [Issue 0056](../../../../docs/issues/0056-obfuskierung-store-real-und-end-to-end.md)):
+//! die **Unit-Quelle** ist der reale [`FensternSqliteStore`] über `rusqlite` (eine
+//! `rusqlite`-Transaktion je Nachricht, in der Ablage, ausgehende Nachrichten und Ack atomar
+//! committen), die **Lese-Quelle** und der **Anker-Port** der reale [`ObfuskiertWindowSource`]
+//! (liest Seite und Anker-Fragen über die `obfuskiert`-Tabelle).
 
 use std::num::NonZeroU32;
 
@@ -33,6 +40,12 @@ use fenstern_adapter::{
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+
+mod source;
+mod store;
+
+pub use source::ObfuskiertWindowSource;
+pub use store::{FensternSqliteStore, FensternUnit};
 
 /// Der `message_type`, unter dem der Dispatcher den **Fenster-Schritt** auflöst (`AdvanceWindow`).
 /// Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am Slice-Eingang.
