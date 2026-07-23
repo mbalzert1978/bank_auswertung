@@ -239,8 +239,9 @@ cargo fmt                        # format (gate: cargo fmt --check)
 cargo doc --no-deps --workspace  # docs — sixth gate: rustdoc-Warnungen sind harte Fehler
 ```
 
-Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate), als Regel
-mit Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
+Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate), prüfst du
+kanonisch über den Skill **`/cargo-six-gates`** — er führt alle sechs aus und meldet
+PASS/FAIL je Gate. Definition und Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
 
 No binary yet (library crate, no `src/main.rs`), so `cargo run` does nothing useful.
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).

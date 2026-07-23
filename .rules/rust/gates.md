@@ -4,9 +4,17 @@
 
 `build`, `test`, `clippy --all-targets`, `fmt --check`, `cargo test -p architecture` und
 `cargo doc --no-deps --workspace` müssen grün sein. Jedes Member erbt das strikte
-`[workspace.lints.clippy]`-„Don't Panic"-Set via `[lints] workspace = true`.
+`[workspace.lints.clippy]`-„Don't Panic"-Set via `[lints] workspace = true`. Prüfe sie über
+den Skill **`/cargo-six-gates`** — er führt alle sechs aus und meldet PASS/FAIL je Gate mit
+angehängter Fehlerausgabe; die Befehlskette unten ist die von Hand ausgeführte Entsprechung.
 
 Do:
+
+```text
+/cargo-six-gates    # kanonischer Weg: alle sechs Gates, PASS/FAIL je Gate
+```
+
+Äquivalent von Hand (vom Repo-Root):
 
 ```bash
 cargo build && cargo test && cargo clippy --all-targets \
