@@ -123,3 +123,43 @@ fn ein_blanker_partition_key_wird_critical() {
     );
     assert!(db.committed_bookings().is_empty());
 }
+
+// --- Config-Loader speist den Seed in den obfuskierung-Consumer (Issue 0059) -------------
+
+/// Die gültige Seed-Fixture, aus der der Loader den Seed liest.
+const VALID_SEED_CONFIG: &str = include_str!("../fixtures/obfuskierung_seed/valid.toml");
+
+#[test]
+fn der_aus_der_toml_geladene_seed_wird_in_den_consumer_gereicht() {
+    // Der Loader liest den Seed aus der Datei; genau dieser Wert geht — als `u64`-Wert, nicht als
+    // Datei — in den `obfuskierung`-Consumer. Der Slice liest **keine** Datei. Beweisbar am
+    // committeten Aggregat: es persistiert den Seed, mit dem es obfuskiert wurde (ADR-0010), also
+    // muss dieser exakt der geladene Wert sein.
+    let config = io::obfuskierung::SeedConfig::from_toml_str(VALID_SEED_CONFIG)
+        .expect("gültige Seed-Config lädt");
+    let source = FakeSource::with("buchung-1", gültige_zeile());
+    let db = FakeDb::default();
+
+    let mut dispatcher = io::Dispatcher::new();
+    assert!(
+        dispatcher
+            .register(
+                io::obfuskierung::CONSUMED_MESSAGE_TYPE,
+                Box::new(io::obfuskierung::consumer(
+                    &source,
+                    &FakeObfuscator,
+                    config.seed(),
+                    db.clone(),
+                )),
+            )
+            .is_none(),
+        "frische Registrierung darf keinen Consumer verdrängen"
+    );
+
+    assert_eq!(dispatcher.dispatch(ingested_envelope("buchung-1")), Ok(()));
+
+    // Der geladene Seed reiste bis ins committete Aggregat — nicht eine hartverdrahtete Konstante.
+    let bookings = db.committed_bookings();
+    assert_eq!(bookings.len(), 1);
+    assert_eq!(bookings[0].seed, config.seed());
+}

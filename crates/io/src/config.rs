@@ -6,10 +6,12 @@
 //! **Woher die Werte kommen:** heute konstruiert der Aufrufer die `AppConfig` direkt (Test/ephemer);
 //! ein realer **TOML-Loader** liest sie später aus einer Konfigurationsdatei. So bleibt die eine
 //! ripple-schwere Entscheidung — *wohin* die Outbox persistiert — **konfigurierbar** statt im Code
-//! verdrahtet. Der erste solche Loader ist gebaut: [`FensterConfig`](crate::fenstern::FensterConfig)
+//! verdrahtet. Zwei solche Loader sind gebaut: [`FensterConfig`](crate::fenstern::FensterConfig)
 //! liest die Paging-Seitengröße des `fenstern`-Slice aus toml
-//! ([Issue 0054](../../../docs/issues/0054-config-loader-toml-fenster-config.md)); die weiteren
-//! io-seitigen Einstellungen (Seed, Eigene-Konten-Pfad …) folgen demselben Muster.
+//! ([Issue 0054](../../../docs/issues/0054-config-loader-toml-fenster-config.md)) und
+//! [`SeedConfig`](crate::obfuskierung::SeedConfig) den Obfuskierungs-Seed des `obfuskierung`-Slice
+//! ([Issue 0059](../../../docs/issues/0059-config-loader-toml-seed.md)); die weiteren io-seitigen
+//! Einstellungen (Eigene-Konten-Pfad …) folgen demselben Muster.
 
 use std::path::{Path, PathBuf};
 

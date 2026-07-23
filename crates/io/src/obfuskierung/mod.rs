@@ -11,8 +11,14 @@
 //! **message-unabhängige Seams**, die der Aufrufer separat hereinreicht — die direkten Gegenparts zu
 //! einlesens `source` bzw. `calendar`/`money`; der idempotente Lesevorgang (die einlesen-Zeile ist
 //! append-only/unveränderlich) bleibt **außerhalb** der Transaktion und weitet sie nicht. Den Seed
-//! reicht der Aufrufer als rohen `u64` herein (io liest ihn aus der Config), heute der
-//! Integrationstest mit Fakes, später die realen io-Adapter (Build-Order Schritt 5).
+//! reicht der Aufrufer als rohen `u64` herein — der reale toml-Loader [`SeedConfig`] liest ihn aus
+//! der Config ([Issue 0059](../../../docs/issues/0059-config-loader-toml-seed.md),
+//! [ADR-0010](../../../docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)), im Integrationstest
+//! eine Fixture-Konstante; die Domäne liest **keine** Datei.
+
+mod config;
+
+pub use config::{ConfigError, SeedConfig};
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
