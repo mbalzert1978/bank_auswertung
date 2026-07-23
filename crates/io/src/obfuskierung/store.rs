@@ -164,9 +164,12 @@ impl From<&Recipient> for RecipientRow {
 impl TryFrom<&ObfuscatedBooking> for BookingRow {
     type Error = StoreUnavailable;
 
-    /// Flacht die obfuskierte Buchung ab. `amount`/`seed` sind `u64` → `i64` (SQLite-INTEGER); ein
-    /// Überlauf (jenseits `i64::MAX`) ist ein terminaler [`StoreUnavailable`] — Speicher-Mechanik,
-    /// nie ein Rohwert.
+    /// Flacht die obfuskierte Buchung ab. `amount` ist eine **Magnitude** → `i64::try_from` (ein
+    /// Betrag jenseits `i64::MAX` minor units ist unrealistisch und failt terminal als
+    /// [`StoreUnavailable`] — Speicher-Mechanik, nie ein Rohwert). Der `seed` dagegen ist ein
+    /// **opaker `u64`** und wird **bitweise** als `i64` umgedeutet (`u64::cast_signed`, Rückweg
+    /// `i64::cast_unsigned`), damit ein Seed > `i64::MAX` verlustfrei durch die INTEGER-Spalte reist,
+    /// statt terminal abgelehnt zu werden.
     fn try_from(booking: &ObfuscatedBooking) -> Result<Self, StoreUnavailable> {
         Ok(Self {
             id: String::new(),
@@ -191,7 +194,7 @@ impl TryFrom<&ObfuscatedBooking> for BookingRow {
                 .booking_text
                 .as_ref()
                 .map(|text| text.as_str().to_string()),
-            seed: i64::try_from(booking.seed).map_err(|_overflow| StoreUnavailable)?,
+            seed: booking.seed.cast_signed(),
         })
     }
 }
@@ -242,7 +245,9 @@ impl BookingRow {
 /// Konventionen aus `.rules/sql/schema-konventionen.md`. Die Tabelle ist append-only, daher fällt
 /// `updated_at` mit `created_at` zusammen. Die **Referenz-Spalte `source_id` ist indiziert**
 /// (`.rules/sql/queries-und-performance.md`), damit ein späterer Rückbezug auf die Quell-Zeile keinen
-/// Full-Table-Scan erzwingt.
+/// Full-Table-Scan erzwingt. Die `seed`-Spalte trägt den **opaken `u64`-Seed bitweise als `i64`
+/// umgedeutet** (`u64::cast_signed`) — ein Seed > `i64::MAX` erscheint dadurch als negativer INTEGER,
+/// reist aber verlustfrei (Rückweg `i64::cast_unsigned`), statt terminal abgelehnt zu werden.
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS obfuskiert (
     id                    TEXT    PRIMARY KEY,
@@ -334,7 +339,7 @@ mod tests {
         recipient_name: Option<String>,
         recipient_creditor_id: Option<String>,
         booking_day: String,
-        seed: i64,
+        seed: u64,
     }
 
     /// Liest die abgelegten obfuskiert-Zeilen (nur für Tests). Der reale Lesepfad des Folge-Slice
@@ -359,7 +364,9 @@ mod tests {
                     recipient_name: row.get(8)?,
                     recipient_creditor_id: row.get(9)?,
                     booking_day: row.get(10)?,
-                    seed: row.get(11)?,
+                    // Rückweg der bitweisen Umdeutung: der als `i64` abgelegte Seed kommt
+                    // verlustfrei als `u64` zurück (Gegenstück zu `u64::cast_signed` beim Schreiben).
+                    seed: row.get::<_, i64>(11)?.cast_unsigned(),
                 })
             })?;
             rows.collect()
@@ -389,6 +396,7 @@ mod tests {
         outbox: &SqliteOutbox,
         obfuskierung_store: ObfuskierungSqliteStore,
         fixture: &str,
+        seed: u64,
     ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
         // Stufe einlesen: realer Store + reale Seams über der Fixture.
         let einlesen_store = EinlesenSqliteStore::new(outbox.clone())?;
@@ -403,7 +411,7 @@ mod tests {
         // Stufe obfuskierung: realer Store, reale Lese-Quelle, realer Obfuskator.
         let source = EinlesenRowSource::new(outbox.clone());
         let obfuscator = SeededObfuscator;
-        let obfuskierung = consumer(&source, &obfuscator, SEED, obfuskierung_store);
+        let obfuskierung = consumer(&source, &obfuscator, seed, obfuskierung_store);
 
         let mut dispatcher = Dispatcher::new();
         assert!(
@@ -438,7 +446,7 @@ mod tests {
         let outbox = SqliteOutbox::open_in_memory()?;
         let store = ObfuskierungSqliteStore::new(outbox.clone())?;
 
-        let outcomes = run_pipeline(&outbox, store.clone(), "gueltig.csv")?;
+        let outcomes = run_pipeline(&outbox, store.clone(), "gueltig.csv", SEED)?;
 
         // Die `Ingested`-Nachricht ist atomar verarbeitet (geackt) — genau ein Ok-Ausgang.
         assert!(
@@ -474,11 +482,7 @@ mod tests {
             buchung.booking_day, "2024-06-13",
             "Buchungstag als ISO-Textstamp"
         );
-        assert_eq!(
-            buchung.seed,
-            i64::from(u32::try_from(SEED).unwrap()),
-            "der Seed reist mit"
-        );
+        assert_eq!(buchung.seed, SEED, "der Seed reist mit");
         // Empfänger **mit** Gläubiger-ID → Firma: die öffentliche `creditor_id` bleibt der
         // Klartext-Analyse-Anker (ADR-0010). Der Firmenname reist als `ObfuscatedText` (best-effort,
         // heute nur trimmend — die Scrubbing-Regeln sind vertagt), also **nicht** strukturell
@@ -529,6 +533,39 @@ mod tests {
         reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
+    fn ein_seed_jenseits_von_i64_max_wird_verlustfrei_round_trip_gespeichert()
+    -> rusqlite::Result<()> {
+        // Regression (Copilot-Review #55): der Seed ist ein opaker `u64`. Ein Wert > `i64::MAX`
+        // (hier `u64::MAX`) muss **bitweise** durch die INTEGER-Spalte reisen und identisch
+        // zurückkommen — `u64::cast_signed` beim Schreiben, `i64::cast_unsigned` beim Lesen. Das
+        // frühere `i64::try_from` hätte ihn terminal als `StoreUnavailable` abgelehnt.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        let store = ObfuskierungSqliteStore::new(outbox.clone())?;
+
+        let outcomes = run_pipeline(&outbox, store.clone(), "gueltig.csv", u64::MAX)?;
+        assert!(
+            matches!(outcomes.as_slice(), [(_, Ok(()))]),
+            "der Seed jenseits von i64::MAX darf die Ablage nicht scheitern lassen: {outcomes:?}"
+        );
+
+        let bookings = stored_bookings(&store)?;
+        let buchung = match bookings.as_slice() {
+            [buchung] => buchung,
+            other => panic!("genau eine obfuskierte Buchung erwartet: {other:?}"),
+        };
+        assert_eq!(
+            buchung.seed,
+            u64::MAX,
+            "ein Seed jenseits von i64::MAX reist verlustfrei durch die INTEGER-Spalte"
+        );
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
     fn ein_unerreichbarer_store_failt_terminal_und_redigiert_ohne_zu_publizieren()
     -> rusqlite::Result<()> {
         // Ein Store **ohne** seine Ergebnis-Tabelle (bewusst an `new` vorbeigebaut) ist unerreichbar:
@@ -538,7 +575,7 @@ mod tests {
             outbox: outbox.clone(),
         };
 
-        let outcomes = run_pipeline(&outbox, store, "gueltig.csv")?;
+        let outcomes = run_pipeline(&outbox, store, "gueltig.csv", SEED)?;
 
         // Terminal (Warning), redigiert: der Grund trägt die opake Quell-ID, nie die rohe IBAN.
         assert!(
