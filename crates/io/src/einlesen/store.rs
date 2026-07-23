@@ -37,9 +37,13 @@ pub struct EinlesenSqliteStore {
 
 impl EinlesenSqliteStore {
     /// Baut den Store über dem gegebenen Rückgrat und legt die `einlesen`-Ergebnis-Tabelle an
-    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten).
+    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten). `ensure_columns` rüstet die
+    /// Audit-Spalten auf einer **alten** Tabelle nach, da `CREATE TABLE IF NOT EXISTS` das nicht tut.
     pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
-        outbox.with_connection(|conn| conn.execute_batch(SCHEMA))?;
+        outbox.with_connection(|conn| {
+            conn.execute_batch(SCHEMA)?;
+            crate::sqlite::ensure_columns(conn, "einlesen_lines", crate::sqlite::AUDIT_COLUMNS)
+        })?;
         Ok(Self { outbox })
     }
 }
@@ -182,6 +186,11 @@ impl UnitOfWork for EinlesenUnit {
 /// Das Schema der `einlesen`-Ergebnis-Tabelle: die abgeflachte [`Line`] unter der DB-vergebenen ID.
 /// Rohe Identifikatoren (IBANs, Klarname) liegen hier **roh** — das ist erlaubt (lokale Persistenz,
 /// kein Egress; obfuskiert wird der nachgelagerte Slice, [ADR-0008](../../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)).
+///
+/// `direction` ist enum-artig (nur `incoming`/`outgoing`) und wird per `CHECK`-Constraint auf
+/// DB-Ebene erzwungen; `created_at`/`updated_at` (Epoch-Millis) tragen den Audit-Zeitstempel jeder
+/// Zeile — beide Konventionen aus `.rules/sql/schema-konventionen.md`. Die Tabelle ist append-only,
+/// daher fällt `updated_at` mit `created_at` zusammen.
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS einlesen_lines (
     id               TEXT    PRIMARY KEY,
@@ -189,7 +198,7 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
     counter_account  TEXT,
     amount_minor_units      INTEGER NOT NULL,
     currency         TEXT    NOT NULL,
-    direction        TEXT    NOT NULL,
+    direction        TEXT    NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
     recipient_name   TEXT,
     creditor_id      TEXT,
     booking_year     INTEGER NOT NULL,
@@ -199,17 +208,27 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
     value_month      INTEGER NOT NULL,
     value_day        INTEGER NOT NULL,
     purpose          TEXT,
-    booking_text     TEXT
+    booking_text     TEXT,
+    created_at       INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at       INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 );";
 
+// Die beiden `unixepoch('subsec')`-Aufrufe liefern **denselben** Zeitpunkt: SQLite berechnet die
+// aktuelle Zeit **einmal pro Statement**, sodass created_at und updated_at bei diesem append-only
+// Insert garantiert zusammenfallen (empirisch bestätigt) — kein CTE nötig.
 const INSERT_LINE: &str = "\
 INSERT INTO einlesen_lines (
     id, ordering_account, counter_account, amount_minor_units, currency, direction,
     recipient_name, creditor_id,
     booking_year, booking_month, booking_day,
     value_year, value_month, value_day,
-    purpose, booking_text
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16);";
+    purpose, booking_text,
+    created_at, updated_at
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER)
+);";
 
 const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 

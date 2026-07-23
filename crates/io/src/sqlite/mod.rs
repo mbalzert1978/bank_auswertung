@@ -71,6 +71,10 @@ impl SqliteOutbox {
 
     fn from_connection(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
+        // Schema-Evolution: `CREATE TABLE IF NOT EXISTS` legt neue Spalten auf einer **bestehenden**
+        // DB-Datei nicht an — `ensure_columns` rüstet die Audit-Spalten nach, sonst schlüge der erste
+        // `updated_at`-schreibende Ack (s. `ACK_MESSAGE`) auf einem Alt-Bestand fehl.
+        ensure_columns(&conn, "outbox", AUDIT_COLUMNS)?;
         Ok(Self {
             inner: Rc::new(Inner {
                 conn: RefCell::new(conn),
@@ -341,6 +345,11 @@ impl From<rusqlite::Error> for SqliteCommitError {
 /// hält im Envelope den Zustellversuchs-Zähler bereit, den erst die attempt-basierte
 /// Retry → Dead-Letter-Eskalation (Build-Order Schritt 5) erhöht und honoriert. Bis dahin bleibt sie
 /// auf `0`, und Redelivery ist unbegrenzt (s. [`SqliteOutbox::deliver_open`]).
+/// `created_at`/`updated_at` (Epoch-Millis) tragen den Row-Audit-Zeitstempel jeder Nachricht
+/// (`.rules/sql/schema-konventionen.md`) — bewusst getrennt vom fachlichen `occurred_on_utc`
+/// (Auftrittszeitpunkt der Nachricht) und dem Ack-Marker `processed_on_utc`: `created_at` hält die
+/// Einfüge-Zeit, `updated_at` wird beim Ack mitgezogen (s. `ACK_MESSAGE`), damit die letzte
+/// Zeilen-Änderung rekonstruierbar bleibt.
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS outbox (
     id              TEXT    PRIMARY KEY,
@@ -349,18 +358,35 @@ CREATE TABLE IF NOT EXISTS outbox (
     content         TEXT    NOT NULL DEFAULT '',
     occurred_on_utc INTEGER NOT NULL,
     attempt         INTEGER NOT NULL DEFAULT 0,
-    processed_on_utc INTEGER
+    processed_on_utc INTEGER,
+    created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 );
 CREATE INDEX IF NOT EXISTS outbox_open_idx
     ON outbox (processed_on_utc) WHERE processed_on_utc IS NULL;";
 
+// Die wiederholten `unixepoch('subsec')`-Aufrufe (auch in INSERT_MESSAGE_RETURNING) liefern
+// **denselben** Zeitpunkt: SQLite berechnet die aktuelle Zeit genau **einmal pro Statement** und
+// teilt sie über alle Aufrufe — occurred_on_utc/created_at/updated_at eines Inserts sind damit
+// garantiert identisch (empirisch über 10k Inserts bestätigt). Ein gemeinsamer CTE-Wert wäre
+// reine Redundanz gegen eine schon zugesicherte Invariante.
 const INSERT_MESSAGE: &str = "\
-INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc)
-VALUES (lower(hex(randomblob(16))), ?1, ?2, CAST(unixepoch('subsec') * 1000 AS INTEGER));";
+INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc, created_at, updated_at)
+VALUES (
+    lower(hex(randomblob(16))), ?1, ?2,
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER)
+);";
 
 const INSERT_MESSAGE_RETURNING: &str = "\
-INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc)
-VALUES (lower(hex(randomblob(16))), ?1, ?2, CAST(unixepoch('subsec') * 1000 AS INTEGER))
+INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc, created_at, updated_at)
+VALUES (
+    lower(hex(randomblob(16))), ?1, ?2,
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER)
+)
 RETURNING id;";
 
 const SELECT_OPEN: &str = "\
@@ -374,8 +400,43 @@ ORDER BY rowid;";
 /// durch einen zweiten Prozess auf derselben Datei), aktualisiert er `0` Zeilen — und der Commit von
 /// [`SqliteUnit`] scheitert, statt still Seiteneffekte doppelt zu committen.
 const ACK_MESSAGE: &str = "\
-UPDATE outbox SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+UPDATE outbox
+SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    updated_at       = CAST(unixepoch('subsec') * 1000 AS INTEGER)
 WHERE id = ?1 AND processed_on_utc IS NULL;";
+
+/// Die beiden Audit-Zeitstempel, die `.rules/sql/schema-konventionen.md` auf **jeder** Tabelle
+/// verlangt. Als `ALTER TABLE ADD COLUMN`-Nachrüstung tragen sie einen **konstanten** Default
+/// (`0` = „vor der Nachrüstung eingefügt"); frische Tabellen und alle laufenden `INSERT`s setzen den
+/// echten Epoch-Millis-Wert, sodass Alt- und Neu-DB deckungsgleich sind.
+pub(crate) const AUDIT_COLUMNS: &[(&str, &str)] = &[
+    ("created_at", "INTEGER NOT NULL DEFAULT 0"),
+    ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
+];
+
+/// Rüstet auf einer **bestehenden** Tabelle fehlende Spalten nach. `CREATE TABLE IF NOT EXISTS` wirkt
+/// nur beim Erst-Anlegen — eine ältere DB-Datei bekäme neue Spalten sonst nie. SQLite kennt kein
+/// `ADD COLUMN IF NOT EXISTS`, daher der `PRAGMA table_info`-Abgleich; der nachgerüstete Default muss
+/// **konstant** sein (`ADD COLUMN` verbietet einen geklammerten/nicht-konstanten `DEFAULT`-Ausdruck).
+/// Der `table`-Name ist stets ein Code-Literal (keine Fremd-Eingabe), daher ist die `format!`-Interpolation
+/// unbedenklich.
+pub(crate) fn ensure_columns(
+    conn: &Connection,
+    table: &str,
+    columns: &[(&str, &str)],
+) -> rusqlite::Result<()> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info({table});"))?;
+    let vorhanden = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    drop(statement);
+    columns
+        .iter()
+        .filter(|(name, _ddl)| !vorhanden.iter().any(|v| v.as_str() == *name))
+        .try_for_each(|(name, ddl)| {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {ddl};"))
+        })
+}
 
 #[cfg(test)]
 mod tests {
@@ -493,6 +554,57 @@ mod tests {
             (id,),
             |row| row.get(0),
         )
+    }
+
+    /// Regression (Copilot-Review, PR #74): eine **bestehende** DB-Datei trägt die outbox-Tabelle
+    /// noch im Vor-Audit-Schema. `CREATE TABLE IF NOT EXISTS` allein rüstet `created_at`/`updated_at`
+    /// nicht nach — der erste `updated_at`-schreibende Ack schlüge dann fehl. Das Öffnen muss die
+    /// Spalten nachziehen, sodass eine schon offene Alt-Nachricht sauber geackt wird.
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn bestehende_outbox_ohne_audit_spalten_wird_beim_oeffnen_nachgeruestet() -> rusqlite::Result<()>
+    {
+        let conn = Connection::open_in_memory()?;
+        // Alt-Schema: outbox **ohne** created_at/updated_at, mit einer schon offenen Nachricht.
+        conn.execute_batch(
+            "CREATE TABLE outbox (
+                id               TEXT    PRIMARY KEY,
+                message_type     TEXT    NOT NULL,
+                partition_key    TEXT    NOT NULL,
+                content          TEXT    NOT NULL DEFAULT '',
+                occurred_on_utc  INTEGER NOT NULL,
+                attempt          INTEGER NOT NULL DEFAULT 0,
+                processed_on_utc INTEGER
+            );
+            INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc)
+            VALUES ('alt-1', 'Root', 'k', 0);",
+        )?;
+
+        // Öffnen rüstet die fehlenden Audit-Spalten nach.
+        let outbox = SqliteOutbox::from_connection(conn)?;
+
+        // Der erste Ack schreibt updated_at — ohne Nachrüstung ein SQLite-Fehler auf dem Alt-Bestand.
+        let acked = outbox
+            .inner
+            .conn
+            .borrow()
+            .execute(ACK_MESSAGE, ("alt-1",))?;
+        assert_eq!(acked, 1, "die nachgerüstete Alt-Zeile wird sauber geackt");
+        assert!(
+            is_processed(&outbox, "alt-1")?,
+            "processed_on_utc ist gesetzt"
+        );
+
+        let updated_at: i64 = outbox.inner.conn.borrow().query_row(
+            "SELECT updated_at FROM outbox WHERE id = ?1;",
+            ("alt-1",),
+            |row| row.get(0),
+        )?;
+        assert!(updated_at > 0, "updated_at wird beim Ack gesetzt");
+        Ok(())
     }
 
     #[expect(
