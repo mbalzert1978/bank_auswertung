@@ -22,6 +22,12 @@ cargo build && cargo test && cargo clippy --all-targets \
   && cargo doc --no-deps --workspace
 ```
 
+Das Repo-`.cargo/config.toml` setzt `rustflags = ["-Dwarnings"]` (Scope
+`cfg(all())`), sodass **jeder** Workspace-`cargo`-Lauf Warnungen als Fehler behandelt —
+`cargo clippy --all-targets` erbt es, ein einzelnes Clippy-Warning macht das Gate also
+**rot** (kein Exit 0 trotz Warnung mehr). Ein `-- -D warnings` von Hand ist damit redundant.
+Fremd-Crates bleiben durch Cargos automatisches cap-lints unberührt.
+
 Don't:
 
 ```bash
