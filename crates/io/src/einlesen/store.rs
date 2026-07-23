@@ -292,7 +292,7 @@ mod tests {
         CONSUMED_MESSAGE_TYPE, GermanCalendar, GermanMoney, IsoCurrencies, consumer,
     };
     use crate::outbox::OutboxError;
-    use crate::pipeline_test_support::csv_source;
+    use crate::pipeline_test_support::{csv_source, register_fresh};
     use crate::sqlite::SqliteOutbox;
 
     /// Die erwartete `Line`-Projektion der einzigen Zeile aus `gueltig.csv` (EDEKA, `-50,00 EUR`) —
@@ -323,10 +323,6 @@ mod tests {
 
     /// Registriert den `einlesen`-Consumer über die gegebene Fixture-Datei und dem realen Store und
     /// stellt **einen** eingereihten `ReadTransactions`-Auslöser über den echten Broker zu.
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test-Helfer: das assert! prüft die Registrierungs-Invariante vor dem Dispatch"
-    )]
     fn deliver(
         outbox: &SqliteOutbox,
         store: EinlesenSqliteStore,
@@ -341,12 +337,7 @@ mod tests {
             store,
         );
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(CONSUMED_MESSAGE_TYPE, Box::new(konsument))
-                .is_none(),
-            "frische Registrierung darf keinen Consumer verdrängen"
-        );
+        register_fresh(&mut dispatcher, CONSUMED_MESSAGE_TYPE, Box::new(konsument));
         outbox.enqueue(CONSUMED_MESSAGE_TYPE, "auszug-juni")?;
         outbox.deliver_open(&dispatcher)
     }

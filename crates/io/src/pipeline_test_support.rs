@@ -18,7 +18,24 @@ use crate::obfuskierung::{
     CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, ObfuskierungSqliteStore,
     SeededObfuscator, consumer as obfuskierung_consumer,
 };
+use crate::outbox::OutboxHandler;
 use crate::sqlite::SqliteOutbox;
+
+/// Registriert einen frischen Consumer und stellt sicher, dass er **keinen** bestehenden verdrängt —
+/// die eine Quelle je Dispatch-Key. Bündelt das über alle Store-Testmodule wiederholte
+/// `assert!(dispatcher.register(…).is_none(), "…")`, sodass eine Registrierung wie eine
+/// schlichte Zeile liest statt als Glied einer 40-zeiligen `&&`-Konjunktion.
+#[track_caller]
+pub(crate) fn register_fresh<'a>(
+    dispatcher: &mut Dispatcher<'a>,
+    message_type: &str,
+    consumer: Box<dyn OutboxHandler + 'a>,
+) {
+    assert!(
+        dispatcher.register(message_type, consumer).is_none(),
+        "frische Registrierung darf keinen Consumer verdrängen ({message_type})"
+    );
+}
 
 /// Der feste Test-Seed, mit dem das Seeding den obfuskierten Bestand tokenisiert. Downstream-Stores
 /// (`fenstern`) sind blind für seinen Wert — sie brauchen nur einen **konsistent** getokenisierten
@@ -70,12 +87,7 @@ pub(crate) fn seed_through(
         einlesen_store,
     );
     let mut stage1 = Dispatcher::new();
-    assert!(
-        stage1
-            .register(EINLESEN_CONSUMED, Box::new(einlesen))
-            .is_none(),
-        "frische Registrierung darf keinen Consumer verdrängen"
-    );
+    register_fresh(&mut stage1, EINLESEN_CONSUMED, Box::new(einlesen));
     outbox.enqueue(EINLESEN_CONSUMED, fixture)?;
     let einlesen_out = outbox.deliver_open(&stage1)?;
     assert!(
@@ -93,12 +105,7 @@ pub(crate) fn seed_through(
     let obfuskierung_store = ObfuskierungSqliteStore::new(outbox.clone())?;
     let obfuskierung = obfuskierung_consumer(&source, &obfuscator, SEED, obfuskierung_store);
     let mut stage2 = Dispatcher::new();
-    assert!(
-        stage2
-            .register(OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung))
-            .is_none(),
-        "frische Registrierung darf keinen Consumer verdrängen"
-    );
+    register_fresh(&mut stage2, OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung));
     let obfuskierung_out = outbox.deliver_open(&stage2)?;
     assert!(
         obfuskierung_out.iter().all(|(_, outcome)| outcome.is_ok()),

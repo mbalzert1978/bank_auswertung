@@ -77,12 +77,13 @@ impl ObfuscatedStoreSeam for ObfuskierungUnit {
     /// terminal als [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und
     /// `Obfuscated`-Publish oder gar nicht.
     fn save(&self, booking: &ObfuscatedBooking) -> Result<String, StoreUnavailable> {
-        let row = BookingRow::try_from(booking)?;
+        let amount_minor_units =
+            i64::try_from(booking.amount_minor_units).map_err(|_overflow| StoreUnavailable)?;
         let id: String = self
             .0
             .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_BOOKING))
             .map_err(|_io| StoreUnavailable)?;
-        let row = row.with_id(id.clone());
+        let row = BookingRow::new(id.clone(), booking, amount_minor_units);
         self.0.stage(move |tx| row.insert(tx));
         Ok(id)
     }
@@ -91,8 +92,9 @@ impl ObfuscatedStoreSeam for ObfuskierungUnit {
 sqlite_backed_unit!(ObfuskierungUnit);
 
 /// Die abgeflachte [`ObfuscatedBooking`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
-/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die `id` kommt erst nach
-/// dem Minten dazu ([`with_id`](BookingRow::with_id)).
+/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruiert **stets mit**
+/// der frisch geminteten DB-ID ([`new`](BookingRow::new)) — eine Row mit leerer Platzhalter-ID ist
+/// unkonstruierbar (Domänenmodell-Regel: illegale Zustände unkonstruierbar machen).
 struct BookingRow {
     id: String,
     source_id: String,
@@ -144,26 +146,23 @@ impl From<&Recipient> for RecipientRow {
     }
 }
 
-impl TryFrom<&ObfuscatedBooking> for BookingRow {
-    type Error = StoreUnavailable;
-
-    /// Flacht die obfuskierte Buchung ab. `amount` ist eine **Magnitude** → `i64::try_from` (ein
-    /// Betrag jenseits `i64::MAX` minor units ist unrealistisch und failt terminal als
-    /// [`StoreUnavailable`] — Speicher-Mechanik, nie ein Rohwert). Der `seed` dagegen ist ein
-    /// **opaker `u64`** und wird **bitweise** als `i64` umgedeutet (`u64::cast_signed`, Rückweg
-    /// `i64::cast_unsigned`), damit ein Seed > `i64::MAX` verlustfrei durch die INTEGER-Spalte reist,
-    /// statt terminal abgelehnt zu werden.
-    fn try_from(booking: &ObfuscatedBooking) -> Result<Self, StoreUnavailable> {
-        Ok(Self {
-            id: String::new(),
+impl BookingRow {
+    /// Flacht die obfuskierte Buchung unter der frisch geminteten DB-`id` (zugleich der publizierte
+    /// Zeiger) ab. `amount_minor_units` ist schon als `i64` vorgeprüft — eine **Magnitude** jenseits
+    /// `i64::MAX` ist unrealistisch und failt terminal im `save` als [`StoreUnavailable`]
+    /// (Speicher-Mechanik, nie ein Rohwert). Der `seed` dagegen ist ein **opaker `u64`** und wird
+    /// **bitweise** als `i64` umgedeutet (`u64::cast_signed`, Rückweg `i64::cast_unsigned`), damit ein
+    /// Seed > `i64::MAX` verlustfrei durch die INTEGER-Spalte reist, statt terminal abgelehnt zu werden.
+    fn new(id: String, booking: &ObfuscatedBooking, amount_minor_units: i64) -> Self {
+        Self {
+            id,
             source_id: booking.source_id.clone(),
             ordering_account: booking.ordering_account.as_str().to_string(),
             counter_account: booking
                 .counter_account
                 .as_ref()
                 .map(|account| account.as_str().to_string()),
-            amount_minor_units: i64::try_from(booking.amount_minor_units)
-                .map_err(|_overflow| StoreUnavailable)?,
+            amount_minor_units,
             currency: booking.currency.clone(),
             direction: booking.direction.clone(),
             recipient: RecipientRow::from(&booking.recipient),
@@ -178,15 +177,7 @@ impl TryFrom<&ObfuscatedBooking> for BookingRow {
                 .as_ref()
                 .map(|text| text.as_str().to_string()),
             seed: booking.seed.cast_signed(),
-        })
-    }
-}
-
-impl BookingRow {
-    /// Setzt die frisch gemintete DB-ID (die zugleich der publizierte Zeiger ist).
-    fn with_id(mut self, id: String) -> Self {
-        self.id = id;
-        self
+        }
     }
 
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
@@ -278,7 +269,7 @@ mod tests {
         CONSUMED_MESSAGE_TYPE, EinlesenRowSource, SeededObfuscator, consumer,
     };
     use crate::outbox::OutboxError;
-    use crate::pipeline_test_support::{SEED, Stage, seed_through};
+    use crate::pipeline_test_support::{SEED, Stage, register_fresh, seed_through};
     use application_kernel::PublishCommand;
     use obfuskierung_adapter::ObfuscatedMessage;
 
@@ -357,10 +348,6 @@ mod tests {
     /// publiziert `Ingested`), dann der `obfuskierung`-Consumer mit dem **gegebenen** Store und Seed,
     /// der genau diese `Ingested`-Nachricht konsumiert. Gibt die Ausgänge des **zweiten**
     /// (obfuskierung-)Laufs zurück.
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test-Helfer: das assert! prüft die Registrierungs-Invariante vor dem obfuskierung-Lauf"
-    )]
     fn run_pipeline(
         outbox: &SqliteOutbox,
         obfuskierung_store: ObfuskierungSqliteStore,
@@ -376,11 +363,10 @@ mod tests {
         let obfuscator = SeededObfuscator;
         let obfuskierung = consumer(&source, &obfuscator, seed, obfuskierung_store);
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(CONSUMED_MESSAGE_TYPE, Box::new(obfuskierung))
-                .is_none(),
-            "frische Registrierung darf keinen Consumer verdrängen"
+        register_fresh(
+            &mut dispatcher,
+            CONSUMED_MESSAGE_TYPE,
+            Box::new(obfuskierung),
         );
         outbox.deliver_open(&dispatcher)
     }

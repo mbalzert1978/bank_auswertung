@@ -72,14 +72,21 @@ pub struct FensternUnit(SqliteUnit);
 impl AnalysisWindowStoreSeam for FensternUnit {
     /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt das Fenster- und die
     /// Buchungs-`INSERT`s in die committende Transaktion; ein unerreichbarer Store (Schema fehlt /
-    /// DB-Fehler) failt **hier** terminal als [`StoreUnavailable`].
+    /// DB-Fehler) failt **hier** terminal als [`StoreUnavailable`]. Der Preflight probt **beide**
+    /// Ablage-Statements (`INSERT_WINDOW` **und** `INSERT_BOOKING`) — fehlt auch nur eine der beiden
+    /// Tabellen, failt es hier terminal statt erst als Commit-Retry.
     fn save(&self, window: &AnalysisWindowRow) -> Result<String, StoreUnavailable> {
-        let row = WindowRow::try_from(window)?;
+        let bookings = numbered_bookings(&window.booking_ids)?;
         let id: String = self
             .0
-            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_WINDOW))
+            .with_connection(|conn| {
+                // Beide Ablage-Statements proben, nicht nur INSERT_WINDOW: erst so gilt die
+                // terminal-in-`save`-Zusage auch für eine fehlende auswertungsfenster_buchungen.
+                conn.prepare(INSERT_BOOKING).map(drop)?;
+                crate::sqlite::mint_id(conn, INSERT_WINDOW)
+            })
             .map_err(unavailable)?;
-        let row = row.with_id(id.clone());
+        let row = WindowRow::new(id.clone(), window, bookings);
         self.0.stage(move |tx| row.insert(tx));
         Ok(id)
     }
@@ -93,10 +100,30 @@ fn unavailable(err: rusqlite::Error) -> StoreUnavailable {
     }
 }
 
+/// Nummeriert die Buchungs-Fremdschlüssel positionsgetreu. `i64::try_from` auf die Position ist eine
+/// reine Speicher-Mechanik-Absicherung (ein Fenster mit mehr als `i64::MAX` Buchungen ist
+/// unrealistisch) und failt terminal als [`StoreUnavailable`], nie mit einem Rohwert. Läuft vor dem
+/// Minten (wie `einlesen`s Betrags-Prüfung), damit [`WindowRow::new`] die schreibbare Row **in einem
+/// Zug mit** der ID bauen kann.
+fn numbered_bookings(booking_ids: &[String]) -> Result<Vec<(i64, String)>, StoreUnavailable> {
+    booking_ids
+        .iter()
+        .enumerate()
+        .map(|(position, booking_id)| {
+            i64::try_from(position)
+                .map(|position| (position, booking_id.clone()))
+                .map_err(|_overflow| StoreUnavailable {
+                    message: "Fenster trägt mehr Buchungen als sich ordnen lassen".to_string(),
+                })
+        })
+        .collect()
+}
+
 /// Die abgeflachte [`AnalysisWindowRow`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
-/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die `id` kommt erst nach
-/// dem Minten dazu ([`with_id`](WindowRow::with_id)); `bookings` trägt die Fremdschlüssel bereits
-/// **positionsgetreu** nummeriert.
+/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruiert **stets mit**
+/// der frisch geminteten DB-ID ([`new`](WindowRow::new)) — eine Row mit leerer Platzhalter-ID ist
+/// unkonstruierbar (Domänenmodell-Regel: illegale Zustände unkonstruierbar machen). `bookings` trägt
+/// die Fremdschlüssel bereits **positionsgetreu** nummeriert ([`numbered_bookings`]).
 struct WindowRow {
     id: String,
     from_day: i64,
@@ -105,40 +132,16 @@ struct WindowRow {
     bookings: Vec<(i64, String)>,
 }
 
-impl TryFrom<&AnalysisWindowRow> for WindowRow {
-    type Error = StoreUnavailable;
-
-    /// Nummeriert die Buchungs-Fremdschlüssel positionsgetreu. `i64::try_from` auf die Position ist
-    /// eine reine Speicher-Mechanik-Absicherung (ein Fenster mit mehr als `i64::MAX` Buchungen ist
-    /// unrealistisch) und failt terminal als [`StoreUnavailable`], nie mit einem Rohwert.
-    fn try_from(window: &AnalysisWindowRow) -> Result<Self, StoreUnavailable> {
-        let bookings = window
-            .booking_ids
-            .iter()
-            .enumerate()
-            .map(|(position, booking_id)| {
-                i64::try_from(position)
-                    .map(|position| (position, booking_id.clone()))
-                    .map_err(|_overflow| StoreUnavailable {
-                        message: "Fenster trägt mehr Buchungen als sich ordnen lassen".to_string(),
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
-            id: String::new(),
+impl WindowRow {
+    /// Baut die schreibbare Row unter der frisch geminteten DB-`id` (zugleich der publizierte Zeiger).
+    fn new(id: String, window: &AnalysisWindowRow, bookings: Vec<(i64, String)>) -> Self {
+        Self {
+            id,
             from_day: window.from,
             to_day: window.to,
             currency: window.currency.clone(),
             bookings,
-        })
-    }
-}
-
-impl WindowRow {
-    /// Setzt die frisch gemintete DB-ID (die zugleich der publizierte Zeiger ist).
-    fn with_id(mut self, id: String) -> Self {
-        self.id = id;
-        self
+        }
     }
 
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
@@ -209,7 +212,7 @@ mod tests {
     };
     use crate::obfuskierung::ObfuskierungSqliteStore;
     use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage};
-    use crate::pipeline_test_support::{Stage, seed_through};
+    use crate::pipeline_test_support::{Stage, register_fresh, seed_through};
 
     /// Die `message_type`s der stromabwärtigen Nachrichten — aus den kanonischen
     /// `PublishCommand::MESSAGE_TYPE`s der DTOs statt als String-Literal, damit eine Umbenennung
@@ -356,47 +359,39 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(
-                    OBFUSCATED_MESSAGE_TYPE,
-                    Box::new(Capture {
-                        outbox: &outbox,
-                        seen: Rc::clone(&seen)
-                    }),
-                )
-                .is_none()
-                && dispatcher
-                    .register(
-                        WINDOW_CLOSED_MESSAGE_TYPE,
-                        Box::new(Capture {
-                            outbox: &outbox,
-                            seen: Rc::clone(&seen)
-                        }),
-                    )
-                    .is_none()
-                && dispatcher
-                    .register(
-                        HISTORY_COMPLETE_MESSAGE_TYPE,
-                        Box::new(Capture {
-                            outbox: &outbox,
-                            seen: Rc::clone(&seen)
-                        }),
-                    )
-                    .is_none()
-                && dispatcher
-                    .register(
-                        START_MESSAGE_TYPE,
-                        Box::new(start_consumer(&source, store.clone())),
-                    )
-                    .is_none()
-                && dispatcher
-                    .register(
-                        FENSTERN_CONSUMED,
-                        Box::new(fenstern_consumer(window_days, &source, store)),
-                    )
-                    .is_none(),
-            "frische Registrierungen dürfen keinen Consumer verdrängen"
+        register_fresh(
+            &mut dispatcher,
+            OBFUSCATED_MESSAGE_TYPE,
+            Box::new(Capture {
+                outbox: &outbox,
+                seen: Rc::clone(&seen),
+            }),
+        );
+        register_fresh(
+            &mut dispatcher,
+            WINDOW_CLOSED_MESSAGE_TYPE,
+            Box::new(Capture {
+                outbox: &outbox,
+                seen: Rc::clone(&seen),
+            }),
+        );
+        register_fresh(
+            &mut dispatcher,
+            HISTORY_COMPLETE_MESSAGE_TYPE,
+            Box::new(Capture {
+                outbox: &outbox,
+                seen: Rc::clone(&seen),
+            }),
+        );
+        register_fresh(
+            &mut dispatcher,
+            START_MESSAGE_TYPE,
+            Box::new(start_consumer(&source, store.clone())),
+        );
+        register_fresh(
+            &mut dispatcher,
+            FENSTERN_CONSUMED,
+            Box::new(fenstern_consumer(window_days, &source, store)),
         );
 
         outbox.enqueue(START_MESSAGE_TYPE, "")?;
@@ -473,20 +468,15 @@ mod tests {
         let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
 
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(
-                    START_MESSAGE_TYPE,
-                    Box::new(start_consumer(&source, store.clone())),
-                )
-                .is_none()
-                && dispatcher
-                    .register(
-                        FENSTERN_CONSUMED,
-                        Box::new(fenstern_consumer(window_days, &source, store)),
-                    )
-                    .is_none(),
-            "frische Registrierungen dürfen keinen Consumer verdrängen"
+        register_fresh(
+            &mut dispatcher,
+            START_MESSAGE_TYPE,
+            Box::new(start_consumer(&source, store.clone())),
+        );
+        register_fresh(
+            &mut dispatcher,
+            FENSTERN_CONSUMED,
+            Box::new(fenstern_consumer(window_days, &source, store)),
         );
 
         outbox.enqueue(START_MESSAGE_TYPE, "")?;
@@ -515,11 +505,10 @@ mod tests {
         let store = FensternSqliteStore::new(outbox.clone())?;
 
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(START_MESSAGE_TYPE, Box::new(start_consumer(&source, store)))
-                .is_none(),
-            "frische Registrierung darf keinen Consumer verdrängen"
+        register_fresh(
+            &mut dispatcher,
+            START_MESSAGE_TYPE,
+            Box::new(start_consumer(&source, store)),
         );
 
         outbox.enqueue(START_MESSAGE_TYPE, "")?;
@@ -553,29 +542,23 @@ mod tests {
 
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(
-                    OBFUSCATED_MESSAGE_TYPE,
-                    Box::new(Capture {
-                        outbox: &outbox,
-                        seen: Rc::clone(&seen)
-                    }),
-                )
-                .is_none()
-                && dispatcher
-                    .register(
-                        START_MESSAGE_TYPE,
-                        Box::new(start_consumer(&source, store.clone())),
-                    )
-                    .is_none()
-                && dispatcher
-                    .register(
-                        FENSTERN_CONSUMED,
-                        Box::new(fenstern_consumer(window_days, &source, store)),
-                    )
-                    .is_none(),
-            "frische Registrierungen dürfen keinen Consumer verdrängen"
+        register_fresh(
+            &mut dispatcher,
+            OBFUSCATED_MESSAGE_TYPE,
+            Box::new(Capture {
+                outbox: &outbox,
+                seen: Rc::clone(&seen),
+            }),
+        );
+        register_fresh(
+            &mut dispatcher,
+            START_MESSAGE_TYPE,
+            Box::new(start_consumer(&source, store.clone())),
+        );
+        register_fresh(
+            &mut dispatcher,
+            FENSTERN_CONSUMED,
+            Box::new(fenstern_consumer(window_days, &source, store)),
         );
 
         outbox.enqueue(START_MESSAGE_TYPE, "")?;
