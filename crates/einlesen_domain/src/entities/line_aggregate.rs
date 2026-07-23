@@ -1,8 +1,8 @@
 use crate::error::LineError;
-use crate::ports::{Calendar, Money};
+use crate::ports::{Calendar, Currencies, Money};
 use crate::value_objects::{
-    Amount, BookingText, CalendarDay, CreditorId, Currency, Date, Direction, Iban, NonEmptyString,
-    Purpose, RawLine, Recipient, RecipientName,
+    Amount, BookingText, CalendarDay, CreditorId, Date, Direction, Iban, NonEmptyString, Purpose,
+    RawLine, Recipient, RecipientName,
 };
 
 /// Eine eingelesene, validierte Buchungszeile — das Aggregat des Slice. Es entsteht
@@ -32,17 +32,26 @@ impl LineAggregate {
         line: RawLine,
         calendar: &dyn Calendar,
         money: &dyn Money,
+        currencies: &dyn Currencies,
     ) -> Result<Self, LineError> {
         // Die Pflichtwerte sind **typgarantiert vorhanden** (`RawLine` trägt sie non-`Option`)
         // — kein Präsenz-Check mehr, nur noch das **Deuten**: der Wert liegt vor, kann aber
         // undeutbar sein. Zuerst die per Referenz gelesenen (Währung, Betrag/Richtung,
         // Buchungstag, Valuta), **bevor** die Move-Felder unten aus `line` bewegt werden,
         // sonst kollidiert der Borrow mit dem Teil-Move.
-        let currency = Currency::from_code(&line.currency)?;
-        // Der Port trägt nur „kein gültiger Betrag" (inkl. fehlendem Vorzeichen) als
-        // `None` — die terminale `AmountInvalid`-Meldung entsteht hier; das fertig
-        // dekodierte VO deutet der Konstruktor unfehlbar (Vorzeichen → Richtung).
-        let decoded = money.decode(&line.amount).ok_or(LineError::AmountInvalid)?;
+        // „Kennt die Domäne diese Währung?" ist eine Deutungsentscheidung des `Currencies`-Ports
+        // (io/ISO 4217): ein unbekannter Code verlässt ihn als `None` → terminaler `CurrencyUnknown`.
+        // Die gedeutete Währung trägt **ihre Minor Unit** mit, nach der der `Money`-Port skaliert.
+        let currency = currencies
+            .resolve(&line.currency)
+            .ok_or(LineError::CurrencyUnknown)?;
+        // Der Port trägt nur „kein gültiger Betrag" (inkl. fehlendem Vorzeichen oder einem für
+        // die Währung zu genauen Wert) als `None` — die terminale `AmountInvalid`-Meldung
+        // entsteht hier; das fertig dekodierte, auf die Minor Units **dieser** Währung skalierte
+        // VO deutet der Konstruktor unfehlbar (Vorzeichen → Richtung).
+        let decoded = money
+            .decode(&line.amount, &currency)
+            .ok_or(LineError::AmountInvalid)?;
         let (amount, direction) = Amount::with_direction(decoded, currency);
         let booking_day = parse_date(calendar, &line.booking_day, LineError::BookingDayInvalid)?;
         let value_date = parse_date(calendar, &line.value_date, LineError::ValueDateInvalid)?;
@@ -75,8 +84,8 @@ impl LineAggregate {
         self.counter_account.as_ref()
     }
 
-    pub fn amount(&self) -> Amount {
-        self.amount
+    pub fn amount(&self) -> &Amount {
+        &self.amount
     }
 
     pub fn direction(&self) -> Direction {

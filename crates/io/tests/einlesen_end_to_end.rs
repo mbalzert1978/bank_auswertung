@@ -19,7 +19,7 @@
 //! (`fixtures/einlesen/mod.rs`).
 
 use io::Dispatcher;
-use io::einlesen::{EinlesenSqliteStore, GermanCalendar, GermanMoney};
+use io::einlesen::{EinlesenSqliteStore, GermanCalendar, GermanMoney, IsoCurrencies};
 use io::outbox::OutboxError;
 use io::sqlite::SqliteOutbox;
 
@@ -43,7 +43,13 @@ fn dispatch_ueber(fixture: &str) -> Result<(), OutboxError> {
     let outbox = SqliteOutbox::open_in_memory().expect("In-Memory-Rückgrat öffnet");
     let store = EinlesenSqliteStore::new(outbox).expect("einlesen-Tabelle wird angelegt");
     let source = csv_source(fixture);
-    let consumer = io::einlesen::consumer(&source, &GermanCalendar, &GermanMoney, store);
+    let consumer = io::einlesen::consumer(
+        &source,
+        &GermanCalendar,
+        &GermanMoney,
+        &IsoCurrencies,
+        store,
+    );
 
     let mut dispatcher = Dispatcher::new();
     assert!(

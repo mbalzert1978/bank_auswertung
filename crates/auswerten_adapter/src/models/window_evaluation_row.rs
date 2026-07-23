@@ -70,8 +70,8 @@ pub struct MonthlyCashflowRow {
     pub year: i64,
     /// Der Monat im Jahr, **1..=12** — von der Domäne per Konstruktion garantiert.
     pub month: i64,
-    pub incoming_cent: u64,
-    pub outgoing_cent: u64,
+    pub incoming_minor_units: u64,
+    pub outgoing_minor_units: u64,
 }
 
 /// Projiziert das **Domänen-Aggregat** auf die Zeile — die einzige Stelle, an der es die
@@ -87,8 +87,8 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
                 .map(|cashflow| MonthlyCashflowRow {
                     year: cashflow.month().year(),
                     month: cashflow.month().month_of_year(),
-                    incoming_cent: cashflow.incoming().cent(),
-                    outgoing_cent: cashflow.outgoing().cent(),
+                    incoming_minor_units: cashflow.incoming().minor_units(),
+                    outgoing_minor_units: cashflow.outgoing().minor_units(),
                 })
                 .collect(),
             fingerprints: evaluation

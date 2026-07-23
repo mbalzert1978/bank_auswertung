@@ -1,11 +1,12 @@
 use crate::abstractions::{DecodedAmount, MoneySeam, Sign};
 
 /// Deterministischer Fake **ohne Format-Anspruch** (Vorbild [`FakeCalendarSeam`](super::FakeCalendarSeam)):
-/// streift das Vorzeichen ab und parst die Restziffern naiv (Tausenderpunkt entfällt,
-/// Komma trennt die Nachkommastellen) — genug für die Fixtures. Die echten deutschen
-/// Formatregeln (Gruppierung, Stellenzahl) sind io-Aufgabe hinter dem echten Seam
-/// (deferred), nicht hier. Ohne deutbares Vorzeichen oder bei Nicht-Ziffern ergibt sich
-/// `None` (die Domäne sieht dann `AmountInvalid`).
+/// streift das Vorzeichen ab und zerlegt die Restziffern naiv (Tausenderpunkt entfällt, Komma
+/// trennt die Nachkommastellen) in die **unskalierten** Bestandteile (`units`, `decimal_places`) —
+/// genug für die Fixtures. Die währungs-bewusste Skalierung auf die Minor Units macht die
+/// `MoneyBridge` über den `CurrencySeam`, **nicht** dieser Fake; die echten deutschen Formatregeln
+/// (Gruppierung, Stellenzahl) sind io-Aufgabe hinter dem echten Seam. Ohne deutbares Vorzeichen oder
+/// bei Nicht-Ziffern ergibt sich `None` (die Domäne sieht dann `AmountInvalid`).
 pub(crate) struct FakeMoneySeam;
 
 impl MoneySeam for FakeMoneySeam {
@@ -14,15 +15,16 @@ impl MoneySeam for FakeMoneySeam {
             .strip_prefix('-')
             .map(|rest| (Sign::Negative, rest))
             .or_else(|| raw.strip_prefix('+').map(|rest| (Sign::Positive, rest)))?;
-        let (euro, cent) = digits.split_once(',').unwrap_or((digits, ""));
-        let euro: u64 = euro.replace('.', "").parse().ok()?;
-        let cent: u64 = if cent.is_empty() {
-            0
-        } else {
-            cent.parse().ok()?
-        };
+        let (integer_part, fraction) = digits.split_once(',').unwrap_or((digits, ""));
+        let decimal_places = u32::try_from(fraction.len()).ok()?;
+        // Ziffernkörper = Ganzzahl-Teil (Tausenderpunkt entfernt) gefolgt vom Nachkomma-Teil; der
+        // Wert ist `units / 10^decimal_places` — die Bridge skaliert ihn auf die Minor Units.
+        let units: u64 = format!("{}{fraction}", integer_part.replace('.', ""))
+            .parse()
+            .ok()?;
         Some(DecodedAmount {
-            cent: euro.checked_mul(100)?.checked_add(cent)?,
+            units,
+            decimal_places,
             sign,
         })
     }

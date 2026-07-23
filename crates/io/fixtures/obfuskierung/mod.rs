@@ -206,7 +206,7 @@ pub(crate) fn gültige_zeile() -> IngestedRow {
     IngestedRow {
         ordering_account: EIGENE_IBAN.to_string(),
         counter_account: Some("DE93123456780000002222".to_string()),
-        amount_cent: 1299,
+        amount_minor_units: 1299,
         currency: "EUR".to_string(),
         direction: "Outgoing".to_string(),
         recipient_name: Some("Erika Mustermann".to_string()),

@@ -14,6 +14,6 @@ mod raw_record;
 mod read_command;
 
 pub use ingested_message::IngestedMessage;
-pub use line::{Currency, Direction, Line};
+pub use line::{Direction, Line};
 pub use raw_record::RawRecord;
 pub use read_command::{CONSUMED_MESSAGE_TYPE, ReadCommand, ReadCommandDecoder};

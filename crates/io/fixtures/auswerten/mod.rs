@@ -562,10 +562,10 @@ pub(crate) fn bestand() -> FakeBestand {
 
 /// Eine Buchung der **wiederkehrenden Art**: derselbe Händler, also derselbe Fingerabdruck — egal,
 /// in welchem Fenster sie liegt.
-fn wiederkehrend(booking_day: i64, cent: u64) -> WindowBookingRow {
+fn wiederkehrend(booking_day: i64, minor_units: u64) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
         recipient: BookingRecipient::Company {
             name: Some("Netflix".to_string()),
@@ -578,10 +578,10 @@ fn wiederkehrend(booking_day: i64, cent: u64) -> WindowBookingRow {
 
 /// Ein **Zufluss vom eigenen Konto** — eine Umbuchung: keine Gegenpartei (also kein Fingerabdruck),
 /// aber ein Gegenkonto-**Token**, das die Auflösung gegen die Eigen-Menge einordnet.
-fn umbuchung(booking_day: i64, cent: u64) -> WindowBookingRow {
+fn umbuchung(booking_day: i64, minor_units: u64) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Incoming,
         recipient: BookingRecipient::Absent,
         purpose: None,
@@ -612,8 +612,8 @@ pub(crate) fn monat(year: i64, month: i64, incoming: u64, outgoing: u64) -> Mont
     MonthlyCashflowRow {
         year,
         month,
-        incoming_cent: incoming,
-        outgoing_cent: outgoing,
+        incoming_minor_units: incoming,
+        outgoing_minor_units: outgoing,
     }
 }
 
@@ -637,11 +637,11 @@ pub(crate) fn kennzahl(
 }
 
 /// Ein erwartetes **Vorkommen** auf der Zeitachse des Laufs.
-pub(crate) fn vorkommen(booking_day: i64, cent: u64) -> OccurrenceRow {
+pub(crate) fn vorkommen(booking_day: i64, minor_units: u64) -> OccurrenceRow {
     OccurrenceRow {
         fingerprint: fingerabdruck(),
         booking_day,
-        amount_cent: cent,
+        amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
     }
 }

@@ -7,12 +7,14 @@
 //! Ergebnis — den Commit besorgt io.
 
 mod calendar;
+mod currency;
 mod event_sink;
 mod money;
 mod raw_line_source;
 mod store;
 
 pub use calendar::Calendar;
+pub use currency::Currencies;
 pub use event_sink::EventSink;
 pub use money::Money;
 pub use raw_line_source::RawLineSource;

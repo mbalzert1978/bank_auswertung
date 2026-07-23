@@ -4,7 +4,7 @@
 //! keine Test-Ergonomie, und die Expected-Builder sind test-seitige Erwartungsdaten (die
 //! erwartete Projektion eines Laufs), kein Teil der Adapter-API.
 
-use einlesen_adapter::{CalendarDay, Currency, Direction, Line, RawRecord};
+use einlesen_adapter::{CalendarDay, Direction, Line, RawRecord};
 
 /// Die Quelle eines Einlese-Laufs — seit Issue 0018 reiner Routing-Kontext: sie reist nur
 /// noch als `partition_key` des Envelopes (die Payload ist feldlos), der Batch kommt über
@@ -39,8 +39,8 @@ pub(crate) fn erwartete_zeile() -> Line {
     Line {
         ordering_account: "DE89370400440532013000".to_string(),
         counter_account: Some("DE11520513735120710131".to_string()),
-        amount_cent: 5_000,
-        currency: Currency::Euro,
+        amount_minor_units: 5_000,
+        currency: "EUR".to_string(),
         direction: Direction::Outgoing,
         recipient_name: Some("EDEKA SAGT DANKE".to_string()),
         creditor_id: Some("DE98ZZZ09999999999".to_string()),

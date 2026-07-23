@@ -21,24 +21,6 @@ impl From<einlesen_domain::Direction> for Direction {
     }
 }
 
-/// Die Währung eines Betrags — **adapter-eigen** (kein Re-Export von
-/// `einlesen_domain::Currency`): derselbe Summentyp wie die Domäne (heute nur `Euro`), aber
-/// ein eigener Typ, weil `Line` die Adapter-Grenze überquert und keine Domänen-Interna
-/// dorthin durchreichen soll. Sie reist **neben** dem Cent-Betrag mit — ein Betrag ohne
-/// Währung wäre stromabwärts nicht deutbar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Currency {
-    Euro,
-}
-
-impl From<einlesen_domain::Currency> for Currency {
-    fn from(currency: einlesen_domain::Currency) -> Self {
-        match currency {
-            einlesen_domain::Currency::Euro => Currency::Euro,
-        }
-    }
-}
-
 /// Das ausgehende DTO des Slice — die **eine** Datensicht, die `einlesen` nach außen gibt: die
 /// abgeflachte **Roh-Erfassung**, die der [`StoreSeam`](crate::StoreSeam) unter der vergebenen
 /// Aggregat-ID persistiert (Tabelle = Wahrheit,
@@ -53,8 +35,11 @@ impl From<einlesen_domain::Currency> for Currency {
 pub struct Line {
     pub ordering_account: String,
     pub counter_account: Option<String>,
-    pub amount_cent: u64,
-    pub currency: Currency,
+    pub amount_minor_units: u64,
+    /// Der kanonische ISO-4217-Code der Währung (z. B. `EUR`), wie der `Currencies`-Port ihn
+    /// aufgelöst hat — er reist **neben** dem Minor-Unit-Betrag mit, ein Betrag ohne Währung wäre
+    /// stromabwärts weder deutbar noch (mangels Minor Unit) korrekt skaliert.
+    pub currency: String,
     pub direction: Direction,
     /// **Optional** — eine Entgelt-/Gebührenzeile bucht ohne Empfänger (siehe
     /// `einlesen_domain::Recipient`); fehlt er, bleibt er `None`.
@@ -78,8 +63,8 @@ impl From<&LineAggregate> for Line {
             counter_account: aggregate
                 .counter_account()
                 .map(|iban| iban.as_str().to_string()),
-            amount_cent: aggregate.amount().cent(),
-            currency: aggregate.amount().currency().into(),
+            amount_minor_units: aggregate.amount().minor_units(),
+            currency: aggregate.amount().currency().code().to_string(),
             direction: aggregate.direction().into(),
             recipient_name: recipient.name().map(|name| name.as_str().to_string()),
             creditor_id: recipient.creditor_id().map(|id| id.as_str().to_string()),

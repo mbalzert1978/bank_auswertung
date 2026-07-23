@@ -19,7 +19,7 @@
 //! `store` als [`StoreUnavailable`] (→ `SinkError::StoreFailed`) und damit terminal + redigiert (nur
 //! io-Diagnose der Zugriffs-Mechanik, nie ein Zell-/Feldwert). Kein Dead-Letter, kein Retry im Slice.
 
-use einlesen_adapter::{CalendarDay, Currency, Direction, Line, StoreSeam, StoreUnavailable};
+use einlesen_adapter::{CalendarDay, Direction, Line, StoreSeam, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
 use crate::MessageId;
@@ -63,7 +63,7 @@ impl StoreSeam for EinlesenUnit {
     /// terminal als redigierte [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und
     /// `Ingested`-Publish oder gar nicht.
     fn store(&self, line: &Line) -> Result<String, StoreUnavailable> {
-        let amount_cent = i64::try_from(line.amount_cent)
+        let amount_minor_units = i64::try_from(line.amount_minor_units)
             .map_err(|_overflow| store_unavailable("amount out of range for storage"))?;
         let id: String = self
             .0
@@ -74,7 +74,7 @@ impl StoreSeam for EinlesenUnit {
                 conn.query_row(MINT_ID, [], |row| row.get(0))
             })
             .map_err(store_unavailable_io)?;
-        let row = LineRow::new(id.clone(), line, amount_cent);
+        let row = LineRow::new(id.clone(), line, amount_minor_units);
         self.0.stage(move |tx| row.insert(tx));
         Ok(id)
     }
@@ -102,8 +102,8 @@ struct LineRow {
     id: String,
     ordering_account: String,
     counter_account: Option<String>,
-    amount_cent: i64,
-    currency: &'static str,
+    amount_minor_units: i64,
+    currency: String,
     direction: &'static str,
     recipient_name: Option<String>,
     creditor_id: Option<String>,
@@ -114,13 +114,13 @@ struct LineRow {
 }
 
 impl LineRow {
-    fn new(id: String, line: &Line, amount_cent: i64) -> Self {
+    fn new(id: String, line: &Line, amount_minor_units: i64) -> Self {
         Self {
             id,
             ordering_account: line.ordering_account.clone(),
             counter_account: line.counter_account.clone(),
-            amount_cent,
-            currency: currency_token(line.currency),
+            amount_minor_units,
+            currency: line.currency.clone(),
             direction: direction_token(line.direction),
             recipient_name: line.recipient_name.clone(),
             creditor_id: line.creditor_id.clone(),
@@ -138,7 +138,7 @@ impl LineRow {
                 self.id,
                 self.ordering_account,
                 self.counter_account,
-                self.amount_cent,
+                self.amount_minor_units,
                 self.currency,
                 self.direction,
                 self.recipient_name,
@@ -154,13 +154,6 @@ impl LineRow {
             ],
         )
         .map(drop)
-    }
-}
-
-/// Der stabile Speicher-Token einer [`Currency`] (heute nur `Euro`).
-fn currency_token(currency: Currency) -> &'static str {
-    match currency {
-        Currency::Euro => "EUR",
     }
 }
 
@@ -194,7 +187,7 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
     id               TEXT    PRIMARY KEY,
     ordering_account TEXT    NOT NULL,
     counter_account  TEXT,
-    amount_cent      INTEGER NOT NULL,
+    amount_minor_units      INTEGER NOT NULL,
     currency         TEXT    NOT NULL,
     direction        TEXT    NOT NULL,
     recipient_name   TEXT,
@@ -211,7 +204,7 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
 
 const INSERT_LINE: &str = "\
 INSERT INTO einlesen_lines (
-    id, ordering_account, counter_account, amount_cent, currency, direction,
+    id, ordering_account, counter_account, amount_minor_units, currency, direction,
     recipient_name, creditor_id,
     booking_year, booking_month, booking_day,
     value_year, value_month, value_day,
@@ -222,7 +215,7 @@ const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 
 #[cfg(test)]
 const SELECT_LINES: &str = "\
-SELECT id, ordering_account, counter_account, amount_cent, currency, direction,
+SELECT id, ordering_account, counter_account, amount_minor_units, currency, direction,
        recipient_name, creditor_id,
        booking_year, booking_month, booking_day,
        value_year, value_month, value_day,
@@ -239,23 +232,22 @@ impl EinlesenSqliteStore {
         self.outbox.with_connection(|conn| {
             let mut statement = conn.prepare(SELECT_LINES)?;
             let rows = statement.query_map([], |row| {
-                let currency = match row.get::<_, String>(4)?.as_str() {
-                    "EUR" => Currency::Euro,
-                    other => return Err(unexpected_token(4, other)),
-                };
+                // Die Währung ist der kanonische ISO-Code als Text — feld-treu zurückgelesen, ohne
+                // Enum-Deutung (die Domäne führt keine Währungstabelle mehr).
+                let currency = row.get::<_, String>(4)?;
                 let direction = match row.get::<_, String>(5)?.as_str() {
                     "incoming" => Direction::Incoming,
                     "outgoing" => Direction::Outgoing,
                     other => return Err(unexpected_token(5, other)),
                 };
-                let amount_cent = u64::try_from(row.get::<_, i64>(3)?)
+                let amount_minor_units = u64::try_from(row.get::<_, i64>(3)?)
                     .map_err(|_negative| unexpected_token(3, "negative amount"))?;
                 Ok((
                     row.get::<_, String>(0)?,
                     Line {
                         ordering_account: row.get(1)?,
                         counter_account: row.get(2)?,
-                        amount_cent,
+                        amount_minor_units,
                         currency,
                         direction,
                         recipient_name: row.get(6)?,
@@ -296,7 +288,9 @@ fn unexpected_token(column: usize, token: &str) -> rusqlite::Error {
 mod tests {
     use super::*;
     use crate::Dispatcher;
-    use crate::einlesen::{CONSUMED_MESSAGE_TYPE, GermanCalendar, GermanMoney, consumer};
+    use crate::einlesen::{
+        CONSUMED_MESSAGE_TYPE, GermanCalendar, GermanMoney, IsoCurrencies, consumer,
+    };
     use crate::outbox::OutboxError;
     use crate::sqlite::SqliteOutbox;
 
@@ -315,8 +309,8 @@ mod tests {
         Line {
             ordering_account: "DE89370400440532013000".to_string(),
             counter_account: Some("DE11520513735120710131".to_string()),
-            amount_cent: 5000,
-            currency: Currency::Euro,
+            amount_minor_units: 5000,
+            currency: "EUR".to_string(),
             direction: Direction::Outgoing,
             recipient_name: Some("EDEKA SAGT DANKE".to_string()),
             creditor_id: Some("DE98ZZZ09999999999".to_string()),
@@ -347,7 +341,13 @@ mod tests {
         fixture: &str,
     ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
         let source = csv_source(fixture);
-        let konsument = consumer(&source, &GermanCalendar, &GermanMoney, store);
+        let konsument = consumer(
+            &source,
+            &GermanCalendar,
+            &GermanMoney,
+            &IsoCurrencies,
+            store,
+        );
         let mut dispatcher = Dispatcher::new();
         assert!(
             dispatcher
@@ -464,6 +464,38 @@ mod tests {
             ingested_partition_keys(&outbox)?.is_empty(),
             "keine Nachricht darf den terminalen Batch-Fehler überleben"
         );
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn nicht_zwei_stellen_waehrungen_skalieren_real_per_iso_4217() -> rusqlite::Result<()> {
+        // Der **reale** Währungs-Seam (`IsoCurrencies` über `rusty_money`, ISO 4217) skaliert
+        // währungs-korrekt end-to-end durch die echte Kette (CSV → Geld-/Währungs-Seam → Bridge →
+        // Store): JPY hat **0** Nachkommastellen (`1234` → 1234 Minor Units), BHD **3** (`1,234` → 1234)
+        // — **nicht** die feste Skala 2. Am committeten Betrag abgelesen, nicht als io-Unit-Test.
+        for (fixture, currency) in [("jpy.csv", "JPY"), ("bhd.csv", "BHD")] {
+            let outbox = SqliteOutbox::open_in_memory()?;
+            let store = EinlesenSqliteStore::new(outbox.clone())?;
+
+            let outcomes = deliver(&outbox, store.clone(), fixture)?;
+
+            assert!(
+                matches!(outcomes.as_slice(), [(_, Ok(()))]),
+                "der {fixture}-Auslöser muss atomar verarbeitet werden: {outcomes:?}"
+            );
+            // Beide Rohbeträge tragen dieselben vier Ziffern; korrekt skaliert stehen sie als 1234
+            // Minor Units da — unter Skala 2 wären JPY um Faktor 100, BHD um Faktor 10 verschoben.
+            let lines = store.lines()?;
+            assert!(
+                matches!(lines.as_slice(), [(_, line)]
+                    if line.amount_minor_units == 1234 && line.currency == currency),
+                "der Betrag muss auf die ISO-Minor-Unit skaliert committen (1234), Währung {currency:?}: {lines:?}"
+            );
+        }
         Ok(())
     }
 }
