@@ -28,8 +28,11 @@ unten) — **weiterhin vertagt** bleibt nur der `report`-Consumer.
 Zerlegung des Baus hinter dem akzeptierten
 [ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md) in vertikale
 Tracer-Bullet-Slices — jeder Schnitt geht durch alle Schichten und ist für sich verifizierbar
-(gegen Fakes). **Out of scope bleibt** echtes `io` (SQLite/`rusqlite`, Tag-Stamp-Persistenz,
-Broker-Trigger) und der `report`. Die Fach-Analyzer sind **nicht** dupliziert — 0004/0005/0006/0007
+(gegen Fakes). **Out of scope für diese Kette (0036–0045) war** echtes `io`
+(SQLite/`rusqlite`, Tag-Stamp-Persistenz, Broker-Trigger) und der `report`. Der reale
+`io`-Outbox-Broker ist inzwischen als eigene Nachfolge-Kette gebaut (siehe
+„io-Adapter-Spine" unten); **weiterhin offen** bleiben die `fenstern`-/`auswerten`-Stores
+und der `report`. Die Fach-Analyzer sind **nicht** dupliziert — 0004/0005/0006/0007
 bleiben gültig und wurden nur neu verdrahtet.
 
 Prefactor:
