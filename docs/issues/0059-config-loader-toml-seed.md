@@ -1,7 +1,7 @@
 ---
 id: "0059"
 title: "Config-Loader (toml): Seed"
-status: open
+status: closed
 ---
 
 # Config-Loader (toml): Seed
