@@ -1,7 +1,7 @@
 ---
 id: "0049"
 title: "Persistenz-Stack festlegen: rusqlite (synchron), kein sqlx"
-status: open
+status: closed
 ---
 
 # Persistenz-Stack festlegen: rusqlite (synchron), kein sqlx

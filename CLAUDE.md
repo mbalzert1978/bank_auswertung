@@ -84,9 +84,12 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (`OutboxMessage`/`OutboxCommand`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/
   `UnitOfWork` — here since [Issue 0032](docs/issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)
   dissolved the former `shared_kernel` crate), the generic transactional consumer +
-  dispatcher, and the per-slice wiring with in-memory doubles. The real `rusqlite`/`csv`/`toml`
-  adapters are still deferred (io-Persistenz = **rusqlite**, die Outbox-Spine bleibt
-  **synchron** — [ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md));
+  dispatcher, and the per-slice wiring — **`einlesen` now runs end-to-end against real
+  `rusqlite`/`csv` adapters** (SQLite Outbox broker + `UnitOfWork`, the `einlesen` store, the
+  CSV-CAMT-v8 source), plus a `toml` loader for the `fenstern` window-size config; the
+  remaining three slices (`obfuskierung`/`fenstern`/`auswerten`) still wire against in-memory
+  doubles (io-Persistenz = **rusqlite**, die Outbox-Spine bleibt **synchron** —
+  [ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md));
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
   (outside `crates/`) asserting dependency direction over `cargo_metadata`.
 
@@ -209,15 +212,20 @@ fakes, each wired through `io`**: `einlesen`, the `obfuskieren` slice (seed-base
 slice (the paginating analysis head — two consumers: kick-off + window step), and the `auswerten`
 split (**both reaches** built — per-window and window-spanning; the `Fingerabdruck` domain function,
 token-based `Gegenkonto` resolution, and the `Kategorisierer` port for unknown fingerprints)
-— the whole `ADR-0013` chain (issues 0036–0045) is done. Deferred:
-the real `io` adapters (`csv`/`toml`/`fs`/`rusqlite` + SQLite Outbox broker/stores + `Speicher`;
-io-Persistenz = **rusqlite**, Outbox-Spine bleibt **synchron**, `sqlx` verworfen —
-[ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)),
-the `report` presenter, the remaining egress-DTO `Serialize` guards, `ObfuskierterText`
-scrubbing (only trims/rejects-empty today), and persistent seed management
-([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). **Next: the real `io`
-adapters (SQLite Outbox broker/stores, file/CSV parse, config loaders) fulfilling the seams, then
-the `report` HTML presenter.** No binary yet.
+— the whole `ADR-0013` chain (issues 0036–0045) is done. The real `io` adapters have started
+landing (issues 0050–0054, io-Persistenz = **rusqlite**, Outbox-Spine bleibt **synchron**,
+`sqlx` verworfen —
+[ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)): the SQLite Outbox
+broker + `UnitOfWork`, the real `Calendar`/`Money` seams, the CSV-CAMT-v8 source and the
+`einlesen` store — so **`einlesen` now runs end-to-end without a single fake** — plus a `toml`
+loader for the `fenstern` window-size config. Deferred: the `obfuskierung`/`fenstern`/
+`auswerten` result stores (still in-memory doubles), the remaining config loaders (seed,
+Eigene-Konten) and their `fs` adapters, `Speicher` for DTOs/category register, the `report`
+presenter, the remaining egress-DTO `Serialize` guards, `ObfuskierterText` scrubbing (only
+trims/rejects-empty today), and persistent seed management
+([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). **Next: the remaining
+slice-specific `io` adapters (stores + config loaders) fulfilling the seams, then the `report`
+HTML presenter.** No binary yet.
 
 ## Language convention
 
@@ -393,7 +401,9 @@ each step runnable/valuable against fakes, real `io` last:
 
 1. **Kernel + Outbox contracts** (`application_kernel` + the `io`-private Outbox seams) — **done**.
 2. **`einlesen` slice** — `RawRecord → LineAggregate → Ingested`, batch in / one message
-   per valid line, German date/number behind the `Calendar`/`Money` seams. **done** (fakes).
+   per valid line, German date/number behind the `Calendar`/`Money` seams. **done** — and,
+   since issues 0050–0053, real end-to-end (`Calendar`/`Money`, the CSV-CAMT-v8 source, the
+   SQLite Outbox broker and the `einlesen` store), no fakes left in this slice.
 3. **`obfuskieren` slice** — consume `Ingested`, assign seed-based `KONTO_x`/`PERSON_x`, scrub
    free text; the privacy boundary. **done** (fakes); still needs the `ObfuskierterText`
    scrubbing rules + persistent seed management
@@ -413,7 +423,11 @@ each step runnable/valuable against fakes, real `io` last:
    fingerprints. Issues 0040–0045 **done**; the fee/Pareto/`Umbuchung`-netting/recurrence analyzers
    (building blocks 0004–0007) build *on top* of these reaches and are still to come.
 6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
-   (SQLite Outbox broker/stores, file/CSV parse) fulfilling the seams.
+   fulfilling the seams — **in progress**: the SQLite Outbox broker/`UnitOfWork`, the
+   `Calendar`/`Money` seams, the CSV-CAMT-v8 source and the `einlesen` store are real
+   (issues 0050–0053), plus a `toml` loader for the `fenstern` window-size config
+   (issue 0054); the `obfuskierung`/`fenstern`/`auswerten` stores, the remaining config
+   loaders (seed, Eigene-Konten) and `Speicher` itself are still open.
 7. **`report`** HTML output.
 8. **Iteration** — review together, learn corrections, name savings.
 

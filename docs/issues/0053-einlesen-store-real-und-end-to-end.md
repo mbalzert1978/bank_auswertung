@@ -1,7 +1,7 @@
 ---
 id: "0053"
 title: "einlesen-Store real + einlesen end-to-end real (Tracer-Bullet)"
-status: open
+status: closed
 ---
 
 # einlesen-Store real + einlesen end-to-end real (Tracer-Bullet)

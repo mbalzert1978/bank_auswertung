@@ -23,7 +23,7 @@
 > Der Entwurf sprach durchweg von `sammeln`; dieser Text ist auf den beschlossenen Namen `fenstern`
 > gezogen.
 >
-> **Hinweis:** `shared_kernel` ist seit [Issue 0025](../issues/0025-vermeidbare-clones-auf-fehlerpfaden-entfernen.md)
+> **Hinweis:** `shared_kernel` ist seit [Issue 0032](../issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)
 > in `io` aufgelöst; die slice-seitigen Verträge (`Command`/`Handler`/`Publisher`) liegen in
 > `application_kernel`.
 

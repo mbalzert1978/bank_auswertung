@@ -1,5 +1,18 @@
 # Zwei Kernel-Crates + Rust-idiomatische Outbox-Verträge
 
+> **Status: maßgeblich, in Teilen verfeinert — durch
+> [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Kernel-Flip +
+> Fehler-Mapping).** Der hier eingeführte **Zwei-Crate-Kernel-Schnitt** (`shared_kernel`
+> io-facing + `application_kernel` slice-intern) ist inzwischen **wieder
+> zusammengeführt**: `shared_kernel` als eigene Crate wurde aufgelöst
+> ([Issue 0032](../issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)),
+> seine Outbox-Seams liegen **`io`-privat**, und `application_kernel` ist der **einzige**
+> Slice↔`io`-Vertrag. Die hier eingeführte **Rust-idiomatische Ausformulierung** der
+> Outbox-Verträge (`Result`/`OutboxError`, `publish`, `const MESSAGE_TYPE`,
+> `TypedOutboxHandler`) bleibt **maßgeblich**. Details kanonisch im Abschnitt „Was
+> dieses ADR supersedet / verfeinert" von
+> [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md).
+
 Dieses ADR **verfeinert** den Kernel-Aspekt von
 [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md) (§ „`shared_kernel` bekommt die
 Outbox") und das „ein dünner `shared_kernel`" aus
