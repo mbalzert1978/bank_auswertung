@@ -14,8 +14,8 @@ use io::outbox::OutboxError;
 #[path = "../fixtures/obfuskierung/mod.rs"]
 mod fixtures;
 use fixtures::{
-    EIGENE_IBAN, FakeDb, FakeObfuscator, FakeSource, dispatcher_mit, gültige_zeile,
-    ingested_envelope,
+    EIGENE_IBAN, FakeDb, FakeObfuscator, FakeSource, dispatcher_mit, dispatcher_mit_seed,
+    gültige_zeile, ingested_envelope,
 };
 
 // --- Happy Path: Envelope → OutboxConsumer → obfuskierung → publiziertes „Obfuscated" ---
@@ -140,21 +140,9 @@ fn der_aus_der_toml_geladene_seed_wird_in_den_consumer_gereicht() {
     let source = FakeSource::with("buchung-1", gültige_zeile());
     let db = FakeDb::default();
 
-    let mut dispatcher = io::Dispatcher::new();
-    assert!(
-        dispatcher
-            .register(
-                io::obfuskierung::CONSUMED_MESSAGE_TYPE,
-                Box::new(io::obfuskierung::consumer(
-                    &source,
-                    &FakeObfuscator,
-                    config.seed(),
-                    db.clone(),
-                )),
-            )
-            .is_none(),
-        "frische Registrierung darf keinen Consumer verdrängen"
-    );
+    // Der geladene Seed (nicht die Fixture-Konstante) reist explizit über den zentralen Helfer in den
+    // Consumer — dieselbe „frische Registrierung"-Zusicherung wie im Standard-Pfad, ohne Duplizierung.
+    let dispatcher = dispatcher_mit_seed(&source, &FakeObfuscator, config.seed(), db.clone());
 
     assert_eq!(dispatcher.dispatch(ingested_envelope("buchung-1")), Ok(()));
 

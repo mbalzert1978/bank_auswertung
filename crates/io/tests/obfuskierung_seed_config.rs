@@ -82,11 +82,15 @@ fn eine_config_mit_nicht_ganzzahligem_seed_schlaegt_redigiert_fehl() {
 #[test]
 fn eine_config_mit_negativem_seed_schlaegt_redigiert_fehl() {
     // Ein negativer Wert passt nicht in den `u64`-Seed — der Rand lehnt ab, der Rohwert bleibt draußen.
-    let fehler =
-        SeedConfig::from_toml_str("seed = -7").expect_err("ein negativer Seed muss fehlschlagen");
+    const ROHER_SEED: &str = "-7";
+    let fehler = SeedConfig::from_toml_str(&format!("seed = {ROHER_SEED}"))
+        .expect_err("ein negativer Seed muss fehlschlagen");
 
     assert_eq!(fehler, ConfigError::SeedInvalid);
-    assert!(!fehler.to_string().contains('7'));
+    // Redigiert: der konkrete Roh-Seed-Wert taucht nicht im Fehlertext auf. Geprüft auf genau diesen
+    // Wert-String — nicht auf eine einzelne Ziffer, die auch ein künftiger statischer Fehlertext tragen
+    // könnte.
+    assert!(!fehler.to_string().contains(ROHER_SEED));
 }
 
 // --- Fehlender Schlüssel: eigener, redigierter Fehlschlag --------------------------------
