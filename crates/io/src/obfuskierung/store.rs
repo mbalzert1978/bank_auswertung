@@ -438,7 +438,8 @@ mod tests {
 
     #[expect(
         clippy::panic_in_result_fn,
-        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+        clippy::panic,
+        reason = "Test-Helfer: assert!/panic! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
     fn eine_reale_zeile_wird_obfuskiert_abgelegt_und_publiziert_einen_zeiger()
@@ -465,7 +466,7 @@ mod tests {
         // einlesen publizierte `Ingested`-Zeiger).
         assert_eq!(
             einlesen_ids.as_slice(),
-            [buchung.source_id.clone()],
+            std::slice::from_ref(&buchung.source_id),
             "source_id muss die reale einlesen-Zeilen-ID sein"
         );
         // Pass-Through-Felder feld-treu (EDEKA-Zeile: -50,00 EUR am 2024-06-13, ausgehend).
@@ -522,7 +523,7 @@ mod tests {
         // **neue** obfuskiert-ID ist — atomar in derselben Transaktion committet.
         assert_eq!(
             partition_keys(&outbox, OBFUSCATED_MESSAGE_TYPE)?,
-            [buchung.id.clone()],
+            std::slice::from_ref(&buchung.id),
             "genau eine Obfuscated-Nachricht, deren partition_key die neue obfuskiert-ID ist"
         );
         Ok(())
@@ -530,7 +531,8 @@ mod tests {
 
     #[expect(
         clippy::panic_in_result_fn,
-        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+        clippy::panic,
+        reason = "Test-Helfer: assert!/panic! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
     fn ein_seed_jenseits_von_i64_max_wird_verlustfrei_round_trip_gespeichert()
