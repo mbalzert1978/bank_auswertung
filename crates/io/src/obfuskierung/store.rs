@@ -34,7 +34,7 @@ use rusqlite::{Transaction, params};
 use crate::MessageId;
 use crate::obfuskierung::UnitFactory;
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit};
+use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
 
 /// Der reale `obfuskierung`-Ergebnis-Store: die [`UnitFactory`](crate::obfuskierung::UnitFactory) des
 /// Slice über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt
@@ -80,12 +80,7 @@ impl ObfuscatedStoreSeam for ObfuskierungUnit {
         let row = BookingRow::try_from(booking)?;
         let id: String = self
             .0
-            .with_connection(|conn| {
-                // Preflight: ist der Store erreichbar (Schema vorhanden)? Ein fehlendes Schema failt
-                // **hier** terminal, nicht erst als Commit-Retry — die ID wird an der DB gemintet.
-                conn.prepare(INSERT_BOOKING).map(drop)?;
-                conn.query_row(MINT_ID, [], |r| r.get(0))
-            })
+            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_BOOKING))
             .map_err(|_io| StoreUnavailable)?;
         let row = row.with_id(id.clone());
         self.0.stage(move |tx| row.insert(tx));
@@ -93,19 +88,7 @@ impl ObfuscatedStoreSeam for ObfuskierungUnit {
     }
 }
 
-impl OutboxPublisher for ObfuskierungUnit {
-    fn publish<T: OutboxCommand>(&self, command: T) {
-        self.0.publish(command);
-    }
-}
-
-impl UnitOfWork for ObfuskierungUnit {
-    type Error = SqliteCommitError;
-
-    fn commit(self) -> Result<(), SqliteCommitError> {
-        self.0.commit()
-    }
-}
+sqlite_backed_unit!(ObfuskierungUnit);
 
 /// Die abgeflachte [`ObfuscatedBooking`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
 /// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die `id` kommt erst nach
@@ -285,8 +268,6 @@ INSERT INTO obfuskiert (
     CAST(unixepoch('subsec') * 1000 AS INTEGER),
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
-
-const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 
 #[cfg(test)]
 mod tests {

@@ -25,7 +25,7 @@ use rusqlite::{Transaction, params};
 use crate::MessageId;
 use crate::einlesen::UnitFactory;
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit};
+use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
 
 /// Der reale `einlesen`-Ergebnis-Store: die [`UnitFactory`](crate::einlesen::UnitFactory) des Slice
 /// über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt beim
@@ -71,12 +71,7 @@ impl StoreSeam for EinlesenUnit {
             .map_err(|_overflow| store_unavailable("amount out of range for storage"))?;
         let id: String = self
             .0
-            .with_connection(|conn| {
-                // Preflight: ist der Store erreichbar (Schema vorhanden)? Ein fehlendes Schema failt
-                // **hier** terminal, nicht erst als Commit-Retry — die ID wird an der DB gemintet.
-                conn.prepare(INSERT_LINE).map(drop)?;
-                conn.query_row(MINT_ID, [], |row| row.get(0))
-            })
+            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_LINE))
             .map_err(store_unavailable_io)?;
         let row = LineRow::new(id.clone(), line, amount_minor_units);
         self.0.stage(move |tx| row.insert(tx));
@@ -169,19 +164,7 @@ fn direction_token(direction: Direction) -> &'static str {
     }
 }
 
-impl OutboxPublisher for EinlesenUnit {
-    fn publish<T: OutboxCommand>(&self, command: T) {
-        self.0.publish(command);
-    }
-}
-
-impl UnitOfWork for EinlesenUnit {
-    type Error = SqliteCommitError;
-
-    fn commit(self) -> Result<(), SqliteCommitError> {
-        self.0.commit()
-    }
-}
+sqlite_backed_unit!(EinlesenUnit);
 
 /// Das Schema der `einlesen`-Ergebnis-Tabelle: die abgeflachte [`Line`] unter der DB-vergebenen ID.
 /// Rohe Identifikatoren (IBANs, Klarname) liegen hier **roh** — das ist erlaubt (lokale Persistenz,
@@ -229,8 +212,6 @@ INSERT INTO einlesen_lines (
     CAST(unixepoch('subsec') * 1000 AS INTEGER),
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
-
-const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 
 #[cfg(test)]
 const SELECT_LINES: &str = "\

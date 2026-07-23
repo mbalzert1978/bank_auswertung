@@ -32,7 +32,7 @@ use rusqlite::{Transaction, params};
 use crate::MessageId;
 use crate::fenstern::UnitFactory;
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit};
+use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
 
 /// Der reale `fenstern`-Ergebnis-Store: die [`UnitFactory`](crate::fenstern::UnitFactory) des Slice
 /// über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt beim
@@ -77,10 +77,7 @@ impl AnalysisWindowStoreSeam for FensternUnit {
         let row = WindowRow::try_from(window)?;
         let id: String = self
             .0
-            .with_connection(|conn| {
-                conn.prepare(INSERT_WINDOW).map(drop)?;
-                conn.query_row(MINT_ID, [], |r| r.get(0))
-            })
+            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_WINDOW))
             .map_err(unavailable)?;
         let row = row.with_id(id.clone());
         self.0.stage(move |tx| row.insert(tx));
@@ -88,19 +85,7 @@ impl AnalysisWindowStoreSeam for FensternUnit {
     }
 }
 
-impl OutboxPublisher for FensternUnit {
-    fn publish<T: OutboxCommand>(&self, command: T) {
-        self.0.publish(command);
-    }
-}
-
-impl UnitOfWork for FensternUnit {
-    type Error = SqliteCommitError;
-
-    fn commit(self) -> Result<(), SqliteCommitError> {
-        self.0.commit()
-    }
-}
+sqlite_backed_unit!(FensternUnit);
 
 fn unavailable(err: rusqlite::Error) -> StoreUnavailable {
     StoreUnavailable {
@@ -203,8 +188,6 @@ VALUES (?1, ?2, ?3, ?4,
 
 const INSERT_BOOKING: &str = "\
 INSERT INTO auswertungsfenster_buchungen (window_id, position, booking_id) VALUES (?1, ?2, ?3);";
-
-const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 
 #[cfg(test)]
 mod tests {
