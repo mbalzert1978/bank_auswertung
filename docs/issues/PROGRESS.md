@@ -11,8 +11,9 @@ bleiben gültig; nur ihre Verortung wandert in die Pipeline-Slices.
 
 - [x] **[0015-einlesen-slice-als-pipeline-consumer.md](0015-einlesen-slice-als-pipeline-consumer.md)**
   `einlesen`-Slice als Pipeline-Consumer (Umbau von `csv_camt_v8`), Message `Eingelesen` — as-built
-  über spätere Folge-Issues (0017–0022) weiter geschärft; Frontmatter bleibt `blocked` als
-  As-built-Marker.
+  über spätere Folge-Issues (0017–0022) weiter geschärft. Das Frontmatter des Tickets selbst steht
+  noch auf `status: blocked` (bekannter, hier bewusst unangetasteter Drift — nicht als Status
+  misszuverstehen; die Umsetzung ist gemergt).
 - [x] **[0016-obfuskieren-slice-als-pipeline-consumer.md](0016-obfuskieren-slice-als-pipeline-consumer.md)**
   `obfuskieren`-Slice als Consumer von `Eingelesen`, Message `Obfuskiert` (Datenschutz-Grenze) —
   as-built seed-basiert statt First-Seen (siehe Ticket-Hinweis + [Plan 0016-1](../plans/0016-1-obfuskieren-slice-pipeline-consumer.md)).
