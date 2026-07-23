@@ -12,6 +12,7 @@ csv = "1.4.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 rust_decimal = { version = "1.42.1", default-features = false }
 rusty-money = "0.4.1"
+siphasher = "1.0.1"
 toml = "0.9.8"
 application_kernel = { path = "../application_kernel" }
 auswerten_adapter = { path = "../auswerten_adapter" }
