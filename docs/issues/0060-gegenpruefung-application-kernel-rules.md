@@ -1,7 +1,7 @@
 ---
 id: "0060"
 title: "Gegenprüfung `application_kernel` gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung `application_kernel` gegen die `.rules`

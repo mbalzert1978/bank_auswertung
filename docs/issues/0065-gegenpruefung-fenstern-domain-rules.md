@@ -1,7 +1,7 @@
 ---
 id: "0065"
 title: "Gegenprüfung `fenstern_domain` gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung `fenstern_domain` gegen die `.rules`

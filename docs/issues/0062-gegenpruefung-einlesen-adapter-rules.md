@@ -1,7 +1,7 @@
 ---
 id: "0062"
 title: "Gegenprüfung `einlesen_adapter` gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung `einlesen_adapter` gegen die `.rules`

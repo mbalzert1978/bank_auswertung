@@ -1,7 +1,7 @@
 ---
 id: "0064"
 title: "Gegenprüfung `obfuskierung_adapter` gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung `obfuskierung_adapter` gegen die `.rules`

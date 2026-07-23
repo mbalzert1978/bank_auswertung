@@ -1,7 +1,7 @@
 ---
 id: "0071"
 title: "Gegenprüfung der vier `_specs`-Crates (Black-Box) gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung der vier `_specs`-Crates (Black-Box) gegen die `.rules`

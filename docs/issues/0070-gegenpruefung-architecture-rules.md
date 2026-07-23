@@ -1,7 +1,7 @@
 ---
 id: "0070"
 title: "Gegenprüfung `architecture` gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung `architecture` gegen die `.rules`

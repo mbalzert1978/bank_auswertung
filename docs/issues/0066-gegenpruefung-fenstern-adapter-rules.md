@@ -1,7 +1,7 @@
 ---
 id: "0066"
 title: "Gegenprüfung `fenstern_adapter` gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung `fenstern_adapter` gegen die `.rules`

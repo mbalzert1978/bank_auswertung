@@ -1,7 +1,7 @@
 ---
 id: "0069"
 title: "Gegenprüfung `io` gegen die `.rules`"
-status: open
+status: closed
 ---
 
 # Gegenprüfung `io` gegen die `.rules`
