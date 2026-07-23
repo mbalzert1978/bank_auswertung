@@ -2,6 +2,11 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repo.
 
+Diese Datei trägt **Projekt-Narrativ, Struktur und Baustand**. Die normativen
+**Coding-Regeln/Konventionen** leben zentral in [.rules/](.rules/) (Format: kurze Aussage +
+Do/Don't) und werden am Ende dieser Datei per `@`-Import automatisch geladen — siehe den
+Abschnitt **„Regeln & Konventionen"**. Regeln dort pflegen, nicht hier duplizieren.
+
 > **Architektur:** modularer Monolith aus **Feature-Slice-Triaden**
 > (`<slice>_domain`/`_adapter`/`_specs`), gekoppelt als **event-getriebene Pipeline
 > über eine Outbox**. Maßgeblich:
@@ -96,15 +101,9 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 (An earlier Python/`uv` scaffold and the earlier shared `domain` crate were removed
 — ignore any lingering Python or `crates/domain` references.)
 
-**Hexagonal cut enforced three ways:** (1) crate level — a `<slice>_domain` crate is
-**dependency-free** (not even `serde`/`thiserror`; errors are hand-written `Display` +
-`std::error::Error`, mapped by the adapter), and a slice reaches a foreign slice only
-through its public `_adapter`, never its `_domain`; (2) the `architecture` test
-(`cargo test -p architecture`) fails on any violated inward edge (domain not blind,
-external dep outside `io`, foreign-`_domain` coupling, specs not black-box, only
-`_adapter` binds `application_kernel`); (3) the `enforce-dependency-direction.py`
-PreToolUse hook blocks a non-sanctioned external `[dependencies]` line at edit time in
-every crate except the deferred `io` crate and `architecture`.
+**Hexagonaler Schnitt, dreifach erzwungen** (Crate-Ebene, `architecture`-Test,
+PreToolUse-Hook) — die Regel mit Do/Don't in
+[.rules/crates/dependencies-und-kapselung.md](.rules/crates/dependencies-und-kapselung.md).
 
 Per slice (value objects live in the owning slice; only DTOs cross the boundary):
 
@@ -227,11 +226,6 @@ trims/rejects-empty today), and persistent seed management
 slice-specific `io` adapters (stores + config loaders) fulfilling the seams, then the `report`
 HTML presenter.** No binary yet.
 
-## Language convention
-
-Project language is **German** → all docs and tests in German. Everything else,
-including code, in **English**.
-
 ## Commands
 
 Standard Cargo, from the repo root:
@@ -245,153 +239,34 @@ cargo fmt                        # format (gate: cargo fmt --check)
 cargo doc --no-deps --workspace  # docs — sixth gate: rustdoc-Warnungen sind harte Fehler
 ```
 
-The **six gates** that must be green: `build`, `test`, `clippy --all-targets`,
-`fmt --check`, `cargo test -p architecture`, and `cargo doc --no-deps --workspace`.
-`cargo doc` is a real gate, not a nicety: `[workspace.lints.rustdoc]` sets
-`private_intra_doc_links`/`broken_intra_doc_links` to `deny`, so öffentliche Doku, die auf
-ein privates oder nicht existierendes Item verlinkt, **bricht den Build** statt nur zu
-warnen (Issue 0048). Ein Kollaborateur darf weiter **benannt** werden (Code-Auszeichnung
-oder Prosa) — nur nicht als toter Link, der keiner werden kann.
+Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate), als Regel
+mit Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
 
 No binary yet (library crate, no `src/main.rs`), so `cargo run` does nothing useful.
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 
 ## Architecture — the big picture
 
-Hexagonal (Ports & Adapters) as a **modular monolith of feature-slice triads**. The
-cut is enforced **at the crate level**: a `<slice>_domain` crate is dependency-free and
-depends on no I/O crate (no `reqwest`/`rusqlite`), so it *cannot* do I/O — guarded by
-the `architecture` test and the PreToolUse hook.
+Hexagonal (Ports & Adapters) als modularer Monolith aus Feature-Slice-Triaden; Pipeline
+`einlesen → obfuskieren → fenstern → auswerten → report`, jeder Schritt ein Outbox-Consumer,
+`obfuskieren` die **Privacy-Grenze**, `auswerten` die Analyse (das LLM nur Orakel für
+**unbekannte** Fingerabdrücke). Zwei Rand-Ports: `Speicher` (SQLite, speichert **DTOs**, nicht
+Domänenobjekte) und die `report`-HTML-Ausgabe. Die **normativen Prinzipien** — Ports,
+Domäne-ist-die-Analyse, Outbox-Kopplung, durchweg terminal, uniformes ID-Handoff — mit
+Do/Don't in [.rules/common/architektur.md](.rules/common/architektur.md).
 
-**The domain is the analysis; the LLM is only an oracle**
-([ADR-0004](docs/adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md)). Reading,
-obfuscating, presenting are adapter jobs. The pure domain does: recurring-outflow
-detection (incl. yearly costs + price increases), transfer (`Umbuchung`) netting, fee
-classification, cashflow per account/month, Pareto ranking, savings candidates, and the
-category register with learned corrections. **Litmus test**: remove the LLM entirely and
-the program is still valuable — only automatic labels for unknown merchants are missing.
+## Regeln (ausgelagert nach `.rules/`)
 
-**The pipeline ([ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md), refined by
-[ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)):**
-`einlesen → obfuskieren → fenstern → auswerten → report`. Each step is its own slice triad and an
-**Outbox consumer** — handles one incoming command and writes, in **one transaction**,
-both its result table and an Outbox message for the next step (atomic, at-least-once,
-resumable). No synchronous next-call; coupling is the message alone. `obfuskieren` is
-the **privacy boundary** (raw before, tokens after); `auswerten` is the analysis and, on
-an **unknown** fingerprint, calls the injected `Kategorisierer` port itself (LLM oracle,
-export → chat → import) — a **domain decision**, not a pipeline step. Two edge ports:
-`Speicher` (SQLite, stores **DTOs**, not domain objects) and the `report` HTML output
-(shows the domain's analysis, not "what the LLM said").
+Die früheren Regel-Abschnitte leben jetzt als atomare Do/Don't-Regeln in [.rules/](.rules/)
+(am Ende dieser Datei per `@`-Import geladen):
 
-Another input format (XML-camt, MT940) = new **io adapter behind `einlesen`'s source
-seam** — no new slice, no domain change; another categorizer/output = new adapter behind
-an existing port. Out of scope now (YAGNI).
-
-## Non-negotiable invariants
-
-The reason the project exists; do not weaken them.
-
-**Privacy / obfuscation** ([ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md),
-[ADR-0001](docs/adr/0001-hexagonale-architektur.md), [ADR-0003](docs/adr/0003-rust-als-sprache.md)):
-
-- Structural identifiers (own IBAN/account no., counter-IBAN, BIC) **never leave the
-  machine**. The boundary is **`obfuskieren`, not the ingress**: raw may **exist and
-  persist locally** up to that step (the `einlesen` table + `einlesen → obfuskieren`
-  message carry raw — no different from the `.csv` on disk); from `obfuskieren` on, only
-  tokens flow. So the compiler-enforced `static_assertions` "no `Serialize`" guard
-  belongs on the **egress DTOs** (categorizer request + report output — where data
-  leaves): embedding a raw identifier in something that leaves is a compile error, not a
-  review miss. It is **not** on `einlesen`'s raw `Iban` (raw never reaches an egress DTO;
-  since [0018](docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
-  it no longer rides an outbox message at all — the batch is fetched **in-process**
-  through the source seam and lives only in the local `einlesen` table); today the guard
-  sits on `obfuskierung`'s egress `ObfuscatedBooking` (the privacy-boundary output).
-  `serde` is allowed — the guarantee rests on the missing `Serialize` on egress types.
-  `Bic` deferred until a format needs it.
-- From `obfuskieren` on, the downstream domain (`auswerten`) receives **no** person-/
-  account-relatable identifier — only obfuscated value objects. The **`Gläubiger-ID`**
-  (public company key) is a deliberate exception, kept as an analysis anchor.
-- Free-text (Empfänger/Verwendungszweck) must pass through the single value object
-  **`ObfuskierterText`**, whose constructor best-effort scrubs embedded identifiers —
-  **heuristic, not provably complete**; state that honestly, don't claim anonymization.
-- **Fail-safe** Firma vs. Privatperson: when unsure, treat as `Person` and pseudonymize.
-  The costlier error is leaking a real name.
-
-**DTO boundary / Anti-Corruption-Layer**
-([ADR-0002](docs/adr/0002-dto-grenze-und-anti-corruption-layer.md)): the domain's only
-public surface is DTOs. **Each port speaks its own narrow DTO**, never a shared god-DTO.
-The `Kategorisierer` port speaks `KategorieAnfrage` (fingerprint + `ObfuskierterText`)
-outbound, `KategorieAntwort` (fingerprint → category) inbound — the answer keys on the
-**fingerprint, never the text**, so re-identification is structurally impossible.
-
-**Fingerprint is domain knowledge**
-([ADR-0004](docs/adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md),
-[ADR-0006](docs/adr/0006-pseudonym-stabilitaet.md)): `Buchung → Fingerabdruck` is a pure
-domain function (incl. payment-intermediary detection + merchant token), **not** an
-adapter concern. The LLM is asked only about fingerprints the domain does not yet know.
-
-**The local secret stays local** (never let it reach an egress DTO — that is a leak path)
-([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md), supersedes ADR-0006's
-"two separate stores"): pseudonym stability rests on a config-injected **seed**, not a
-persistent plaintext↔pseudonym mapping store. The seed (persisted with each obfuscated
-aggregate for rehydration) and the raw `einlesen` table may live locally; the obfuscated
-`Speicher` and every egress DTO carry **neither the seed nor a raw identifier**. Same seed
-→ same `PERSON_x` across imports, so the fingerprint of person-to-person standing orders
-stays stable; an unstable seed re-tokenises everything.
-
-## Domain model conventions ([ADR-0005](docs/adr/0005-domaenenmodell-value-objects-und-summentypen.md))
-
-- **Value objects, not primitives** (_parse, don't validate_): `Betrag`, `KontoId`,
-  `Pseudonym`, `Fingerabdruck`, `GläubigerId`, `ObfuskierterText`. The non-empty string
-  newtypes share one validating core, `NonEmptyString` (trim + reject-empty), built from
-  it via `From`. Validate once at the edge; the type carries the proof. No raw
-  `String`/`f64` crosses the DTO boundary into the domain.
-- **Sum types with exhaustive `match`**, not a flag + optional fields:
-  `Richtung::Eingang|Ausgang`, `Gegenkonto::Eigen(Rolle)|Fremd`, `Empfänger::Firma|Person`,
-  `Buchungsart`. Illegal combinations must be **unconstructible**, not "checked".
-- `Betrag` is **unsigned** with a currency; the sign lives only in `Richtung` (a negative
-  `Eingang` is unconstructible). The domain does **not** sum mixed currencies — the
-  inbound adapter guarantees a single currency.
-- Style **declarative-functional**: pure transformations over immutable values,
-  `map`/`filter`/`fold` over manual loops, `match` over `if/else` cascades. Side effects
-  at the edges (adapters).
-
-## Testing ([ADR-0002](docs/adr/0002-dto-grenze-und-anti-corruption-layer.md), [ADR-0008](docs/adr/0008-event-getriebene-pipeline-und-outbox.md))
-
-Two rules govern *what* to test — the codebase's test culture:
-
-- **The domain does not validate — it demands.** It asks for already-valid,
-  already-decoded, complete values. But *who* enforces what splits three ways: **format
-  decode is `io`'s job** (behind `Money`/`Calendar`: German number/date) — so **do not
-  test format-mechanics for rejection** (sign-less amount, unreadable date, broken
-  payload); that tests `io`/kernel, not the slice. **Presence enforcement is the
-  `_adapter` (ACL)** — the domain demands presence in the type (mandatory field
-  non-`Option`), the adapter's inbound mapping rejects a missing one and **fails the batch
-  terminally**. That is **observable slice behaviour, so specs *do* test it** (a missing
-  mandatory field → redacted, batch-atomic terminal failure). A **domain decode decision**
-  (`Currency::from_code`: is this a currency the domain knows?) is likewise slice
-  behaviour and testable. And a genuine **domain invariant** triggered by bad input stays
-  (e.g. "the terminal failure reason never mirrors a raw value" — redaction). What
-  stays out of the specs is only pure `io`-crate mechanics (reading a file, real
-  decoding).
-- **Test behaviour, not implementation.** Behaviour runs **through the Fluent `*TestApi`**:
-  arrange a DTO, run the real bridge chain against fakes, and the domain objects get built
-  — "if something's wrong, it blows up", so the domain is covered transitively.
-  Implementation churns, so **no** unit tests nailing constructor/algorithm internals
-  (`Currency::from_code`, `Amount::with_direction`, aggregate assembly) — remove them,
-  don't move them into the spec. A test of a genuine standalone rule (`NonEmptyString`:
-  trim + reject-empty; IBAN mod-97 checksum) *may* stay but is redundant (covered via
-  TestApi).
-
-Concretely: **`*_specs` are pure black-box** over the slice's one public adapter surface
-(Fluent `*TestApi` + DTOs + the slice's own naked domain error, re-exported by the adapter —
-no Outbox types), never internals, no DTO-constructor tests in the spec. They test real
-behaviour — happy path (line → command + staged aggregate), fan-out, redaction, and the
-**rejections that are slice behaviour**
-(a missing mandatory field → batch-atomic terminal failure; an unknown currency) — but **not**
-rejection of pure `io` format-mechanics (unreadable date, sign-less amount). A wrapper VO
-with guaranteed-valid input (`From<NonEmptyString>` only) and a logicless port/fake get
-**no** test (pure noise).
+- **Privacy/Obfuskierung, DTO-Grenze, Fingerabdruck, lokaler Seed** →
+  [.rules/common/privacy-invarianten.md](.rules/common/privacy-invarianten.md) — der Grund,
+  warum das Projekt existiert; nicht abschwächen.
+- **Domänenmodell** (Value Objects, Summentypen, `Betrag` vorzeichenlos, deklarativ) →
+  [.rules/common/domaenenmodell.md](.rules/common/domaenenmodell.md).
+- **Testkultur** (Domäne verlangt statt validiert; Black-Box über die `*TestApi`) →
+  [.rules/common/testing.md](.rules/common/testing.md).
 
 ## Build order (pipeline flow order)
 
@@ -437,3 +312,28 @@ for a real `einlesen` run; a **stable config seed** + **scrubbing rules** for
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)); the **Eigene-Konten-Config**
 (per own account: IBAN + role Giro/Haushalt/Spar/Vorlauf — single source for
 `Gegenkonto::Eigen|Fremd`) before the `auswerten` run.
+
+## Regeln & Konventionen
+
+Die normativen Coding-Regeln liegen zentral in [.rules/](.rules/) (jede Regel: kurze
+Aussage + Do/Don't). Die folgenden `@`-Importe laden sie jede Session automatisch — Regeln
+**dort** pflegen, neue Regeln im selben Format ergänzen (siehe
+[.rules/README.md](.rules/README.md)):
+
+@.rules/common/architektur.md
+@.rules/common/privacy-invarianten.md
+@.rules/common/domaenenmodell.md
+@.rules/common/testing.md
+@.rules/common/sprache.md
+@.rules/common/tickets.md
+@.rules/common/kein-automatisches-memory.md
+@.rules/rust/gates.md
+@.rules/rust/idiome.md
+@.rules/rust/nebenlaeufigkeit.md
+@.rules/rust/performance.md
+@.rules/rust/testing-werkzeuge.md
+@.rules/rust/compiler-getriebenes-implementieren.md
+@.rules/sql/schema-konventionen.md
+@.rules/sql/queries-und-performance.md
+@.rules/sql/migrationen.md
+@.rules/crates/dependencies-und-kapselung.md
