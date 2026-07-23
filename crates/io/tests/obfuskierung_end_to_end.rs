@@ -126,17 +126,17 @@ fn ein_blanker_partition_key_wird_critical() {
 
 // --- Config-Loader speist den Seed in den obfuskierung-Consumer (Issue 0059) -------------
 
-/// Die gültige Seed-Fixture, aus der der Loader den Seed liest.
-const VALID_SEED_CONFIG: &str = include_str!("../fixtures/obfuskierung_seed/valid.toml");
-
 #[test]
 fn der_aus_der_toml_geladene_seed_wird_in_den_consumer_gereicht() {
-    // Der Loader liest den Seed aus der Datei; genau dieser Wert geht — als `u64`-Wert, nicht als
-    // Datei — in den `obfuskierung`-Consumer. Der Slice liest **keine** Datei. Beweisbar am
-    // committeten Aggregat: es persistiert den Seed, mit dem es obfuskiert wurde (ADR-0010), also
-    // muss dieser exakt der geladene Wert sein.
-    let config = io::obfuskierung::SeedConfig::from_toml_str(VALID_SEED_CONFIG)
-        .expect("gültige Seed-Config lädt");
+    // Der Loader liest den Seed über den **echten Dateisystem-Pfad** `load` aus der Fixture-Datei;
+    // genau dieser Wert geht — als `u64`-Wert, nicht als Datei — in den `obfuskierung`-Consumer. Der
+    // Slice liest **keine** Datei. Beweisbar am committeten Aggregat: es persistiert den Seed, mit dem
+    // es obfuskiert wurde (ADR-0010), also muss dieser exakt der geladene Wert sein. Der Pfad wird
+    // crate-relativ über `CARGO_MANIFEST_DIR` gebaut (unabhängig vom Working Directory des Runners).
+    let config_pfad = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures/obfuskierung_seed/valid.toml");
+    let config = io::obfuskierung::SeedConfig::load(&config_pfad)
+        .expect("gültige Seed-Config lädt über load");
     let source = FakeSource::with("buchung-1", gültige_zeile());
     let db = FakeDb::default();
 

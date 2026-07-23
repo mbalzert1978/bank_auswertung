@@ -24,6 +24,30 @@ fn eine_gueltige_config_liefert_den_erwarteten_seed() {
     assert_eq!(config.seed(), 42);
 }
 
+// --- Happy Path über das echte Dateisystem: `load` liest die Fixture-Datei ---------------
+
+#[test]
+fn der_dateisystem_pfad_load_liest_die_fixture_erfolgreich() {
+    // Der Produktionspfad ist `load` (fs-read + Parse), nicht `from_toml_str` — also deckt ein Test
+    // ihn gegen die reale Fixture-Datei ab. Der Pfad wird crate-relativ über `CARGO_MANIFEST_DIR`
+    // gebaut, damit er nicht vom Working Directory des Test-Runners abhängt.
+    let pfad = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/obfuskierung_seed/valid.toml");
+    let config = SeedConfig::load(&pfad).expect("die gültige Fixture-Datei lädt über load");
+
+    assert_eq!(config.seed(), 42);
+}
+
+// --- Redaktion: der Seed leakt nicht über die Debug-Ausgabe ------------------------------
+
+#[test]
+fn die_debug_ausgabe_redigiert_den_seed() {
+    // Der Seed ist so sensibel wie ein Klartext (ADR-0010): eine `{:?}`-Ausgabe (etwa in einer
+    // Panik-Message) darf ihn nie zeigen. Ein auffälliger Seed-Wert darf im Debug-String fehlen.
+    let config = SeedConfig::from_toml_str("seed = 1234567").expect("gültige Config lädt");
+
+    assert!(!format!("{config:?}").contains("1234567"));
+}
+
 // --- Fehlende Config: sauberer, redigierter Fehlschlag -----------------------------------
 
 #[test]

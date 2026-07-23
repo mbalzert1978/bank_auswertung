@@ -17,12 +17,24 @@
 use std::path::Path;
 
 /// Der geladene Obfuskierungs-Seed als reiner Wert-Typ. Trägt genau **einen** Wert, den rohen
-/// `u64`-Seed, den `io` dem `obfuskierung`-Consumer als Wert hereinreicht. Der Wert selbst wird
-/// bewusst **nicht** über [`Debug`](std::fmt::Debug)/[`Display`](std::fmt::Display) o. Ä. ausgegeben
-/// — er bleibt lokal (ADR-0010).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `u64`-Seed, den `io` dem `obfuskierung`-Consumer als Wert hereinreicht. Der Seed ist so sensibel
+/// wie ein Klartext (ADR-0010): er bleibt **lokal** und darf nie in eine Ausgabe leaken — darum
+/// **redigiert** die von Hand geschriebene [`Debug`](std::fmt::Debug)-Impl den Wert (kein
+/// `#[derive(Debug)]`, das ihn etwa in Panic-/Log-Zeilen durchreichen würde), und der Typ leitet
+/// **kein** `Display`/`Serialize` ab.
+#[derive(Clone)]
 pub struct SeedConfig {
     seed: u64,
+}
+
+impl std::fmt::Debug for SeedConfig {
+    /// Redigiert: der Seed selbst erscheint **nie** in der Debug-Ausgabe (ADR-0010) — sonst könnte
+    /// ein `{:?}` (etwa in einer `expect`/`unwrap`-Panik oder einem Log) ihn leaken.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SeedConfig")
+            .field("seed", &"<redigiert>")
+            .finish()
+    }
 }
 
 impl SeedConfig {
