@@ -148,6 +148,9 @@ fn der_aus_der_toml_geladene_seed_wird_in_den_consumer_gereicht() {
 
     // Der geladene Seed reiste bis ins committete Aggregat — nicht eine hartverdrahtete Konstante.
     let bookings = db.committed_bookings();
-    assert_eq!(bookings.len(), 1);
-    assert_eq!(bookings[0].seed, config.seed());
+    assert_eq!(bookings.len(), 1, "genau eine committete Buchung erwartet");
+    let buchung = bookings
+        .first()
+        .expect("genau eine committete Buchung erwartet");
+    assert_eq!(buchung.seed, config.seed());
 }

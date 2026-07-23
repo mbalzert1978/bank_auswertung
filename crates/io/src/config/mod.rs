@@ -17,7 +17,11 @@
 //! Einstellungen (Eigene-Konten-Pfad …) folgen demselben Muster. **Beide Loader teilen sich einen
 //! einzigen** [`ConfigError`] — die redigierte, statische Fehler-Ursache jedes fehlgeschlagenen
 //! Ladens; `io` reicht den geladenen Wert dann als rohen Wert in den jeweiligen Consumer (die
-//! Domäne liest **keine** Datei).
+//! Domäne liest **keine** Datei). Der zugehörige [`ConfigKind`] ist **bewusst Teil der öffentlichen
+//! API**: er ist der typsichere, redigierte Loader-Diskriminant der beiden geteilten Fehlerformen
+//! ([`Unreadable`](ConfigError::Unreadable)/[`Malformed`](ConfigError::Malformed)) — ein Summentyp
+//! statt eines stringly-typed Labels (ADR-0005) — und muss öffentlich sein, sobald der öffentliche
+//! [`ConfigError`] ihn trägt.
 
 mod fenster;
 mod seed;
