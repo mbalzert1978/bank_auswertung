@@ -182,6 +182,11 @@ impl UnitOfWork for EinlesenUnit {
 /// Das Schema der `einlesen`-Ergebnis-Tabelle: die abgeflachte [`Line`] unter der DB-vergebenen ID.
 /// Rohe Identifikatoren (IBANs, Klarname) liegen hier **roh** — das ist erlaubt (lokale Persistenz,
 /// kein Egress; obfuskiert wird der nachgelagerte Slice, [ADR-0008](../../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)).
+///
+/// `direction` ist enum-artig (nur `incoming`/`outgoing`) und wird per `CHECK`-Constraint auf
+/// DB-Ebene erzwungen; `created_at`/`updated_at` (Epoch-Millis) tragen den Audit-Zeitstempel jeder
+/// Zeile — beide Konventionen aus `.rules/sql/schema-konventionen.md`. Die Tabelle ist append-only,
+/// daher fällt `updated_at` mit `created_at` zusammen.
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS einlesen_lines (
     id               TEXT    PRIMARY KEY,
@@ -189,7 +194,7 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
     counter_account  TEXT,
     amount_minor_units      INTEGER NOT NULL,
     currency         TEXT    NOT NULL,
-    direction        TEXT    NOT NULL,
+    direction        TEXT    NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
     recipient_name   TEXT,
     creditor_id      TEXT,
     booking_year     INTEGER NOT NULL,
@@ -199,7 +204,9 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
     value_month      INTEGER NOT NULL,
     value_day        INTEGER NOT NULL,
     purpose          TEXT,
-    booking_text     TEXT
+    booking_text     TEXT,
+    created_at       INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at       INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 );";
 
 const INSERT_LINE: &str = "\

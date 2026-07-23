@@ -18,6 +18,13 @@ members = [
     "architecture",
 ]
 
+# Maximale Laufzeit-Performance im Release-Build (.rules/rust/performance.md):
+# Link-Time-Optimization über alle Crates hinweg und eine einzige Codegen-Einheit
+# ⇒ maximale Cross-Function-Inlining-Chancen. Bewusst langsamerer Build gegen schnelleres Binary.
+[profile.release]
+lto = true
+codegen-units = 1
+
 [workspace.lints.rustdoc]
 # Regression guard (Issue 0048): public docs must not link to private or
 # non-existent items. `deny` turns the warning into a hard failure so

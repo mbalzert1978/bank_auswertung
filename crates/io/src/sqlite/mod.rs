@@ -341,6 +341,11 @@ impl From<rusqlite::Error> for SqliteCommitError {
 /// hält im Envelope den Zustellversuchs-Zähler bereit, den erst die attempt-basierte
 /// Retry → Dead-Letter-Eskalation (Build-Order Schritt 5) erhöht und honoriert. Bis dahin bleibt sie
 /// auf `0`, und Redelivery ist unbegrenzt (s. [`SqliteOutbox::deliver_open`]).
+/// `created_at`/`updated_at` (Epoch-Millis) tragen den Row-Audit-Zeitstempel jeder Nachricht
+/// (`.rules/sql/schema-konventionen.md`) — bewusst getrennt vom fachlichen `occurred_on_utc`
+/// (Auftrittszeitpunkt der Nachricht) und dem Ack-Marker `processed_on_utc`: `created_at` hält die
+/// Einfüge-Zeit, `updated_at` wird beim Ack mitgezogen (s. `ACK_MESSAGE`), damit die letzte
+/// Zeilen-Änderung rekonstruierbar bleibt.
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS outbox (
     id              TEXT    PRIMARY KEY,
@@ -349,7 +354,9 @@ CREATE TABLE IF NOT EXISTS outbox (
     content         TEXT    NOT NULL DEFAULT '',
     occurred_on_utc INTEGER NOT NULL,
     attempt         INTEGER NOT NULL DEFAULT 0,
-    processed_on_utc INTEGER
+    processed_on_utc INTEGER,
+    created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 );
 CREATE INDEX IF NOT EXISTS outbox_open_idx
     ON outbox (processed_on_utc) WHERE processed_on_utc IS NULL;";
@@ -374,7 +381,9 @@ ORDER BY rowid;";
 /// durch einen zweiten Prozess auf derselben Datei), aktualisiert er `0` Zeilen — und der Commit von
 /// [`SqliteUnit`] scheitert, statt still Seiteneffekte doppelt zu committen.
 const ACK_MESSAGE: &str = "\
-UPDATE outbox SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+UPDATE outbox
+SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    updated_at       = CAST(unixepoch('subsec') * 1000 AS INTEGER)
 WHERE id = ?1 AND processed_on_utc IS NULL;";
 
 #[cfg(test)]
