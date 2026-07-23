@@ -37,9 +37,13 @@ pub struct EinlesenSqliteStore {
 
 impl EinlesenSqliteStore {
     /// Baut den Store über dem gegebenen Rückgrat und legt die `einlesen`-Ergebnis-Tabelle an
-    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten).
+    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten). `ensure_columns` rüstet die
+    /// Audit-Spalten auf einer **alten** Tabelle nach, da `CREATE TABLE IF NOT EXISTS` das nicht tut.
     pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
-        outbox.with_connection(|conn| conn.execute_batch(SCHEMA))?;
+        outbox.with_connection(|conn| {
+            conn.execute_batch(SCHEMA)?;
+            crate::sqlite::ensure_columns(conn, "einlesen_lines", crate::sqlite::AUDIT_COLUMNS)
+        })?;
         Ok(Self { outbox })
     }
 }
@@ -215,8 +219,13 @@ INSERT INTO einlesen_lines (
     recipient_name, creditor_id,
     booking_year, booking_month, booking_day,
     value_year, value_month, value_day,
-    purpose, booking_text
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16);";
+    purpose, booking_text,
+    created_at, updated_at
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER)
+);";
 
 const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 
