@@ -2,7 +2,7 @@
 
 Stand: 2026-07-23
 
-## Neu (offen) — event-getriebene Pipeline (ADR-0008)
+## Erledigt — event-getriebene Pipeline (ADR-0008)
 
 Aus der Fortschreibung der PRD nach [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md)
 (event-getriebene Pipeline aus Slices mit Outbox) abgeleitet — deckt die bislang
