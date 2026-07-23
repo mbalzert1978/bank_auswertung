@@ -302,7 +302,7 @@ mod tests {
     }
 
     /// Liest die abgelegten obfuskiert-Zeilen (nur für Tests). Der reale Lesepfad des Folge-Slice
-    /// (`fenstern`) liegt hinter dessen eigenem Seam (Issue 0057, vertagt).
+    /// (`fenstern`) liegt hinter dessen eigenem Seam (`ObfuskiertWindowSource`, Issue 0057).
     fn stored_bookings(store: &ObfuskierungSqliteStore) -> rusqlite::Result<Vec<StoredBooking>> {
         store.outbox.with_connection(|conn| {
             let mut statement = conn.prepare(
