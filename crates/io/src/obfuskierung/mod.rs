@@ -13,8 +13,9 @@
 //! append-only/unveränderlich) bleibt **außerhalb** der Transaktion und weitet sie nicht. Den Seed
 //! reicht der Aufrufer als rohen `u64` herein — der reale toml-Loader [`SeedConfig`] liest ihn aus
 //! der Config ([Issue 0059](../../../docs/issues/0059-config-loader-toml-seed.md),
-//! [ADR-0010](../../../docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)), im Integrationstest
-//! eine Fixture-Konstante; die Domäne liest **keine** Datei.
+//! [ADR-0010](../../../docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)); der
+//! Config-Loader-Integrationstest reicht genau diesen **geladenen** Wert in den Consumer, die übrigen
+//! Integrationstests eine Fixture-Konstante — die Domäne liest **keine** Datei.
 
 mod config;
 
