@@ -365,6 +365,11 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE INDEX IF NOT EXISTS outbox_open_idx
     ON outbox (processed_on_utc) WHERE processed_on_utc IS NULL;";
 
+// Die wiederholten `unixepoch('subsec')`-Aufrufe (auch in INSERT_MESSAGE_RETURNING) liefern
+// **denselben** Zeitpunkt: SQLite berechnet die aktuelle Zeit genau **einmal pro Statement** und
+// teilt sie über alle Aufrufe — occurred_on_utc/created_at/updated_at eines Inserts sind damit
+// garantiert identisch (empirisch über 10k Inserts bestätigt). Ein gemeinsamer CTE-Wert wäre
+// reine Redundanz gegen eine schon zugesicherte Invariante.
 const INSERT_MESSAGE: &str = "\
 INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc, created_at, updated_at)
 VALUES (

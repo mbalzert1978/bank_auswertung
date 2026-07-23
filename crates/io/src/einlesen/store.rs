@@ -213,6 +213,9 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
     updated_at       INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 );";
 
+// Die beiden `unixepoch('subsec')`-Aufrufe liefern **denselben** Zeitpunkt: SQLite berechnet die
+// aktuelle Zeit **einmal pro Statement**, sodass created_at und updated_at bei diesem append-only
+// Insert garantiert zusammenfallen (empirisch bestätigt) — kein CTE nötig.
 const INSERT_LINE: &str = "\
 INSERT INTO einlesen_lines (
     id, ordering_account, counter_account, amount_minor_units, currency, direction,
