@@ -45,11 +45,21 @@ pub struct FensternSqliteStore {
 impl FensternSqliteStore {
     /// Baut den Store über dem gegebenen Rückgrat und legt die `auswertungsfenster`-/
     /// `auswertungsfenster_buchungen`-Tabellen an (`IF NOT EXISTS` — ein bestehender Bestand bleibt
-    /// erhalten). `ensure_columns` rüstet die Audit-Spalten auf einer **alten** Tabelle nach.
+    /// erhalten). `ensure_columns` rüstet die Audit-Spalten auf **beiden** Tabellen nach, falls sie
+    /// aus einer **alten** DB-Datei ohne sie stammen.
     pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
         outbox.with_connection(|conn| {
             conn.execute_batch(SCHEMA)?;
-            crate::sqlite::ensure_columns(conn, "auswertungsfenster", crate::sqlite::AUDIT_COLUMNS)
+            crate::sqlite::ensure_columns(
+                conn,
+                "auswertungsfenster",
+                crate::sqlite::AUDIT_COLUMNS,
+            )?;
+            crate::sqlite::ensure_columns(
+                conn,
+                "auswertungsfenster_buchungen",
+                crate::sqlite::AUDIT_COLUMNS,
+            )
         })?;
         Ok(Self { outbox })
     }
@@ -177,6 +187,8 @@ CREATE TABLE IF NOT EXISTS auswertungsfenster_buchungen (
     window_id  TEXT    NOT NULL,
     position   INTEGER NOT NULL,
     booking_id TEXT    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
     PRIMARY KEY (window_id, position)
 );
 CREATE INDEX IF NOT EXISTS auswertungsfenster_buchungen_window_id_idx
@@ -190,7 +202,11 @@ VALUES (?1, ?2, ?3, ?4,
 );";
 
 const INSERT_BOOKING: &str = "\
-INSERT INTO auswertungsfenster_buchungen (window_id, position, booking_id) VALUES (?1, ?2, ?3);";
+INSERT INTO auswertungsfenster_buchungen (window_id, position, booking_id, created_at, updated_at)
+VALUES (?1, ?2, ?3,
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER)
+);";
 
 #[cfg(test)]
 mod tests {
@@ -317,6 +333,19 @@ mod tests {
                         .collect::<rusqlite::Result<Vec<String>>>()?;
                     Ok((from_day, to_day, currency, booking_ids))
                 })
+                .collect()
+        })
+    }
+
+    /// Die `partition_key`s aller publizierten Nachrichten eines Typs (nur für Tests) — belegt, dass
+    /// ein terminaler Fehler **keinen** Zeiger stromabwärts hinterlässt (ADR-0012, keine halbe Kette).
+    fn published(outbox: &SqliteOutbox, message_type: &str) -> rusqlite::Result<Vec<String>> {
+        outbox.with_connection(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT partition_key FROM outbox WHERE message_type = ?1 ORDER BY rowid;",
+            )?;
+            statement
+                .query_map(params![message_type], |row| row.get(0))?
                 .collect()
         })
     }
@@ -569,6 +598,13 @@ mod tests {
             matches!(outcomes.last(), Some((_, Err(OutboxError::Warning { .. })))),
             "ein unerreichbarer Fenster-Store muss den Fenster-Schritt terminal failen lassen: \
              {outcomes:?}"
+        );
+        // …und **ohne zu publizieren**: der terminale Store-Fehler hinterlässt weder einen
+        // WindowClosed- noch einen HistoryComplete-Zeiger stromabwärts (ADR-0012, keine halbe Kette).
+        assert!(
+            published(&outbox, WINDOW_CLOSED_MESSAGE_TYPE)?.is_empty()
+                && published(&outbox, HISTORY_COMPLETE_MESSAGE_TYPE)?.is_empty(),
+            "ein terminaler Fenster-Store-Fehler darf keinen Zeiger publizieren: {outcomes:?}"
         );
         Ok(())
     }
