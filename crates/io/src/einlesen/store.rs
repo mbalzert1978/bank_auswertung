@@ -338,7 +338,7 @@ mod tests {
         );
         let mut dispatcher = Dispatcher::new();
         register_fresh(&mut dispatcher, CONSUMED_MESSAGE_TYPE, Box::new(konsument));
-        outbox.enqueue(CONSUMED_MESSAGE_TYPE, "auszug-juni")?;
+        outbox.enqueue(CONSUMED_MESSAGE_TYPE, fixture)?;
         outbox.deliver_open(&dispatcher)
     }
 
