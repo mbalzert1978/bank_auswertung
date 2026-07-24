@@ -113,7 +113,7 @@ impl AnalysisWindowSeam for AuswertungsfensterSource {
             return Ok(None);
         };
         let raw = self.raw_bookings(SELECT_WINDOW_BOOKINGS, &[&window_id])?;
-        let seed_marker = raw.first().map(RawBooking::seed_marker).unwrap_or_default();
+        let seed_marker = window_seed_marker(&raw)?;
         let bookings = raw
             .iter()
             .map(RawBooking::to_booking)
@@ -229,6 +229,25 @@ impl RawBooking {
             )),
         }
     }
+}
+
+/// Leitet den **einen** Seed-Marker des Fensters aus seinen Zeilen ab und **erzwingt dabei die
+/// Fenster-Invariante**: alle Buchungen eines Fensters stammen aus **einer** Tokenisierung, tragen
+/// also denselben `seed`. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
+/// **terminal + redigiert** statt still einen Marker der ersten Zeile zu wählen — sonst könnte die
+/// [`SeedMarker`](auswerten_adapter)-Schranke der Domäne stillschweigend verfälscht werden. Ein
+/// Fenster **ohne** Zeilen trägt keinen Marker (leerer String); die ACL deutet das terminal als
+/// fehlendes Pflichtfeld.
+fn window_seed_marker(raw: &[RawBooking]) -> Result<String, SourceUnavailable> {
+    let Some(first) = raw.first() else {
+        return Ok(String::new());
+    };
+    if raw.iter().any(|booking| booking.seed != first.seed) {
+        return Err(unavailable_message(
+            "Fenster trägt Buchungen aus unterschiedlichen Tokenisierungen",
+        ));
+    }
+    Ok(first.seed_marker())
 }
 
 /// Deutet einen gespeicherten `YYYY-MM-DD`-Textstamp zum sortierbaren `i64`-Tag-Stamp über den
@@ -363,5 +382,40 @@ mod tests {
             "ein unbekanntes Fenster ist Ok(None), kein Fehler"
         );
         Ok(())
+    }
+
+    /// Baut eine rohe Zeile mit einem gegebenen `seed`; die übrigen Zellen sind für die
+    /// Marker-Ableitung belanglos.
+    fn raw_with_seed(seed: i64) -> RawBooking {
+        RawBooking {
+            booking_day: "2024-06-20".to_string(),
+            amount_minor_units: 1000,
+            direction: "outgoing".to_string(),
+            recipient_kind: "absent".to_string(),
+            recipient_name: None,
+            recipient_creditor_id: None,
+            recipient_pseudonym: None,
+            purpose: None,
+            counter_account: None,
+            seed,
+        }
+    }
+
+    /// Tragen alle Zeilen denselben Seed, ist der Marker der ihre — eine Tokenisierung je Fenster.
+    #[test]
+    fn ein_einheitlicher_seed_ergibt_den_marker_dieser_tokenisierung() {
+        let raw = vec![raw_with_seed(42), raw_with_seed(42)];
+        assert_eq!(window_seed_marker(&raw), Ok(seed_marker(42)));
+    }
+
+    /// Gemischte Seeds sind ein korrupter Bestand: fail-fast terminal + redigiert, nie still der
+    /// Marker der ersten Zeile.
+    #[test]
+    fn gemischte_seeds_failen_terminal_statt_still_den_ersten_zu_nehmen() {
+        let raw = vec![raw_with_seed(42), raw_with_seed(43)];
+        assert!(
+            window_seed_marker(&raw).is_err(),
+            "unterschiedliche Tokenisierungen im selben Fenster müssen terminal failen"
+        );
     }
 }
