@@ -438,6 +438,43 @@ pub(crate) fn ensure_columns(
         })
 }
 
+/// Mintet eine neue ID **synchron an der DB** — dasselbe Rezept, das jeder slice-spezifische Store
+/// beim Ablegen braucht: ein zufälliges 128-Bit-`randomblob`, hex-kodiert.
+pub(crate) const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
+
+/// Preflight + ID-Minting in einem: prüft über `probe_sql`, ob der Store erreichbar ist (Schema
+/// vorhanden — ein fehlendes Schema failt **hier** terminal, nicht erst als Commit-Retry), und mintet
+/// dann die neue Zeilen-ID an der DB ([`MINT_ID`]). `probe_sql` ist stets das slice-eigene
+/// `INSERT`-Statement; nur seine Präparierbarkeit wird geprüft, es wird nicht ausgeführt.
+pub(crate) fn mint_id(conn: &Connection, probe_sql: &str) -> rusqlite::Result<String> {
+    conn.prepare(probe_sql).map(drop)?;
+    conn.query_row(MINT_ID, [], |row| row.get(0))
+}
+
+/// Erzeugt für einen `SqliteUnit`-Newtype (`Foo(SqliteUnit)`) die beiden Outbox-Impls, die nur an
+/// `self.0` durchreichen: [`OutboxPublisher`] und [`UnitOfWork`] (mit [`SqliteCommitError`]). Die
+/// generische [`SqliteUnit`] implementiert beide bereits — der Newtype erbt sie hier wortgleich,
+/// statt jeden Store die Durchreichung von Hand wiederholen zu lassen.
+macro_rules! sqlite_backed_unit {
+    ($ty:ty) => {
+        impl OutboxPublisher for $ty {
+            fn publish<T: OutboxCommand>(&self, command: T) {
+                self.0.publish(command);
+            }
+        }
+
+        impl UnitOfWork for $ty {
+            type Error = SqliteCommitError;
+
+            fn commit(self) -> Result<(), SqliteCommitError> {
+                self.0.commit()
+            }
+        }
+    };
+}
+
+pub(crate) use sqlite_backed_unit;
+
 #[cfg(test)]
 mod tests {
     use super::*;

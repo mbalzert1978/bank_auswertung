@@ -34,7 +34,7 @@ use rusqlite::{Transaction, params};
 use crate::MessageId;
 use crate::obfuskierung::UnitFactory;
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit};
+use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
 
 /// Der reale `obfuskierung`-Ergebnis-Store: die [`UnitFactory`](crate::obfuskierung::UnitFactory) des
 /// Slice über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt
@@ -77,39 +77,24 @@ impl ObfuscatedStoreSeam for ObfuskierungUnit {
     /// terminal als [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und
     /// `Obfuscated`-Publish oder gar nicht.
     fn save(&self, booking: &ObfuscatedBooking) -> Result<String, StoreUnavailable> {
-        let row = BookingRow::try_from(booking)?;
+        let amount_minor_units =
+            i64::try_from(booking.amount_minor_units).map_err(|_overflow| StoreUnavailable)?;
         let id: String = self
             .0
-            .with_connection(|conn| {
-                // Preflight: ist der Store erreichbar (Schema vorhanden)? Ein fehlendes Schema failt
-                // **hier** terminal, nicht erst als Commit-Retry — die ID wird an der DB gemintet.
-                conn.prepare(INSERT_BOOKING).map(drop)?;
-                conn.query_row(MINT_ID, [], |r| r.get(0))
-            })
+            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_BOOKING))
             .map_err(|_io| StoreUnavailable)?;
-        let row = row.with_id(id.clone());
+        let row = BookingRow::new(id.clone(), booking, amount_minor_units);
         self.0.stage(move |tx| row.insert(tx));
         Ok(id)
     }
 }
 
-impl OutboxPublisher for ObfuskierungUnit {
-    fn publish<T: OutboxCommand>(&self, command: T) {
-        self.0.publish(command);
-    }
-}
-
-impl UnitOfWork for ObfuskierungUnit {
-    type Error = SqliteCommitError;
-
-    fn commit(self) -> Result<(), SqliteCommitError> {
-        self.0.commit()
-    }
-}
+sqlite_backed_unit!(ObfuskierungUnit);
 
 /// Die abgeflachte [`ObfuscatedBooking`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
-/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die `id` kommt erst nach
-/// dem Minten dazu ([`with_id`](BookingRow::with_id)).
+/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruiert **stets mit**
+/// der frisch geminteten DB-ID ([`new`](BookingRow::new)) — eine Row mit leerer Platzhalter-ID ist
+/// unkonstruierbar (Domänenmodell-Regel: illegale Zustände unkonstruierbar machen).
 struct BookingRow {
     id: String,
     source_id: String,
@@ -161,26 +146,23 @@ impl From<&Recipient> for RecipientRow {
     }
 }
 
-impl TryFrom<&ObfuscatedBooking> for BookingRow {
-    type Error = StoreUnavailable;
-
-    /// Flacht die obfuskierte Buchung ab. `amount` ist eine **Magnitude** → `i64::try_from` (ein
-    /// Betrag jenseits `i64::MAX` minor units ist unrealistisch und failt terminal als
-    /// [`StoreUnavailable`] — Speicher-Mechanik, nie ein Rohwert). Der `seed` dagegen ist ein
-    /// **opaker `u64`** und wird **bitweise** als `i64` umgedeutet (`u64::cast_signed`, Rückweg
-    /// `i64::cast_unsigned`), damit ein Seed > `i64::MAX` verlustfrei durch die INTEGER-Spalte reist,
-    /// statt terminal abgelehnt zu werden.
-    fn try_from(booking: &ObfuscatedBooking) -> Result<Self, StoreUnavailable> {
-        Ok(Self {
-            id: String::new(),
+impl BookingRow {
+    /// Flacht die obfuskierte Buchung unter der frisch geminteten DB-`id` (zugleich der publizierte
+    /// Zeiger) ab. `amount_minor_units` ist schon als `i64` vorgeprüft — eine **Magnitude** jenseits
+    /// `i64::MAX` ist unrealistisch und failt terminal im `save` als [`StoreUnavailable`]
+    /// (Speicher-Mechanik, nie ein Rohwert). Der `seed` dagegen ist ein **opaker `u64`** und wird
+    /// **bitweise** als `i64` umgedeutet (`u64::cast_signed`, Rückweg `i64::cast_unsigned`), damit ein
+    /// Seed > `i64::MAX` verlustfrei durch die INTEGER-Spalte reist, statt terminal abgelehnt zu werden.
+    fn new(id: String, booking: &ObfuscatedBooking, amount_minor_units: i64) -> Self {
+        Self {
+            id,
             source_id: booking.source_id.clone(),
             ordering_account: booking.ordering_account.as_str().to_string(),
             counter_account: booking
                 .counter_account
                 .as_ref()
                 .map(|account| account.as_str().to_string()),
-            amount_minor_units: i64::try_from(booking.amount_minor_units)
-                .map_err(|_overflow| StoreUnavailable)?,
+            amount_minor_units,
             currency: booking.currency.clone(),
             direction: booking.direction.clone(),
             recipient: RecipientRow::from(&booking.recipient),
@@ -195,15 +177,7 @@ impl TryFrom<&ObfuscatedBooking> for BookingRow {
                 .as_ref()
                 .map(|text| text.as_str().to_string()),
             seed: booking.seed.cast_signed(),
-        })
-    }
-}
-
-impl BookingRow {
-    /// Setzt die frisch gemintete DB-ID (die zugleich der publizierte Zeiger ist).
-    fn with_id(mut self, id: String) -> Self {
-        self.id = id;
-        self
+        }
     }
 
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
@@ -286,20 +260,16 @@ INSERT INTO obfuskiert (
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
 
-const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Dispatcher;
-    use crate::einlesen::{
-        CONSUMED_MESSAGE_TYPE as EINLESEN_CONSUMED, EinlesenSqliteStore, GermanCalendar,
-        GermanMoney, IsoCurrencies, consumer as einlesen_consumer,
-    };
+    use crate::einlesen::EinlesenSqliteStore;
     use crate::obfuskierung::{
         CONSUMED_MESSAGE_TYPE, EinlesenRowSource, SeededObfuscator, consumer,
     };
     use crate::outbox::OutboxError;
+    use crate::pipeline_test_support::{SEED, Stage, register_fresh, seed_through};
     use application_kernel::PublishCommand;
     use obfuskierung_adapter::ObfuscatedMessage;
 
@@ -308,20 +278,9 @@ mod tests {
     /// still am Test vorbeidriftet.
     const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MESSAGE_TYPE;
 
-    const SEED: u64 = 42;
     /// Die rohe Auftraggeber-IBAN der `gueltig.csv`-Fixture — sie darf in **keinem** obfuskiert-Token
     /// und in **keinem** Fehlergrund auftauchen (Datenschutz-Redaktion).
     const ROH_IBAN: &str = "DE89370400440532013000";
-
-    /// Baut den echten CSV-CAMT-v8-Reader auf die benannte `einlesen`-Fixture (Pfad relativ zum
-    /// io-Crate) — dieselben Fixtures wie der `einlesen`-Store-Test.
-    fn csv_source(name: &str) -> crate::einlesen::CsvCamtV8Source {
-        let path = format!(
-            "{}/fixtures/einlesen/csv/{name}",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        crate::einlesen::CsvCamtV8Source::new(path)
-    }
 
     /// Eine flach zurückgelesene `obfuskiert`-Zeile (nur die verwerteten Spalten) — genug, um
     /// Feld-Treue und die Datenschutz-Invariante am realen Bestand zu prüfen, ohne die
@@ -343,7 +302,7 @@ mod tests {
     }
 
     /// Liest die abgelegten obfuskiert-Zeilen (nur für Tests). Der reale Lesepfad des Folge-Slice
-    /// (`fenstern`) liegt hinter dessen eigenem Seam (Issue 0057, vertagt).
+    /// (`fenstern`) liegt hinter dessen eigenem Seam (`ObfuskiertWindowSource`, Issue 0057).
     fn stored_bookings(store: &ObfuskierungSqliteStore) -> rusqlite::Result<Vec<StoredBooking>> {
         store.outbox.with_connection(|conn| {
             let mut statement = conn.prepare(
@@ -384,55 +343,31 @@ mod tests {
         })
     }
 
-    /// Fährt die **reale** zweistufige Pipeline auf **einem** Rückgrat: erst der `einlesen`-Consumer
-    /// über der CSV-Fixture (landet die reale `einlesen_lines`-Zeile und publiziert `Ingested`), dann
-    /// der `obfuskierung`-Consumer, der genau diese `Ingested`-Nachricht konsumiert. Gibt die Ausgänge
-    /// des **zweiten** (obfuskierung-)Laufs zurück.
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test-Helfer: die assert! prüfen die Pipeline-Invarianten vor dem obfuskierung-Lauf"
-    )]
+    /// Fährt die **reale** zweistufige Pipeline auf **einem** Rückgrat: erst die `einlesen`-Vorstufe
+    /// über der CSV-Fixture (per [`seed_through`] — landet die reale `einlesen_lines`-Zeile und
+    /// publiziert `Ingested`), dann der `obfuskierung`-Consumer mit dem **gegebenen** Store und Seed,
+    /// der genau diese `Ingested`-Nachricht konsumiert. Gibt die Ausgänge des **zweiten**
+    /// (obfuskierung-)Laufs zurück.
     fn run_pipeline(
         outbox: &SqliteOutbox,
         obfuskierung_store: ObfuskierungSqliteStore,
         fixture: &str,
         seed: u64,
     ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
-        // Stufe einlesen: realer Store + reale Seams über der Fixture.
-        let einlesen_store = EinlesenSqliteStore::new(outbox.clone())?;
-        let einlesen_source = csv_source(fixture);
-        let einlesen = einlesen_consumer(
-            &einlesen_source,
-            &GermanCalendar,
-            &GermanMoney,
-            &IsoCurrencies,
-            einlesen_store,
-        );
-        // Stufe obfuskierung: realer Store, reale Lese-Quelle, realer Obfuskator.
+        // Vorstufe einlesen seeden: die reale einlesen-Zeile landet, `Ingested` wird publiziert.
+        seed_through(outbox, Stage::Einlesen, fixture)?;
+
+        // Stufe obfuskierung: der **gegebene** Store (ggf. bewusst unerreichbar) und Seed über der
+        // offenen `Ingested`-Nachricht.
         let source = EinlesenRowSource::new(outbox.clone());
         let obfuscator = SeededObfuscator;
         let obfuskierung = consumer(&source, &obfuscator, seed, obfuskierung_store);
-
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(EINLESEN_CONSUMED, Box::new(einlesen))
-                .is_none()
-                && dispatcher
-                    .register(CONSUMED_MESSAGE_TYPE, Box::new(obfuskierung))
-                    .is_none(),
-            "frische Registrierungen dürfen keinen Consumer verdrängen"
+        register_fresh(
+            &mut dispatcher,
+            CONSUMED_MESSAGE_TYPE,
+            Box::new(obfuskierung),
         );
-
-        // Lauf 1 treibt einlesen: der Auslöser wird verarbeitet, `Ingested` publiziert.
-        outbox.enqueue(EINLESEN_CONSUMED, "auszug-juni")?;
-        let einlesen_out = outbox.deliver_open(&dispatcher)?;
-        assert!(
-            matches!(einlesen_out.as_slice(), [(_, Ok(()))]),
-            "der einlesen-Lauf muss atomar verarbeiten: {einlesen_out:?}"
-        );
-
-        // Lauf 2 treibt obfuskierung: die offene `Ingested`-Nachricht wird nun zugestellt.
         outbox.deliver_open(&dispatcher)
     }
 

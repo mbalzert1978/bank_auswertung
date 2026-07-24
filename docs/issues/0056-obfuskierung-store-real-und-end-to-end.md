@@ -1,7 +1,7 @@
 ---
 id: "0056"
 title: "obfuskierung-Store real + Lese-Seam + obfuskierung end-to-end real (Tracer-Bullet)"
-status: open
+status: closed
 ---
 
 # obfuskierung-Store real + Lese-Seam + obfuskierung end-to-end real (Tracer-Bullet)

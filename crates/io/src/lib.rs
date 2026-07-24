@@ -45,6 +45,9 @@
 
 mod common;
 
+#[cfg(test)]
+mod pipeline_test_support;
+
 pub mod auswerten;
 pub mod config;
 pub mod einlesen;
