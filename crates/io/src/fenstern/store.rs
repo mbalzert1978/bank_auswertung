@@ -215,13 +215,13 @@ mod tests {
     use std::rc::Rc;
 
     use application_kernel::PublishCommand;
-    use chrono::{Datelike, NaiveDate};
     use fenstern_adapter::{HistoryCompleteMessage, WindowClosedMessage};
     use obfuskierung_adapter::ObfuscatedMessage;
     use rusqlite::params;
 
     use super::*;
     use crate::Dispatcher;
+    use crate::common::calendar;
     use crate::fenstern::{
         CONSUMED_MESSAGE_TYPE as FENSTERN_CONSUMED, ObfuskiertWindowSource, START_MESSAGE_TYPE,
         consumer as fenstern_consumer, start_consumer,
@@ -238,14 +238,10 @@ mod tests {
     const HISTORY_COMPLETE_MESSAGE_TYPE: &str =
         <HistoryCompleteMessage as PublishCommand>::MESSAGE_TYPE;
 
-    /// Der `i64`-Tag-Stamp eines Kalendertags, wie ihn dieser Store ablegt — dasselbe
-    /// `num_days_from_ce`, das der reale Lese-Seam ([`super::super::source`]) benutzt.
+    /// Der `i64`-Tag-Stamp eines Kalendertags, wie ihn dieser Store ablegt — über den geteilten
+    /// [`calendar`]-Helfer (Tage seit der Unix-Epoche), den auch der reale Lese-Seam benutzt.
     fn stamp(year: i32, month: u32, day: u32) -> i64 {
-        i64::from(
-            NaiveDate::from_ymd_opt(year, month, day)
-                .expect("gültiges Testdatum")
-                .num_days_from_ce(),
-        )
+        calendar::day_stamp(&format!("{year:04}-{month:02}-{day:02}")).expect("gültiges Testdatum")
     }
 
     /// Ein Zähl-/Schluck-Consumer: ackt jede Nachricht ohne eigene Wirkung, merkt sich aber

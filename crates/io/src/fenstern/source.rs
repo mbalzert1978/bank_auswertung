@@ -14,11 +14,11 @@
 //! [`SqliteOutbox::with_connection`], eine reine Lese-Leihgabe.
 //!
 //! **Tag-Stamp ↔ ISO-Text:** die Domäne rechnet auf einem sortierbaren `i64`-Tag-Stamp (Tage seit
-//! einer festen Epoche), die `obfuskiert`-Tabelle trägt `booking_day` als `YYYY-MM-DD`-Text
-//! (`obfuskierung`s `iso_day`). Dieser Seam ist die **einzige** Stelle, die zwischen beiden
-//! Darstellungen übersetzt — über [`chrono::NaiveDate::num_days_from_ce`], das mit dem zero-gepolsterten
-//! ISO-Text sowohl chronologisch **als auch lexikalisch** identisch sortiert (kein Gotcha für
-//! `MAX(booking_day)`/`booking_day < ?`).
+//! der Unix-Epoche — die Achse, die `auswerten`s Kalender-Rekonstruktion definiert und die `fenstern`
+//! **teilt**), die `obfuskiert`-Tabelle trägt `booking_day` als `YYYY-MM-DD`-Text. Die Übersetzung
+//! zwischen beiden Darstellungen besorgt der **geteilte** [`calendar`](crate::common::calendar)-Helfer,
+//! den auch `auswerten` benutzt — eine Quelle je Achse. Die SQL sortiert/vergleicht ohnehin auf der
+//! `TEXT`-Spalte (`MAX(booking_day)`/`booking_day < ?`), unabhängig von der `i64`-Epoche.
 //!
 //! **Fehlbar → terminal:** ein `Err` ist stromabwärts terminal
 //! (`WindowError::SourceUnavailable { reason }`, [`AnchorBridge`](fenstern_adapter) reicht die
@@ -26,10 +26,10 @@
 //! **keine** personenbezogenen Rohwerte, weil dieser Seam ausschließlich stromabwärts der
 //! Datenschutz-Grenze liest: nur opake IDs, eine Währung und Tag-Stamps).
 
-use chrono::{Datelike, NaiveDate};
 use fenstern_adapter::{ObfuscatedRow, ObfuscatedWindowSeam, SourceUnavailable};
 use rusqlite::params;
 
+use crate::common::calendar;
 use crate::sqlite::SqliteOutbox;
 
 /// Der reale Lese-Seam über die `obfuskiert`-Tabelle. `Clone` teilt dasselbe Rückgrat (`Rc` im
@@ -92,21 +92,16 @@ impl ObfuscatedWindowSeam for ObfuskiertWindowSource {
 /// liegt (praktisch unerreichbar: der Stamp stammt stets aus einem zuvor per [`day_stamp`] gelesenen
 /// echten Kalendertag).
 fn iso_day(day: i64) -> Result<String, SourceUnavailable> {
-    i32::try_from(day)
-        .ok()
-        .and_then(NaiveDate::from_num_days_from_ce_opt)
-        .map(|date| date.format("%Y-%m-%d").to_string())
-        .ok_or_else(|| {
-            unavailable_message("Tag-Stamp außerhalb des darstellbaren Kalenderbereichs")
-        })
+    calendar::iso_day(day).ok_or_else(|| {
+        unavailable_message("Tag-Stamp außerhalb des darstellbaren Kalenderbereichs")
+    })
 }
 
 /// Deutet einen gespeicherten `YYYY-MM-DD`-Textstamp zum sortierbaren `i64`-Tag-Stamp (das
 /// Gegenstück zu [`iso_day`]) — `Err`, wenn der Bestand einen unlesbaren Textstamp trägt.
 fn day_stamp(iso: String) -> Result<i64, SourceUnavailable> {
-    NaiveDate::parse_from_str(&iso, "%Y-%m-%d")
-        .map(|date| i64::from(date.num_days_from_ce()))
-        .map_err(|_err| unavailable_message("gespeicherter Buchungstag unlesbar"))
+    calendar::day_stamp(&iso)
+        .ok_or_else(|| unavailable_message("gespeicherter Buchungstag unlesbar"))
 }
 
 fn unavailable_message(message: &str) -> SourceUnavailable {
