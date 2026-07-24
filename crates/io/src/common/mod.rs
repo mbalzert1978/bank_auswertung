@@ -7,6 +7,7 @@
 
 pub mod outbox;
 
+pub(crate) mod calendar;
 mod consumer;
 mod dispatcher;
 mod publishing;
