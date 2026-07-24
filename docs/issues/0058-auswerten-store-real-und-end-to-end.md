@@ -1,7 +1,7 @@
 ---
 id: "0058"
 title: "auswerten-Store real + Lese-Seams + volle Pipeline end-to-end real (Tracer-Bullet)"
-status: open
+status: closed
 ---
 
 # auswerten-Store real + Lese-Seams + volle Pipeline end-to-end real (Tracer-Bullet)
