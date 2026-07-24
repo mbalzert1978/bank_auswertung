@@ -255,31 +255,42 @@ fn unavailable(err: rusqlite::Error) -> SourceUnavailable {
 /// Fenster" von „Beschaffung misslang").
 const SELECT_WINDOW: &str = "SELECT currency FROM auswertungsfenster WHERE id = ?1;";
 
+/// Die zehn qualifizierten `obfuskiert`-Spalten, die **beide** Buchungs-Statements lesen — als **ein**
+/// Fragment, damit die Liste an einer Stelle mit `RawBooking::from_row` synchron bleibt (nie `SELECT *`,
+/// `.rules/sql/queries-und-performance.md`). Ein `macro_rules!` statt `const`, weil `concat!` — das die
+/// Fragmente zu den fertigen Statements zusammensetzt — nur String-Literale annimmt.
+macro_rules! booking_columns {
+    () => {
+        "o.booking_day, o.amount_minor_units, o.direction, \
+         o.recipient_kind, o.recipient_name, o.recipient_creditor_id, o.recipient_pseudonym, \
+         o.purpose, o.counter_account, o.seed"
+    };
+}
+
 /// Die Buchungen **eines** Fensters, positionsgetreu (die Reihenfolge, in der `fenstern` sie ablegte).
-/// Die zehn qualifizierten `obfuskiert`-Spalten stehen ausgeschrieben (nie `SELECT *`,
-/// `.rules/sql/queries-und-performance.md`) und decken sich mit [`RawBooking::from_row`].
-const SELECT_WINDOW_BOOKINGS: &str = "\
-SELECT o.booking_day, o.amount_minor_units, o.direction,
-       o.recipient_kind, o.recipient_name, o.recipient_creditor_id, o.recipient_pseudonym,
-       o.purpose, o.counter_account, o.seed
-FROM auswertungsfenster_buchungen b
-JOIN obfuskiert o ON o.id = b.booking_id
-WHERE b.window_id = ?1
-ORDER BY b.position;";
+/// Die Spalten-Liste stammt aus `booking_columns!` und deckt sich mit `RawBooking::from_row`.
+const SELECT_WINDOW_BOOKINGS: &str = concat!(
+    "SELECT ",
+    booking_columns!(),
+    " FROM auswertungsfenster_buchungen b \
+      JOIN obfuskiert o ON o.id = b.booking_id \
+      WHERE b.window_id = ?1 \
+      ORDER BY b.position;"
+);
 
 /// Die Buchungen **aller** Fenster einer Lauf-Spanne: über die Fenster gescopt (`from_day`/`to_day`
-/// innerhalb `[?1 … ?2]`), im Join auf `obfuskiert`. Dieselbe Spalten-Liste wie
+/// innerhalb `[?1 … ?2]`), im Join auf `obfuskiert`. Dieselbe Spalten-Liste (`booking_columns!`) wie
 /// [`SELECT_WINDOW_BOOKINGS`]; die Ordnung (Tag, dann Fenster, dann Position) ist deterministisch, die
 /// fenster-übergreifende Domäne sortiert ohnehin total nach.
-const SELECT_RUN_BOOKINGS: &str = "\
-SELECT o.booking_day, o.amount_minor_units, o.direction,
-       o.recipient_kind, o.recipient_name, o.recipient_creditor_id, o.recipient_pseudonym,
-       o.purpose, o.counter_account, o.seed
-FROM auswertungsfenster w
-JOIN auswertungsfenster_buchungen b ON b.window_id = w.id
-JOIN obfuskiert o ON o.id = b.booking_id
-WHERE w.from_day >= ?1 AND w.to_day <= ?2
-ORDER BY o.booking_day, b.window_id, b.position;";
+const SELECT_RUN_BOOKINGS: &str = concat!(
+    "SELECT ",
+    booking_columns!(),
+    " FROM auswertungsfenster w \
+      JOIN auswertungsfenster_buchungen b ON b.window_id = w.id \
+      JOIN obfuskiert o ON o.id = b.booking_id \
+      WHERE w.from_day >= ?1 AND w.to_day <= ?2 \
+      ORDER BY o.booking_day, b.window_id, b.position;"
+);
 
 #[cfg(test)]
 mod tests {

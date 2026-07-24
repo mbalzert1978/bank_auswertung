@@ -84,12 +84,13 @@ pub struct AuswertenUnit(SqliteUnit);
 impl EvaluationStoreSeam for AuswertenUnit {
     /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt Kopf- und Detail-`INSERT`s
     /// in die committende Transaktion; ein unerreichbarer Store (Schema fehlt / DB-Fehler) failt
-    /// **hier** terminal als [`StoreUnavailable`]. Der Preflight probt **alle fünf** Ablage-Statements —
+    /// **hier** terminal als [`StoreUnavailable`]. Der Preflight probt **alle vier** Detail-Statements —
     /// fehlt auch nur eine Detail-Tabelle, failt es hier terminal statt erst als Commit-Retry. Die
-    /// u64→i64-Deutungen (Monats-Beträge, Positionen) laufen **vor** dem Minten, damit die schreibbare
-    /// Zeile in einem Zug mit der ID entsteht.
+    /// fehlbare u64→i64-Deutung der Monats-Beträge (`month_rows`) läuft **vor** dem Minten, damit
+    /// `StagedEvaluation::new` die schreibbare Zeile in einem Zug mit der ID baut (wie `fenstern`s
+    /// `numbered_bookings`-Vorlauf).
     fn save(&self, evaluation: &WindowEvaluationRow) -> Result<(), StoreUnavailable> {
-        let staged = StagedEvaluation::try_from(evaluation)?;
+        let months = month_rows(evaluation)?;
         let id: String = self
             .0
             .with_connection(|conn| {
@@ -99,8 +100,8 @@ impl EvaluationStoreSeam for AuswertenUnit {
                 crate::sqlite::mint_id(conn, INSERT_EVALUATION)
             })
             .map_err(unavailable)?;
-        let staged = staged.with_id(id);
-        self.0.stage(move |tx| staged.insert(tx));
+        let row = StagedEvaluation::new(id, evaluation, months);
+        self.0.stage(move |tx| row.insert(tx));
         Ok(())
     }
 }
@@ -123,9 +124,11 @@ fn magnitude(value: u64) -> Result<i64, StoreUnavailable> {
 }
 
 /// Die abgeflachte [`WindowEvaluationRow`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
-/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Ihre eigene DB-`id` kommt
-/// erst mit [`with_id`](StagedEvaluation::with_id) hinzu (das Minten läuft nach dem fehlbaren
-/// Umdeuten); eine Zeile mit leerer Platzhalter-ID ist unkonstruierbar.
+/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruiert **stets mit** der
+/// frisch geminteten DB-ID ([`new`](StagedEvaluation::new)) — eine Zeile mit leerer Platzhalter-ID ist
+/// unkonstruierbar (Domänenmodell-Regel: illegale Zustände unkonstruierbar machen). Die fehlbare
+/// u64→i64-Deutung der Monats-Beträge liegt vorgelagert in [`month_rows`], deren Ergebnis `new`
+/// besitzend übernimmt.
 struct StagedEvaluation {
     id: String,
     window_id: String,
@@ -157,37 +160,13 @@ struct CategoryRow {
     category: String,
 }
 
-impl TryFrom<&WindowEvaluationRow> for StagedEvaluation {
-    type Error = StoreUnavailable;
-
-    /// Deutet die Adapter-Zeile in die besitzende Speicher-Form — **hier** liegen die fehlbaren
-    /// u64→i64-Umdeutungen der Monats-Beträge (Positionen vergibt erst [`insert`](StagedEvaluation::insert)
-    /// per `enumerate`). Die ID ist noch leer; [`with_id`](StagedEvaluation::with_id) setzt sie nach
-    /// dem Minten.
-    fn try_from(evaluation: &WindowEvaluationRow) -> Result<Self, StoreUnavailable> {
-        let months = evaluation
-            .months
-            .iter()
-            .map(MonthRow::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self {
-            id: String::new(),
-            window_id: evaluation.window_id.clone(),
-            currency: evaluation.currency.clone(),
-            months,
-            fingerprints: evaluation.fingerprints.clone(),
-            counter_accounts: evaluation
-                .counter_accounts
-                .iter()
-                .map(CounterRow::from)
-                .collect(),
-            categories: evaluation
-                .categories
-                .iter()
-                .map(CategoryRow::from)
-                .collect(),
-        })
-    }
+/// Deutet die Monats-Buckets der Adapter-Zeile in ihre besitzende Speicher-Form — **hier** liegt die
+/// fehlbare u64→i64-Umdeutung der Monats-Beträge, die **vor** dem Minten laufen muss (Positionen
+/// vergibt erst [`insert`](StagedEvaluation::insert) per `enumerate`). Spiegelt den `numbered_bookings`-
+/// Vorlauf des `fenstern`-Store: fehlbarer Vorlauf, dann baut [`new`](StagedEvaluation::new) die Zeile
+/// in einem Zug mit der ID.
+fn month_rows(evaluation: &WindowEvaluationRow) -> Result<Vec<MonthRow>, StoreUnavailable> {
+    evaluation.months.iter().map(MonthRow::try_from).collect()
 }
 
 impl TryFrom<&MonthlyCashflowRow> for MonthRow {
@@ -228,11 +207,27 @@ impl From<&auswerten_adapter::CategoryRow> for CategoryRow {
 }
 
 impl StagedEvaluation {
-    /// Setzt die frisch geminteten DB-`id` (das Ergebnis vergibt keinen publizierten Zeiger, die ID
-    /// bleibt darum DB-intern und bindet nur die Detail-Zeilen an ihren Kopf).
-    fn with_id(mut self, id: String) -> Self {
-        self.id = id;
-        self
+    /// Baut die schreibbare Zeile unter der frisch geminteten DB-`id`. Das Ergebnis vergibt keinen
+    /// publizierten Zeiger — die ID bleibt DB-intern und bindet nur die Detail-Zeilen an ihren Kopf.
+    /// Die fehlbaren Monats-Buckets kommen fertig aus [`month_rows`], der Rest wird besitzend übernommen.
+    fn new(id: String, evaluation: &WindowEvaluationRow, months: Vec<MonthRow>) -> Self {
+        Self {
+            id,
+            window_id: evaluation.window_id.clone(),
+            currency: evaluation.currency.clone(),
+            months,
+            fingerprints: evaluation.fingerprints.clone(),
+            counter_accounts: evaluation
+                .counter_accounts
+                .iter()
+                .map(CounterRow::from)
+                .collect(),
+            categories: evaluation
+                .categories
+                .iter()
+                .map(CategoryRow::from)
+                .collect(),
+        }
     }
 
     /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion, jede Detail-Liste
