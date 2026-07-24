@@ -210,9 +210,7 @@ VALUES (?1, ?2, ?3,
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use std::num::NonZeroU32;
-    use std::rc::Rc;
 
     use application_kernel::PublishCommand;
     use fenstern_adapter::{HistoryCompleteMessage, WindowClosedMessage};
@@ -221,14 +219,15 @@ mod tests {
 
     use super::*;
     use crate::Dispatcher;
-    use crate::common::calendar;
     use crate::fenstern::{
         CONSUMED_MESSAGE_TYPE as FENSTERN_CONSUMED, ObfuskiertWindowSource, START_MESSAGE_TYPE,
         consumer as fenstern_consumer, start_consumer,
     };
     use crate::obfuskierung::ObfuskierungSqliteStore;
-    use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage};
-    use crate::pipeline_test_support::{Stage, register_fresh, seed_through};
+    use crate::outbox::OutboxError;
+    use crate::pipeline_test_support::{
+        CapturingAck, Stage, drain, register_fresh, seed_through, stamp,
+    };
 
     /// Die `message_type`s der stromabwärtigen Nachrichten — aus den kanonischen
     /// `PublishCommand::MESSAGE_TYPE`s der DTOs statt als String-Literal, damit eine Umbenennung
@@ -237,65 +236,6 @@ mod tests {
     const WINDOW_CLOSED_MESSAGE_TYPE: &str = <WindowClosedMessage as PublishCommand>::MESSAGE_TYPE;
     const HISTORY_COMPLETE_MESSAGE_TYPE: &str =
         <HistoryCompleteMessage as PublishCommand>::MESSAGE_TYPE;
-
-    /// Der `i64`-Tag-Stamp eines Kalendertags, wie ihn dieser Store ablegt — über den geteilten
-    /// [`calendar`]-Helfer (Tage seit der Unix-Epoche), den auch der reale Lese-Seam benutzt.
-    fn stamp(year: i32, month: u32, day: u32) -> i64 {
-        calendar::day_stamp(&format!("{year:04}-{month:02}-{day:02}")).expect("gültiges Testdatum")
-    }
-
-    /// Ein Zähl-/Schluck-Consumer: ackt jede Nachricht ohne eigene Wirkung, merkt sich aber
-    /// `(message_type, partition_key)` — für Nachrichtentypen, die dieser Test bewusst nicht
-    /// stromabwärts konsumiert (`Obfuscated`/`WindowClosed`/`HistoryComplete`), deren Auftreten er
-    /// aber belegen will. Ohne ihn blieben diese Nachrichten für immer offen und die Broker-Schleife
-    /// würde nie konvergieren.
-    struct Capture<'a> {
-        outbox: &'a SqliteOutbox,
-        seen: Rc<RefCell<Vec<(String, String)>>>,
-    }
-
-    impl OutboxHandler for Capture<'_> {
-        fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
-            self.seen
-                .borrow_mut()
-                .push((message.message_type.clone(), message.partition_key.clone()));
-            self.outbox
-                .begin(MessageId(&message.id))
-                .commit()
-                .map_err(|err| OutboxError::Retry {
-                    reason: err.to_string(),
-                })
-        }
-    }
-
-    /// Treibt die Outbox, bis keine offenen Nachrichten mehr übrig sind — nötig für `fenstern`s
-    /// Selbst-Fortsetzung (jede Seite reiht die nächste ein). Bricht wie ein realer Broker beim
-    /// ersten Fehler in einer Runde ab (keine halb-fortgesetzte Kette), statt ihn zu wiederholen.
-    /// Gedeckelt: ein nicht terminierender Pager muss den Test laut scheitern lassen, statt ihn
-    /// hängen zu lassen.
-    #[expect(
-        clippy::panic_in_result_fn,
-        clippy::panic,
-        reason = "Test-Helfer: ein nicht terminierender Pager ist ein Regress und muss hart scheitern"
-    )]
-    fn drain(
-        outbox: &SqliteOutbox,
-        dispatcher: &Dispatcher<'_>,
-    ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
-        let mut all = Vec::new();
-        for _ in 0..32 {
-            let batch = outbox.deliver_open(dispatcher)?;
-            if batch.is_empty() {
-                return Ok(all);
-            }
-            let failed = batch.iter().any(|(_, outcome)| outcome.is_err());
-            all.extend(batch);
-            if failed {
-                return Ok(all);
-            }
-        }
-        panic!("Broker-Schleife terminierte nicht (32 Runden)");
-    }
 
     /// Ein zurückgelesenes Fenster (nur für Tests): `(from_day, to_day, currency, booking_ids)`.
     type StoredWindow = (i64, i64, String, Vec<String>);
@@ -382,31 +322,22 @@ mod tests {
         let store = FensternSqliteStore::new(outbox.clone())?;
         let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
 
-        let seen = Rc::new(RefCell::new(Vec::new()));
+        let ack = CapturingAck::new(outbox.clone());
         let mut dispatcher = Dispatcher::new();
         register_fresh(
             &mut dispatcher,
             OBFUSCATED_MESSAGE_TYPE,
-            Box::new(Capture {
-                outbox: &outbox,
-                seen: Rc::clone(&seen),
-            }),
+            Box::new(ack.clone()),
         );
         register_fresh(
             &mut dispatcher,
             WINDOW_CLOSED_MESSAGE_TYPE,
-            Box::new(Capture {
-                outbox: &outbox,
-                seen: Rc::clone(&seen),
-            }),
+            Box::new(ack.clone()),
         );
         register_fresh(
             &mut dispatcher,
             HISTORY_COMPLETE_MESSAGE_TYPE,
-            Box::new(Capture {
-                outbox: &outbox,
-                seen: Rc::clone(&seen),
-            }),
+            Box::new(ack.clone()),
         );
         register_fresh(
             &mut dispatcher,
@@ -454,8 +385,8 @@ mod tests {
             "drei Seiten, neu→alt, mit den erwarteten Fremdschlüsseln je Seite"
         );
 
+        let seen = ack.seen();
         let window_closed = seen
-            .borrow()
             .iter()
             .filter(|(typ, _)| typ == WINDOW_CLOSED_MESSAGE_TYPE)
             .count();
@@ -465,7 +396,6 @@ mod tests {
         );
 
         let history_complete: Vec<String> = seen
-            .borrow()
             .iter()
             .filter(|(typ, _)| typ == HISTORY_COMPLETE_MESSAGE_TYPE)
             .map(|(_, key)| key.clone())
@@ -565,15 +495,11 @@ mod tests {
         };
         let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
 
-        let seen = Rc::new(RefCell::new(Vec::new()));
         let mut dispatcher = Dispatcher::new();
         register_fresh(
             &mut dispatcher,
             OBFUSCATED_MESSAGE_TYPE,
-            Box::new(Capture {
-                outbox: &outbox,
-                seen: Rc::clone(&seen),
-            }),
+            Box::new(CapturingAck::new(outbox.clone())),
         );
         register_fresh(
             &mut dispatcher,

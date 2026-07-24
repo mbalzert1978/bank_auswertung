@@ -230,56 +230,68 @@ impl StagedEvaluation {
         }
     }
 
-    /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion, jede Detail-Liste
-    /// **positionsgetreu** (`enumerate`).
+    /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion. Jede der vier Detail-Listen
+    /// läuft **positionsgetreu** über [`insert_positional`], das die `enumerate`→`position`-Nummerierung
+    /// an **einer** Stelle bündelt; jede Closure trägt nur noch das listen-eigene Statement und seine
+    /// Feld-Params.
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
         tx.execute(
             INSERT_EVALUATION,
             params![self.id, self.window_id, self.currency],
         )?;
-        for (index, month) in self.months.iter().enumerate() {
+        insert_positional(&self.months, |position, month| {
             tx.execute(
                 INSERT_MONTH,
                 params![
                     self.id,
-                    position_or_sql_error(index)?,
+                    position,
                     month.year,
                     month.month,
                     month.incoming_minor_units,
                     month.outgoing_minor_units,
                 ],
-            )?;
-        }
-        for (index, fingerprint) in self.fingerprints.iter().enumerate() {
-            tx.execute(
-                INSERT_FINGERPRINT,
-                params![self.id, position_or_sql_error(index)?, fingerprint],
-            )?;
-        }
-        for (index, counter_account) in self.counter_accounts.iter().enumerate() {
+            )
+            .map(drop)
+        })?;
+        insert_positional(&self.fingerprints, |position, fingerprint| {
+            tx.execute(INSERT_FINGERPRINT, params![self.id, position, fingerprint])
+                .map(drop)
+        })?;
+        insert_positional(&self.counter_accounts, |position, counter_account| {
             tx.execute(
                 INSERT_COUNTER_ACCOUNT,
                 params![
                     self.id,
-                    position_or_sql_error(index)?,
+                    position,
                     counter_account.kind,
-                    counter_account.role,
+                    counter_account.role
                 ],
-            )?;
-        }
-        for (index, category) in self.categories.iter().enumerate() {
+            )
+            .map(drop)
+        })?;
+        insert_positional(&self.categories, |position, category| {
             tx.execute(
                 INSERT_CATEGORY,
-                params![
-                    self.id,
-                    position_or_sql_error(index)?,
-                    category.fingerprint,
-                    category.category,
-                ],
-            )?;
-        }
+                params![self.id, position, category.fingerprint, category.category],
+            )
+            .map(drop)
+        })?;
         Ok(())
     }
+}
+
+/// Schreibt eine Detail-Liste **positionsgetreu**: nummeriert jede Zeile (`enumerate` → `position`
+/// über [`position_or_sql_error`]) und überlässt das eigentliche `INSERT` der Closure, die Statement
+/// und Feld-Params kennt. Bündelt die `enumerate`/Positions-Mechanik der vier Detail-Listen an **einer**
+/// Stelle, sodass je Liste nur ihr Statement und ihre Felder übrig bleiben.
+fn insert_positional<T>(
+    items: &[T],
+    mut write: impl FnMut(i64, &T) -> rusqlite::Result<()>,
+) -> rusqlite::Result<()> {
+    items
+        .iter()
+        .enumerate()
+        .try_for_each(|(index, item)| write(position_or_sql_error(index)?, item))
 }
 
 /// Wandelt einen Index in die `position`-Spalte **innerhalb** der Schreib-Closure — dort ist der
@@ -314,9 +326,12 @@ const DETAIL_INSERTS: [&str; 4] = [
 /// Das Schema der fünf `auswerten`-Ergebnis-Tabellen. Der Kopf `window_evaluations` trägt den
 /// **Fremdschlüssel** `window_id` auf `auswertungsfenster` (indiziert) und die Währung; die vier
 /// Detail-Tabellen die positionsgetreuen Listen, jede per `evaluation_id` (indiziert) an ihren Kopf
-/// gebunden. `kind` der Gegenkonten ist per `CHECK` auf `own`/`foreign` erzwungen; `created_at`/
-/// `updated_at` (Epoch-Millis) tragen den Audit-Zeitstempel — die Tabellen sind append-only, `updated_at`
-/// fällt mit `created_at` zusammen (`.rules/sql/schema-konventionen.md`).
+/// gebunden. `kind` der Gegenkonten ist per `CHECK` auf `own`/`foreign` erzwungen; ein **zweites
+/// `CHECK`** koppelt `role` an `kind` (nur `own` trägt eine Rolle, `foreign` nie) — so ist der
+/// Summentyp `CounterAccountRow` auch **auf DB-Ebene** unkonstruierbar-illegal statt „geprüft"
+/// (ADR-0005), nicht nur im Rust-Modell. `created_at`/`updated_at` (Epoch-Millis) tragen den
+/// Audit-Zeitstempel — die Tabellen sind append-only, `updated_at` fällt mit `created_at` zusammen
+/// (`.rules/sql/schema-konventionen.md`).
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluations (
     id         TEXT    PRIMARY KEY,
@@ -357,7 +372,8 @@ CREATE TABLE IF NOT EXISTS window_evaluation_counter_accounts (
     role          TEXT,
     created_at    INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
     updated_at    INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
-    PRIMARY KEY (evaluation_id, position)
+    PRIMARY KEY (evaluation_id, position),
+    CHECK ((kind = 'own' AND role IS NOT NULL) OR (kind = 'foreign' AND role IS NULL))
 );
 CREATE INDEX IF NOT EXISTS window_evaluation_counter_accounts_evaluation_id_idx
     ON window_evaluation_counter_accounts (evaluation_id);
@@ -433,25 +449,19 @@ mod tests {
         CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, OccurrenceSink,
         consumer as auswerten_consumer, history_consumer,
     };
-    use crate::common::calendar;
     use crate::fenstern::{
         CONSUMED_MESSAGE_TYPE as FENSTERN_CONSUMED, FensternSqliteStore, ObfuskiertWindowSource,
         START_MESSAGE_TYPE, consumer as fenstern_consumer, start_consumer,
     };
-    use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage};
-    use crate::pipeline_test_support::{SEED, Stage, register_fresh, seed_through};
+    use crate::pipeline_test_support::{
+        CapturingAck, SEED, Stage, drain, register_fresh, seed_through, stamp,
+    };
 
     const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MESSAGE_TYPE;
 
     /// Der Fingerabdruck aller vier Buchungen der `mehrseitig.csv`: die Gegenpartei ist eine Firma
     /// mit fester Gläubiger-ID (kein Durchleiter), also teilen sie **einen** Fingerabdruck.
     const COMPANY_FINGERPRINT: &str = "COMPANY:DE98ZZZ09999999999";
-
-    /// Der `i64`-Tag-Stamp eines Kalendertags über den geteilten [`calendar`]-Helfer (Tage seit der
-    /// Unix-Epoche) — dieselbe Achse, die die Domäne für die Vorkommen liefert.
-    fn stamp(year: i32, month: u32, day: u32) -> i64 {
-        calendar::day_stamp(&format!("{year:04}-{month:02}-{day:02}")).expect("gültiges Testdatum")
-    }
 
     /// Ein Register-Doppel, das **alles** kennt: es gibt jeden Kandidaten als bekannt zurück, sodass
     /// nie ein Orakel befragt wird und die Kategorien-Liste jedes Fensters leer bleibt. So ist der
@@ -485,50 +495,6 @@ mod tests {
         fn receive(&self, occurrences: Vec<OccurrenceRow>) {
             self.deliveries.borrow_mut().push(occurrences);
         }
-    }
-
-    /// Ackt eine Nachricht ohne eigene Wirkung — für Typen, die dieser Test bewusst nicht konsumiert
-    /// (die von `obfuskierung` offen gelassenen `Obfuscated`-Zeiger). Ohne ihn blieben sie offen und
-    /// die Broker-Schleife würde als „kein Consumer" (Critical) abbrechen.
-    struct AckOnly<'a> {
-        outbox: &'a SqliteOutbox,
-    }
-    impl OutboxHandler for AckOnly<'_> {
-        fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
-            self.outbox
-                .begin(MessageId(&message.id))
-                .commit()
-                .map_err(|err| OutboxError::Retry {
-                    reason: err.to_string(),
-                })
-        }
-    }
-
-    /// Treibt die Outbox, bis keine offenen Nachrichten mehr übrig sind (nötig für `fenstern`s
-    /// Selbst-Fortsetzung). Bricht wie ein realer Broker beim ersten Fehler ab; gedeckelt gegen einen
-    /// nicht terminierenden Lauf.
-    #[expect(
-        clippy::panic_in_result_fn,
-        clippy::panic,
-        reason = "Test-Helfer: ein nicht terminierender Lauf ist ein Regress und muss hart scheitern"
-    )]
-    fn drain(
-        outbox: &SqliteOutbox,
-        dispatcher: &Dispatcher<'_>,
-    ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
-        let mut all = Vec::new();
-        for _ in 0..32 {
-            let batch = outbox.deliver_open(dispatcher)?;
-            if batch.is_empty() {
-                return Ok(all);
-            }
-            let failed = batch.iter().any(|(_, outcome)| outcome.is_err());
-            all.extend(batch);
-            if failed {
-                return Ok(all);
-            }
-        }
-        panic!("Broker-Schleife terminierte nicht (32 Runden)");
     }
 
     /// Die token-orientierte Eigene-Konten-Config für den Lauf: der Marker aus dem Test-Seed und das
@@ -670,7 +636,7 @@ mod tests {
         register_fresh(
             &mut dispatcher,
             OBFUSCATED_MESSAGE_TYPE,
-            Box::new(AckOnly { outbox: &outbox }),
+            Box::new(CapturingAck::new(outbox.clone())),
         );
         register_fresh(
             &mut dispatcher,
