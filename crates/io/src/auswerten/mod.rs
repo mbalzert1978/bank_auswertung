@@ -36,6 +36,12 @@ use auswerten_adapter::{
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
 
+mod source;
+mod store;
+
+pub use source::AuswertungsfensterSource;
+pub use store::{AuswertenSqliteStore, AuswertenUnit};
+
 /// Der `message_type`, unter dem der Dispatcher die **pro-Fenster**-Reichweite auflöst
 /// (`FensterGeschlossen`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
 /// Slice-Eingang. Es ist derselbe Key, den [`fenstern`](crate::fenstern) je materialisiertem Fenster

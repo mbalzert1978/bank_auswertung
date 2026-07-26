@@ -1,0 +1,201 @@
+//! Gemeinsames Test-Gerüst für die slice-spezifischen Store-Tests: die reale Vorstufen-Pipeline
+//! **einmal** verdrahtet, statt sie in jedem Store-Testmodul von Hand nachzubauen.
+//!
+//! Die drei realen Stores (`einlesen`/`obfuskierung`/`fenstern`) prüfen ihr Verhalten end-to-end
+//! über der echten Kette (CSV-Quelle → reale Seams → reale Tabellen → echter Broker). Jeder neue
+//! Store braucht dabei denselben Bestand seiner Vorstufen — dieses Modul stellt ihn **an einer
+//! Stelle** bereit: den CSV-Reader auf die Fixtures ([`csv_source`]) und das Seeding des realen
+//! Bestands bis zu einer gewählten [`Stage`] ([`seed_through`]). Das ganze Modul ist
+//! testgebunden (`#[cfg(test)]` an der Modul-Deklaration in [`lib`](crate)); seine Items sind
+//! crate-privat.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::Dispatcher;
+use crate::MessageId;
+use crate::common::calendar;
+use crate::einlesen::{
+    CONSUMED_MESSAGE_TYPE as EINLESEN_CONSUMED, CsvCamtV8Source, EinlesenSqliteStore,
+    GermanCalendar, GermanMoney, IsoCurrencies, consumer as einlesen_consumer,
+};
+use crate::obfuskierung::{
+    CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, ObfuskierungSqliteStore,
+    SeededObfuscator, consumer as obfuskierung_consumer,
+};
+use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage, UnitOfWork};
+use crate::sqlite::SqliteOutbox;
+
+/// Registriert einen frischen Consumer und stellt sicher, dass er **keinen** bestehenden verdrängt —
+/// die eine Quelle je Dispatch-Key. Bündelt das über alle Store-Testmodule wiederholte
+/// `assert!(dispatcher.register(…).is_none(), "…")`, sodass eine Registrierung wie eine
+/// schlichte Zeile liest statt als Glied einer 40-zeiligen `&&`-Konjunktion.
+#[track_caller]
+pub(crate) fn register_fresh<'a>(
+    dispatcher: &mut Dispatcher<'a>,
+    message_type: &str,
+    consumer: Box<dyn OutboxHandler + 'a>,
+) {
+    assert!(
+        dispatcher.register(message_type, consumer).is_none(),
+        "frische Registrierung darf keinen Consumer verdrängen ({message_type})"
+    );
+}
+
+/// Der feste Test-Seed, mit dem das Seeding den obfuskierten Bestand tokenisiert. Downstream-Stores
+/// (`fenstern`) sind blind für seinen Wert — sie brauchen nur einen **konsistent** getokenisierten
+/// Bestand; `obfuskierung`s eigene Tests importieren ihn als den Seed, dessen Wirkung sie prüfen.
+pub(crate) const SEED: u64 = 42;
+
+/// Baut den echten CSV-CAMT-v8-Reader auf die benannte `einlesen`-Fixture (Pfad relativ zum
+/// io-Crate). Ein und dieselbe Fixture-Quelle für alle drei Store-Testmodule.
+pub(crate) fn csv_source(name: &str) -> CsvCamtV8Source {
+    let path = format!(
+        "{}/fixtures/einlesen/csv/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    CsvCamtV8Source::new(path)
+}
+
+/// Bis zu welcher Vorstufe [`seed_through`] den realen Bestand aufbaut.
+pub(crate) enum Stage {
+    /// Nur `einlesen`: die reale(n) `einlesen_lines`-Zeile(n) plus die offenen `Ingested`-Zeiger.
+    Einlesen,
+    /// `einlesen` **und** `obfuskierung`: zusätzlich der seed-basiert getokenisierte
+    /// `obfuskiert`-Bestand plus die offenen `Obfuscated`-Zeiger.
+    Obfuskierung,
+}
+
+/// Seedet den **realen** Vorstufen-Bestand auf **einem** Rückgrat bis zur gewählten [`Stage`]: erst
+/// der `einlesen`-Consumer über der CSV-Fixture (landet die reale(n) `einlesen_lines`-Zeile(n) und
+/// publiziert `Ingested`), dann — ab [`Stage::Obfuskierung`] — der `obfuskierung`-Consumer über
+/// **allen** dabei publizierten `Ingested`-Nachrichten (landet den getokenisierten Bestand und
+/// publiziert `Obfuscated`). Jede Stufe wird über ihren eigenen [`Dispatcher`] zugestellt; die
+/// `assert!`-Invarianten (jede Vorstufe verarbeitet atomar) sind Teil der Spezifikation.
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test-Helfer: die assert! prüfen die Vorstufen-Invarianten vor dem eigentlichen Lauf"
+)]
+pub(crate) fn seed_through(
+    outbox: &SqliteOutbox,
+    stage: Stage,
+    fixture: &str,
+) -> rusqlite::Result<()> {
+    // Stufe einlesen: realer Store + reale Seams über der Fixture.
+    let einlesen_store = EinlesenSqliteStore::new(outbox.clone())?;
+    let einlesen_source = csv_source(fixture);
+    let einlesen = einlesen_consumer(
+        &einlesen_source,
+        &GermanCalendar,
+        &GermanMoney,
+        &IsoCurrencies,
+        einlesen_store,
+    );
+    let mut stage1 = Dispatcher::new();
+    register_fresh(&mut stage1, EINLESEN_CONSUMED, Box::new(einlesen));
+    outbox.enqueue(EINLESEN_CONSUMED, fixture)?;
+    let einlesen_out = outbox.deliver_open(&stage1)?;
+    assert!(
+        einlesen_out.iter().all(|(_, outcome)| outcome.is_ok()),
+        "einlesen muss atomar verarbeiten: {einlesen_out:?}"
+    );
+
+    if matches!(stage, Stage::Einlesen) {
+        return Ok(());
+    }
+
+    // Stufe obfuskierung: realer Store, reale Lese-Quelle, realer Obfuskator über allen Ingested.
+    let source = EinlesenRowSource::new(outbox.clone());
+    let obfuscator = SeededObfuscator;
+    let obfuskierung_store = ObfuskierungSqliteStore::new(outbox.clone())?;
+    let obfuskierung = obfuskierung_consumer(&source, &obfuscator, SEED, obfuskierung_store);
+    let mut stage2 = Dispatcher::new();
+    register_fresh(&mut stage2, OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung));
+    let obfuskierung_out = outbox.deliver_open(&stage2)?;
+    assert!(
+        obfuskierung_out.iter().all(|(_, outcome)| outcome.is_ok()),
+        "obfuskierung muss atomar verarbeiten: {obfuskierung_out:?}"
+    );
+    Ok(())
+}
+
+/// Der `i64`-Tag-Stamp eines Kalendertags über den geteilten
+/// [`calendar`](crate::common::calendar)-Helfer (Tage seit der Unix-Epoche) — dieselbe Achse, die die
+/// realen Stores ablegen und die realen Lese-Seams zurückgeben. Eine Quelle für alle Store-Testmodule
+/// statt eines je Modul nachgebauten `stamp`.
+pub(crate) fn stamp(year: i32, month: u32, day: u32) -> i64 {
+    calendar::day_stamp(&format!("{year:04}-{month:02}-{day:02}")).expect("gültiges Testdatum")
+}
+
+/// Ein Ack-Handler für die Store-Testmodule: ackt jede zugestellte Nachricht ohne eigene fachliche
+/// Wirkung und protokolliert dabei `(message_type, partition_key)` in Zustellreihenfolge. Er deckt
+/// zwei Bedürfnisse mit **einem** Typ: Nachrichtentypen, die der jeweilige Test bewusst nicht
+/// stromabwärts konsumiert, offen abzuräumen (sonst konvergiert die Broker-Schleife nie), und ihr
+/// Auftreten zu belegen. Wer das Protokoll nicht braucht, ignoriert schlicht
+/// [`seen`](CapturingAck::seen). `Clone` teilt denselben Puffer (`Rc` im Innern), sodass **eine**
+/// Instanz für mehrere Dispatch-Keys registriert werden kann und alle in denselben Puffer schreiben.
+#[derive(Clone)]
+pub(crate) struct CapturingAck {
+    outbox: SqliteOutbox,
+    seen: Rc<RefCell<Vec<(String, String)>>>,
+}
+
+impl CapturingAck {
+    /// Bindet den Handler an das Rückgrat, auf dem er ackt (eine geteilte `Rc`-Leihgabe von
+    /// [`SqliteOutbox`]), mit leerem Protokoll.
+    pub(crate) fn new(outbox: SqliteOutbox) -> Self {
+        Self {
+            outbox,
+            seen: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    /// Die protokollierten `(message_type, partition_key)` in Zustellreihenfolge — eine Kopie, damit
+    /// der Aufrufer sie frei filtern kann, ohne die Borrow zu halten.
+    pub(crate) fn seen(&self) -> Vec<(String, String)> {
+        self.seen.borrow().clone()
+    }
+}
+
+impl OutboxHandler for CapturingAck {
+    fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
+        self.seen
+            .borrow_mut()
+            .push((message.message_type.clone(), message.partition_key.clone()));
+        self.outbox
+            .begin(MessageId(&message.id))
+            .commit()
+            .map_err(|err| OutboxError::Retry {
+                reason: err.to_string(),
+            })
+    }
+}
+
+/// Treibt die Outbox, bis keine offenen Nachrichten mehr übrig sind — nötig überall dort, wo ein
+/// Consumer sich selbst fortsetzt (`fenstern` reiht je Seite die nächste ein). Bricht wie ein realer
+/// Broker beim ersten Fehler in einer Runde ab (keine halb-fortgesetzte Kette), statt ihn zu
+/// wiederholen. Gedeckelt: ein nicht terminierender Lauf muss den Test laut scheitern lassen, statt
+/// ihn hängen zu lassen.
+#[expect(
+    clippy::panic_in_result_fn,
+    clippy::panic,
+    reason = "Test-Helfer: ein nicht terminierender Lauf ist ein Regress und muss hart scheitern"
+)]
+pub(crate) fn drain(
+    outbox: &SqliteOutbox,
+    dispatcher: &Dispatcher<'_>,
+) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
+    let mut all = Vec::new();
+    for _ in 0..32 {
+        let batch = outbox.deliver_open(dispatcher)?;
+        if batch.is_empty() {
+            return Ok(all);
+        }
+        let failed = batch.iter().any(|(_, outcome)| outcome.is_err());
+        all.extend(batch);
+        if failed {
+            return Ok(all);
+        }
+    }
+    panic!("Broker-Schleife terminierte nicht (32 Runden)");
+}

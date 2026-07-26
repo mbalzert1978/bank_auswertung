@@ -25,7 +25,7 @@ use rusqlite::{Transaction, params};
 use crate::MessageId;
 use crate::einlesen::UnitFactory;
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit};
+use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
 
 /// Der reale `einlesen`-Ergebnis-Store: die [`UnitFactory`](crate::einlesen::UnitFactory) des Slice
 /// über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt beim
@@ -71,12 +71,7 @@ impl StoreSeam for EinlesenUnit {
             .map_err(|_overflow| store_unavailable("amount out of range for storage"))?;
         let id: String = self
             .0
-            .with_connection(|conn| {
-                // Preflight: ist der Store erreichbar (Schema vorhanden)? Ein fehlendes Schema failt
-                // **hier** terminal, nicht erst als Commit-Retry — die ID wird an der DB gemintet.
-                conn.prepare(INSERT_LINE).map(drop)?;
-                conn.query_row(MINT_ID, [], |row| row.get(0))
-            })
+            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_LINE))
             .map_err(store_unavailable_io)?;
         let row = LineRow::new(id.clone(), line, amount_minor_units);
         self.0.stage(move |tx| row.insert(tx));
@@ -169,19 +164,7 @@ fn direction_token(direction: Direction) -> &'static str {
     }
 }
 
-impl OutboxPublisher for EinlesenUnit {
-    fn publish<T: OutboxCommand>(&self, command: T) {
-        self.0.publish(command);
-    }
-}
-
-impl UnitOfWork for EinlesenUnit {
-    type Error = SqliteCommitError;
-
-    fn commit(self) -> Result<(), SqliteCommitError> {
-        self.0.commit()
-    }
-}
+sqlite_backed_unit!(EinlesenUnit);
 
 /// Das Schema der `einlesen`-Ergebnis-Tabelle: die abgeflachte [`Line`] unter der DB-vergebenen ID.
 /// Rohe Identifikatoren (IBANs, Klarname) liegen hier **roh** — das ist erlaubt (lokale Persistenz,
@@ -229,8 +212,6 @@ INSERT INTO einlesen_lines (
     CAST(unixepoch('subsec') * 1000 AS INTEGER),
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
-
-const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 
 #[cfg(test)]
 const SELECT_LINES: &str = "\
@@ -311,16 +292,8 @@ mod tests {
         CONSUMED_MESSAGE_TYPE, GermanCalendar, GermanMoney, IsoCurrencies, consumer,
     };
     use crate::outbox::OutboxError;
+    use crate::pipeline_test_support::{csv_source, register_fresh};
     use crate::sqlite::SqliteOutbox;
-
-    /// Baut den echten CSV-CAMT-v8-Reader auf die benannte Fixture-Datei (Pfad relativ zum io-Crate).
-    fn csv_source(name: &str) -> crate::einlesen::CsvCamtV8Source {
-        let path = format!(
-            "{}/fixtures/einlesen/csv/{name}",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        crate::einlesen::CsvCamtV8Source::new(path)
-    }
 
     /// Die erwartete `Line`-Projektion der einzigen Zeile aus `gueltig.csv` (EDEKA, `-50,00 EUR`) —
     /// unabhängige Wahrheit für den Feld-Treue-Vergleich der committeten Zeile.
@@ -350,10 +323,6 @@ mod tests {
 
     /// Registriert den `einlesen`-Consumer über die gegebene Fixture-Datei und dem realen Store und
     /// stellt **einen** eingereihten `ReadTransactions`-Auslöser über den echten Broker zu.
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test-Helfer: das assert! prüft die Registrierungs-Invariante vor dem Dispatch"
-    )]
     fn deliver(
         outbox: &SqliteOutbox,
         store: EinlesenSqliteStore,
@@ -368,13 +337,8 @@ mod tests {
             store,
         );
         let mut dispatcher = Dispatcher::new();
-        assert!(
-            dispatcher
-                .register(CONSUMED_MESSAGE_TYPE, Box::new(konsument))
-                .is_none(),
-            "frische Registrierung darf keinen Consumer verdrängen"
-        );
-        outbox.enqueue(CONSUMED_MESSAGE_TYPE, "auszug-juni")?;
+        register_fresh(&mut dispatcher, CONSUMED_MESSAGE_TYPE, Box::new(konsument));
+        outbox.enqueue(CONSUMED_MESSAGE_TYPE, fixture)?;
         outbox.deliver_open(&dispatcher)
     }
 
