@@ -26,15 +26,15 @@ umstellen und dabei die **Fehler-Form-Drift** auflösen, die ADR-0015 dokumentie
 
 ## Acceptance criteria
 
-- [ ] `obfuskierung` ist auf die Abstraktion migriert; der Store trägt nur noch sein
+- [x] `obfuskierung` ist auf die Abstraktion migriert; der Store trägt nur noch sein
       `StoreSpec`-`impl` + die dünne Seam-`impl`.
-- [ ] Der `obfuskierung`-Adapter-Fehler `StoreUnavailable` trägt eine redigierte
+- [x] Der `obfuskierung`-Adapter-Fehler `StoreUnavailable` trägt eine redigierte
       Text-Diagnose, formgleich mit den drei anderen Slices.
-- [ ] Die redigierte Diagnose enthält **keinen** Roh-Feld-/Zellwert (Privacy-Invariante,
+- [x] Die redigierte Diagnose enthält **keinen** Roh-Feld-/Zellwert (Privacy-Invariante,
       analog zum bestehenden `einlesen`-Leak-Test).
-- [ ] Die bestehenden `obfuskierung`-Store- und `_specs`-Tests bleiben grün (Konstruktor
+- [x] Die bestehenden `obfuskierung`-Store- und `_specs`-Tests bleiben grün (Konstruktor
       der geänderten Fehler-Form nachgezogen).
-- [ ] Alle sechs Gates grün (`/cargo-six-gates`).
+- [x] Alle sechs Gates grün (`/cargo-six-gates`).
 
 ## Blocked by
 
