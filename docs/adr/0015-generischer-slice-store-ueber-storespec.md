@@ -47,30 +47,46 @@ Datei `crates/io/src/sqlite/slice_store.rs`:
 ```rust
 type StagedRow = Box<dyn FnOnce(&Transaction<'_>) -> rusqlite::Result<()> + 'static>;
 
-pub trait StoreSpec {
-    type Dto;                                     // die Adapter-DTO (Line, ObfuscatedBooking, …)
-    type Prepared;                                // die fehlbare, id-LOSE Vor-Umdeutung (VOR dem Mint)
-    type Error;                                   // die adaptereigene StoreUnavailable
-    fn tables()  -> &'static [&'static str];      // new(): ensure_columns je Tabelle
-    fn schema()  -> &'static str;                 // CREATE TABLE … (alle Tabellen des Slice)
-    fn inserts() -> &'static [&'static str];      // ALLE Statements (Kopf+Detail) → Preflight
-    fn flatten(dto: &Self::Dto) -> Result<Self::Prepared, Self::Error>;            // fehlbar, VOR dem Mint
-    fn stage(dto: &Self::Dto, prepared: Self::Prepared, id: String) -> StagedRow;  // baut die id-TRAGENDE Row in EINEM Zug mit der ID, dann Kopf+Detail-Inserts
-    fn unavailable(err: rusqlite::Error) -> Self::Error;                           // redigierter Konstruktor
+pub struct TableSpec {          // eine Tabelle mit IHREM DDL und IHREM Insert — beisammen
+    pub name:   &'static str,   // new(): ensure_columns
+    pub ddl:    &'static str,   // CREATE TABLE IF NOT EXISTS … (+ ihre CREATE INDEX)
+    pub insert: &'static str,   // Ablage-Statement → Preflight
 }
 
-pub struct SliceStore<S> { /* SqliteOutbox + PhantomData<S> */ }
-pub struct SliceUnit<S>(SqliteUnit, PhantomData<S>);
+pub trait StoreSpec {
+    type Dto;                                     // die Adapter-DTO (Line, ObfuscatedBooking, …)
+    type Prepared;                                // die VOLLSTÄNDIGE, besitzende, id-LOSE Speicher-Form
+    type Error;                                   // die adaptereigene StoreUnavailable
+    fn tables() -> &'static [TableSpec];           // EINE Liste: anlegen + nachrüsten + preflighten
+    fn flatten(dto: &Self::Dto) -> Result<Self::Prepared, Self::Error>;  // fehlbar, VOR dem Mint — der EINZIGE DTO-Kontakt
+    fn stage(prepared: Self::Prepared, id: String) -> StagedRow;         // baut die id-TRAGENDE Row in EINEM Zug, dann Kopf+Detail-Inserts
+    fn unavailable(err: rusqlite::Error) -> Self::Error;                 // redigierter Konstruktor
+}
+
+pub struct SliceStore<S> { /* SqliteOutbox + PhantomData<fn() -> S> */ }
+pub struct SliceUnit<S>(SqliteUnit, PhantomData<fn() -> S>);
 ```
 
 Die getroffenen Weichen im Einzelnen:
 
 1. **Form: generischer Typ + Trait**, nicht Makro und nicht bloße Helfer-Funktion. `SliceStore<S>`
-   trägt Struct/`new`/`UnitFactory` **einmal**; die generische Ablage-Primitive
+   trägt Struct und `new` **einmal**; die generische Ablage-Primitive
    `SliceUnit<S>::store_dto(dto) -> Result<String, S::Error>` trägt den Seam-Body-„Tanz"
-   (fehlbares `flatten` → Preflight-`prepare` **aller** `inserts()` → `mint_id` → `stage`, das
-   die Row **mit** der frisch geminteten ID baut). Pro Slice bleibt nur: **ein** `StoreSpec`-`impl`
-   (schema + insert + flatten + stage) + eine **3–5-zeilige** Seam-`impl`, die `store_dto` aufruft.
+   (fehlbares `flatten` → Preflight-`prepare` **aller** `TableSpec::insert` → `mint_id` → `stage`,
+   das die Row **mit** der frisch geminteten ID baut). Pro Slice bleibt: **ein**
+   `StoreSpec`-`impl` (`TableSpec`-Liste + flatten + stage) + eine **3–5-zeilige** Seam-`impl`, die
+   `store_dto` aufruft + ein **4-zeiliges** `UnitFactory`-`impl`, das auf `SliceStore::begin`
+   durchreicht.
+
+   Dieses letzte `impl` bleibt **nur so lange**, wie es die vier `UnitFactory`-Traits gibt
+   (`einlesen`/`obfuskierung`/`fenstern`/`auswerten`): sie sind strukturgleich und unterscheiden
+   sich einzig im Seam-Bound auf `type Unit`. Der `auswerten`-Capstone
+   ([Issue 0077](../issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
+   kollabiert sie zu **einem** io-privaten `UnitFactory` (`type Unit: UnitOfWork + OutboxPublisher`),
+   verschiebt den slice-spezifischen Seam-Bound dorthin, wo er gebraucht wird (`where F::Unit:
+   StoreSeam` am Handler), und ersetzt die vier `impl`s durch **ein** generisches
+   `impl<S: StoreSpec> UnitFactory for SliceStore<S>` — samt Löschung von `SliceStore::begin`. Es
+   hier vorzuziehen hieße, die drei noch nicht migrierten Slices vorwegzunehmen.
 
 2. **`sqlite_backed_unit!` entfällt für diese vier.** Der Passthrough
    `OutboxPublisher`/`UnitOfWork` wird **einmal generisch** implementiert
@@ -84,18 +100,22 @@ Die getroffenen Weichen im Einzelnen:
    Seam.
 
 4. **Mehr-Tabellen einheitlich (1 bis 5 Tabellen) — und die Row trägt die ID von Geburt an.**
-   `flatten` läuft **vor** dem Mint und trägt **nur** die fehlbaren Vor-Umdeutungen (u64→i64 der
-   Beträge, `numbered_bookings`-Positionsvorlauf) in eine **id-lose** `Prepared`. Dann mintet
-   `store_dto` die ID und übergibt sie an `stage(dto, prepared, id)`, das die **SQL-fertige,
-   id-tragende Row in einem Zug mit der ID** baut (wie heute `LineRow::new(id, …)` /
-   `StagedEvaluation::new(id, …)`) und **eine** Closure liefert, die Kopf- und alle Detail-Inserts
-   (positionsgetreu per `enumerate`) fährt. So existiert **nie** eine Row ohne ihre ID: die
-   Reihenfolge *fehlbare Vor-Umdeutung → Mint → Row-mit-ID* ist die des heutigen Codes, der die ID
-   **stets als ersten Konstruktor-Parameter** der Row nimmt (Domänenmodell-Regel „illegale Zustände
-   unkonstruierbar" — eine Row mit leerer Platzhalter-ID ist unkonstruierbar). `inserts()` listet
-   **alle** Statements (Kopf + Detail), sodass der Preflight **jedes** probt (das erhält
-   `auswerten`s heutige Eigenschaft *„hier terminal statt Commit-Retry"*). Der Ein-Tabellen-Fall
-   ist schlicht ein `inserts()` mit **einem** Element und kein Detail-Loop.
+   `flatten` läuft **vor** dem Mint und ist der **einzige** DTO-Kontakt: es deutet die Adapter-DTO
+   **vollständig** in eine besitzende, **id-lose** `Prepared` um, inklusive aller fehlbaren Schritte
+   (u64→i64 der Beträge, `numbered_bookings`-Positionsvorlauf). Dann mintet `store_dto` die ID und
+   übergibt sie an `stage(prepared, id)`, das die **SQL-fertige, id-tragende Row in einem Zug mit
+   der ID** baut (`LineRow::new(id, fields)` / `StagedEvaluation::new(id, …)`) und **eine** Closure
+   liefert, die Kopf- und alle Detail-Inserts (positionsgetreu per `enumerate`) fährt. Die
+   **Reihenfolge** ist damit erzwungen — die `Prepared` ist nicht schreibbar, schreibbar ist nur die
+   Row, und die nimmt die ID **stets als ersten Konstruktor-Parameter**. Dass es die *eben
+   gemintete* ID ist, trägt der einzige Aufrufer (`store_dto`): Konvention an **einer** Stelle,
+   keine Typ-Garantie — die Row ist io-intern, und eine schärfere Fassung (die ID als Argument des
+   einzigen Schreibwegs) kostet mehr Trage-Konstruktion, als sie hier wert ist. Dass `stage`
+   die DTO **nicht** ein zweites Mal sieht, hält die Umdeutung an **einer** Stelle statt sie über
+   zwei Trait-Methoden zu verschmieren. `tables()` listet **jede** Tabelle mit ihrem Statement,
+   sodass der Preflight **jedes** probt (das erhält `auswerten`s heutige Eigenschaft *„hier terminal
+   statt Commit-Retry"*). Der Ein-Tabellen-Fall ist schlicht eine `TableSpec`-Liste mit **einem**
+   Element und kein Detail-Loop.
 
 5. **`StoreUnavailable`-Form vereinheitlicht: redigierte `message` überall.** Heute trägt
    `obfuskierung_adapter::StoreUnavailable` **kein** Feld, die anderen drei ein redigiertes
@@ -143,22 +163,35 @@ Die getroffenen Weichen im Einzelnen:
 - `obfuskierung_adapter::StoreUnavailable` bekommt `message: String`; seine `_specs`
   (Black-Box) müssen den geänderten Konstruktor mitziehen — Implementierungs-Detail des
   Umsetzungs-Issues, kein Design-Blocker.
-- **`.rules/sql` bleiben erzwungen:** SCHEMA, INSERT und Indizes bleiben **pro Slice**
-  authored (`&'static str`-Literale hinter `StoreSpec::schema`/`inserts`) — der generische
-  Store fasst **keine** DDL an; snake_case+Plural, `created_at`/`updated_at` (via
-  `ensure_columns` über `tables()`), `CHECK` für enum-artige Spalten und indizierte
+- **`.rules/sql` bleiben erzwungen:** DDL, INSERT und Indizes bleiben **pro Slice** authored
+  (`&'static str`-Literale in der `TableSpec`-Liste) — der generische Store fasst **keine** DDL
+  an und leitet **nichts** aus SQL ab; snake_case+Plural, `created_at`/`updated_at` (via
+  `ensure_columns` über `TableSpec::name`), `CHECK` für enum-artige Spalten und indizierte
   FK-Spalten bleiben unverwässert.
-- **Rest-Drift bewusst intra-`impl`:** `tables()`/`schema()` und `inserts()`/`stage` sind je
-  zwei Sichten desselben Slice-Schemas, die **pro `impl` von Hand konsistent** bleiben müssen —
-  eine in `schema()` angelegte, in `tables()` vergessene Tabelle bekäme lautlos keine
-  Audit-Spalten-Nachrüstung; ein in `stage` gefahrenes, in `inserts()` fehlendes
-  Detail-Statement entginge dem Preflight und ließe die *„hier terminal statt Commit-Retry"*-
-  Eigenschaft still auf einen Commit-Retry zurückfallen. Das ist der bewusst in Kauf genommene
-  Rest der Kollabierung — dieselbe Drift-Klasse, die das ADR *slice-übergreifend* eliminiert,
-  im Kleinen intra-`impl` (SQL zu parsen, um Tabellennamen abzuleiten, wäre die schlechtere
-  Magie und gegen den „AI-navigable"-Wert). Das Netz ist der bestehende, **pro Slice
-  handgeschriebene** Store-Test — insb. das Kriterium *„Preflight probt alle N Inserts"* des
-  `auswerten`-Capstones ([Issue 0077](../issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+- **Name, DDL und Insert einer Tabelle stehen beisammen** (`TableSpec`), statt als drei
+  parallele Listen (`tables()`/`schema()`/`inserts()`) pro `impl` von Hand konsistent gehalten
+  zu werden. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen über **dieselbe** Liste,
+  also bekommt jede deklarierte Tabelle alle drei oder existiert nicht — die frühere Drift
+  („in `schema()` angelegt, in `tables()` vergessen") ist nicht mehr darstellbar, ohne dass
+  dafür SQL geparst werden müsste (das wäre die schlechtere Magie und gegen den
+  „AI-navigable"-Wert — hier deklariert der Slice weiterhin selbst, es steht nur beisammen).
+- **Rest-Drift bewusst intra-`impl`:** `TableSpec::insert` und `stage` bleiben zwei Sichten
+  auf dieselben Statements — ein in `stage` gefahrenes, nirgends deklariertes Statement
+  entginge dem Preflight und ließe die *„hier terminal statt Commit-Retry"*-Eigenschaft still
+  auf einen Commit-Retry zurückfallen. Beide zeigen aber auf **dasselbe** `&'static str`-Literal,
+  das neben seiner Tabelle steht. Das Netz ist der bestehende, **pro Slice handgeschriebene**
+  Store-Test — insb. das Kriterium *„Preflight probt alle N Inserts"* des `auswerten`-Capstones
+  ([Issue 0077](../issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+
+  Diese Rest-Drift wird **nicht** typseitig eingezäunt, weil sie ein Ablaufdatum hat: sobald der
+  MVP steht, ist der Wechsel auf **`sqlx`** vorgesehen, dessen `query!`-Makros den SQL zur
+  Compile-Zeit gegen die DB verifizieren — genau diese Drift-Klasse verschwindet dann von selbst.
+  `TableSpec::insert` ist die Stelle, die dabei zum Makro-Aufruf wird; die Struktur überlebt den
+  Wechsel, die Trage-Konstruktion darüber wird ohnehin neu geschnitten. Bis dahin gilt
+  [ADR-0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md) (rusqlite, synchrone Spine) — der
+  async-Ripple durch `application_kernel` und alle Slices ist der Grund, warum `sqlx` **heute**
+  nicht geht. Aufwand, der diese Drift jetzt von Hand einhegt, ist Arbeit an einem Problem mit
+  Verfallsdatum.
 - Alle sechs Gates bleiben nach der Umsetzung grün; die vier bestehenden Store-Tests
   (feld-treue Ablage, terminal-redigierter Fehlschlag, Batch-Atomarität) bleiben die
   Spezifikation und sind der Regressionsschutz der Kollabierung.
