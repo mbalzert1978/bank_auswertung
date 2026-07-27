@@ -52,9 +52,9 @@ use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 /// (`auswertungsfenster`) und Detail (`auswertungsfenster_buchungen`) je mit ihrem `INSERT`, und als
 /// fehlbare Umdeutung der positionsgetreue Vorlauf über die Buchungs-Fremdschlüssel. Der Marker-Typ
 /// parametrisiert [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
-pub struct AuswertungsfensterWindows;
+pub struct FensternWindows;
 
-impl StoreSpec for AuswertungsfensterWindows {
+impl StoreSpec for FensternWindows {
     type Dto = AnalysisWindowRow;
     /// Das abgeflachte Fenster ohne seine ID — schreibbar wird erst die `WindowRow`, die `stage`
     /// daraus **mit** der geminteten ID baut (Kopf **und** Detail tragen sie).
@@ -84,13 +84,13 @@ impl StoreSpec for AuswertungsfensterWindows {
 }
 
 /// Der reale `fenstern`-Ergebnis-Store: der generische [`SliceStore`] über
-/// [`AuswertungsfensterWindows`] und damit die [`UnitFactory`](crate::fenstern::UnitFactory) des
+/// [`FensternWindows`] und damit die [`UnitFactory`](crate::fenstern::UnitFactory) des
 /// Slice. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
-pub type FensternSqliteStore = SliceStore<AuswertungsfensterWindows>;
+pub type FensternSqliteStore = SliceStore<FensternWindows>;
 
 /// Eine `fenstern`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`AnalysisWindowStoreSeam`)
 /// **und** die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`).
-pub type FensternUnit = SliceUnit<AuswertungsfensterWindows>;
+pub type FensternUnit = SliceUnit<FensternWindows>;
 
 impl UnitFactory for FensternSqliteStore {
     type Unit = FensternUnit;
@@ -119,23 +119,20 @@ fn store_unavailable(message: &str) -> StoreUnavailable {
     }
 }
 
-/// Nummeriert die Buchungs-Fremdschlüssel positionsgetreu. `i64::try_from` auf die Position ist eine
-/// reine Speicher-Mechanik-Absicherung (ein Fenster mit mehr als `i64::MAX` Buchungen ist
-/// unrealistisch) und failt terminal als [`StoreUnavailable`], nie mit einem Rohwert. Läuft im
-/// fehlbaren [`flatten`](StoreSpec::flatten) und damit **vor** dem Minten, damit
-/// [`WindowRow::new`] die schreibbare Row **in einem Zug mit** der ID bauen kann.
-fn numbered_bookings(booking_ids: &[String]) -> Result<Vec<(i64, String)>, StoreUnavailable> {
-    booking_ids
-        .iter()
-        .enumerate()
-        .map(|(position, booking_id)| {
-            i64::try_from(position)
-                .map(|position| (position, booking_id.clone()))
-                .map_err(|_overflow| StoreUnavailable {
-                    message: "Fenster trägt mehr Buchungen als sich ordnen lassen".to_string(),
-                })
+/// Übernimmt die Buchungs-Fremdschlüssel in ihrer **Reihenfolge** — die *ist* die Position, darum
+/// trägt keine Buchung ihre Positionszahl daneben (sie könnte ihr sonst widersprechen); nummeriert
+/// wird erst beim Schreiben ([`WindowRow::insert`]). Das `i64::try_from` auf die **Länge** ist die
+/// eine reine Speicher-Mechanik-Absicherung (ein Fenster mit mehr als `i64::MAX` Buchungen ist
+/// unrealistisch) und failt terminal als [`StoreUnavailable`], nie mit einem Rohwert — durch
+/// [`store_unavailable`], den einen redigierenden Konstruktor dieses Moduls. Läuft im fehlbaren
+/// [`flatten`](StoreSpec::flatten) und damit **vor** dem Minten, damit [`WindowRow::new`] die
+/// schreibbare Row **in einem Zug mit** der ID bauen kann.
+fn ordered_bookings(booking_ids: &[String]) -> Result<Vec<String>, StoreUnavailable> {
+    i64::try_from(booking_ids.len())
+        .map(|_fits| booking_ids.to_vec())
+        .map_err(|_overflow| {
+            store_unavailable("Fenster trägt mehr Buchungen als sich ordnen lassen")
         })
-        .collect()
 }
 
 /// Das abgeflachte [`AnalysisWindowRow`] in seiner besitzenden Speicher-Form — **ohne** seine ID und
@@ -144,25 +141,28 @@ fn numbered_bookings(booking_ids: &[String]) -> Result<Vec<(i64, String)>, Store
 ///
 /// `pub` aus Sichtbarkeits-Zwang (sie steht als `Prepared` in der Signatur eines öffentlichen
 /// Trait-`impl`, `private_interfaces`), **nicht** als API: das Modul `store` ist privat, also bleibt
-/// sie außerhalb von `io` unerreichbar.
+/// sie außerhalb von `io` nicht konstruierbar und nicht lesbar (benennbar ist sie als
+/// `<FensternWindows as StoreSpec>::Prepared` schon — nur eben inert).
 pub struct WindowFields {
     from_day: i64,
     to_day: i64,
     currency: String,
-    bookings: Vec<(i64, String)>,
+    /// Die Buchungs-Fremdschlüssel in ihrer Reihenfolge — **sie** ist die Position; die
+    /// Positionszahl entsteht erst beim Schreiben, kann der Reihenfolge also nicht widersprechen.
+    bookings: Vec<String>,
 }
 
 impl TryFrom<&AnalysisWindowRow> for WindowFields {
     type Error = StoreUnavailable;
 
-    /// Fehlbar allein in der Positions-Nummerierung ([`numbered_bookings`]) — reine
+    /// Fehlbar allein in der Ordenbarkeits-Absicherung ([`ordered_bookings`]) — reine
     /// Speicher-Mechanik, nie ein Rohwert.
     fn try_from(window: &AnalysisWindowRow) -> Result<Self, StoreUnavailable> {
         Ok(Self {
             from_day: window.from,
             to_day: window.to,
             currency: window.currency.clone(),
-            bookings: numbered_bookings(&window.booking_ids)?,
+            bookings: ordered_bookings(&window.booking_ids)?,
         })
     }
 }
@@ -171,7 +171,7 @@ impl TryFrom<&AnalysisWindowRow> for WindowFields {
 /// DB-vergebenen ID (zugleich der publizierte Zeiger), die Kopf und Detail gemeinsam tragen. Sie
 /// reist in die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster
 /// Parameter von [`new`](WindowRow::new); dass es die eben gemintete ist, trägt der einzige Aufrufer
-/// (`AuswertungsfensterWindows::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
+/// (`FensternWindows::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
 struct WindowRow {
     id: String,
     fields: WindowFields,
@@ -184,16 +184,17 @@ impl WindowRow {
     }
 
     /// Schreibt beide Tabellen in **einer** Transaktion: die Kopf-Zeile, dann positionsgetreu ihre
-    /// Detail-Zeilen unter derselben ID.
+    /// Detail-Zeilen unter derselben ID. Die Positionszahl entsteht **hier**, aus der Reihenfolge
+    /// selbst (`0i64..`), statt in den Feldern neben ihr zu liegen — sie kann ihr also nicht
+    /// widersprechen; dass der Zähler reicht, hat [`ordered_bookings`] über die Länge abgesichert.
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
         let fields = &self.fields;
         tx.execute(
             INSERT_WINDOW,
             params![self.id, fields.from_day, fields.to_day, fields.currency],
         )?;
-        fields
-            .bookings
-            .iter()
+        (0i64..)
+            .zip(fields.bookings.iter())
             .try_for_each(|(position, booking_id)| {
                 tx.execute(INSERT_BOOKING, params![self.id, position, booking_id])
                     .map(drop)
@@ -580,6 +581,71 @@ mod tests {
             published(&outbox, WINDOW_CLOSED_MESSAGE_TYPE)?.is_empty()
                 && published(&outbox, HISTORY_COMPLETE_MESSAGE_TYPE)?.is_empty(),
             "ein terminaler Fenster-Store-Fehler darf keinen Zeiger publizieren: {outcomes:?}"
+        );
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn ein_fehlendes_detail_schema_failt_die_ablage_terminal_ohne_zu_publizieren()
+    -> rusqlite::Result<()> {
+        // Der Mehr-Tabellen-Beweis (Issue 0076, Kriterium 2): **nur** die Kopf-Tabelle steht, die
+        // Detail-Tabelle fehlt. Weil der Preflight über **beide** `TableSpec::insert` aus `TABLES`
+        // läuft, failt schon `save` terminal — nicht erst der Commit als Retry. Fiele die
+        // Detail-Tabelle aus `TABLES` (oder würde ihr `insert` nicht mehr geprobt), wird dieser Test
+        // rot, während der Ausfall-Test über den ganz schemalosen Store weiter grün bliebe.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        seed_through(&outbox, Stage::Obfuskierung, "gueltig.csv")?;
+
+        let source = ObfuskiertWindowSource::new(outbox.clone());
+        outbox.with_connection(|conn| conn.execute_batch(SCHEMA_WINDOWS))?;
+        // Bewusst an `new` vorbeigebaut, damit `new` die fehlende Detail-Tabelle nicht doch anlegt.
+        let store = FensternSqliteStore::without_schema(outbox.clone());
+        let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
+
+        let mut dispatcher = Dispatcher::new();
+        register_fresh(
+            &mut dispatcher,
+            OBFUSCATED_MESSAGE_TYPE,
+            Box::new(CapturingAck::new(outbox.clone())),
+        );
+        register_fresh(
+            &mut dispatcher,
+            START_MESSAGE_TYPE,
+            Box::new(start_consumer(&source, store.clone())),
+        );
+        register_fresh(
+            &mut dispatcher,
+            FENSTERN_CONSUMED,
+            Box::new(fenstern_consumer(window_days, &source, store)),
+        );
+
+        outbox.enqueue(START_MESSAGE_TYPE, "")?;
+        let outcomes = drain(&outbox, &dispatcher)?;
+
+        assert!(
+            matches!(outcomes.last(), Some((_, Err(OutboxError::Warning { .. })))),
+            "eine fehlende Detail-Tabelle muss den Fenster-Schritt terminal + redigiert failen \
+             lassen: {outcomes:?}"
+        );
+        assert!(
+            published(&outbox, WINDOW_CLOSED_MESSAGE_TYPE)?.is_empty()
+                && published(&outbox, HISTORY_COMPLETE_MESSAGE_TYPE)?.is_empty(),
+            "ein terminaler Fenster-Store-Fehler darf keinen Zeiger publizieren: {outcomes:?}"
+        );
+        // Auch die **Kopf**-Zeile darf nicht liegenbleiben: der Preflight failt vor dem Minten, also
+        // committet keine der beiden Tabellen etwas (Kopf und Detail oder gar nichts).
+        let kopf_zeilen: i64 = outbox.with_connection(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM auswertungsfenster;", [], |row| {
+                row.get(0)
+            })
+        })?;
+        assert_eq!(
+            kopf_zeilen, 0,
+            "ohne Detail-Tabelle darf auch keine Kopf-Zeile committen"
         );
         Ok(())
     }
