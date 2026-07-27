@@ -36,10 +36,12 @@
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
 //! **Fehlbar + terminal (redigiert):** ein unerreichbarer Store (Schema fehlt) failt **synchron** in
-//! `save` als [`StoreUnavailable`] (→ Domänen-`SourceError::StorageUnavailable` mit opaker Quell-ID),
-//! terminal und redigiert — die Diagnose trägt seit Issue 0075 **denselben** redigierten `message`
-//! wie die drei anderen Slices: nur io-Zugriffs-Mechanik, nie ein Zell-/Feldwert. Kein Dead-Letter,
-//! kein Retry im Slice.
+//! `save` als [`StoreUnavailable`] (→ Domänen-`SourceError::StorageUnavailable` mit opaker Quell-ID
+//! **und** durchgereichtem `reason`), terminal und redigiert — die Diagnose trägt seit Issue 0075
+//! **denselben** redigierten `message` wie die drei anderen Slices: nur io-Zugriffs-Mechanik, nie ein
+//! Zell-/Feldwert. Dass sie hier keinen Zellwert tragen **kann**, ist strukturell: [`unavailable`](StoreSpec::unavailable)
+//! ist allein aus dem Preflight/Mint-Zweig von [`store_dto`](crate::sqlite::SliceUnit) erreichbar, der
+//! keine DTO-Daten anfasst. Kein Dead-Letter, kein Retry im Slice.
 
 use obfuskierung_adapter::{ObfuscatedBooking, ObfuscatedStoreSeam, Recipient, StoreUnavailable};
 use rusqlite::{Transaction, params};
@@ -566,7 +568,9 @@ mod tests {
 
         let outcomes = run_pipeline(&outbox, store, "gueltig.csv", SEED)?;
 
-        // Terminal (Warning), redigiert: der Grund trägt die opake Quell-ID, nie die rohe IBAN.
+        // Terminal (Warning), redigiert: der Grund trägt die opake Quell-ID **und** die
+        // durchgereichte io-Diagnose — und damit deckt dieser Leak-Test genau die Meldung ab, die der
+        // Seam konstruiert hat (`obfuskiert store unavailable: …`): keine rohe IBAN, kein Zellwert.
         assert!(
             matches!(
                 outcomes.as_slice(),

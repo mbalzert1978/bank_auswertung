@@ -15,12 +15,15 @@ pub trait ObfuscatedStoreSeam {
 }
 
 /// Die Ablage ist **misslungen** — terminaler Seam-Fehler, der die **io-Diagnose** trägt
-/// (Zugriffs-Mechanik: DB-/Transaktions-Fehler); der Text bleibt lokal am Seam, kein Egress. Über die
-/// Adapter-Grenze reicht die `RepositoryBridge` weiterhin nur den redigierten Domänen-Fehler (opake
-/// Quell-ID, kein Rohwert).
+/// (Zugriffs-Mechanik: DB-/Transaktions-Fehler). Die `RepositoryBridge` reicht sie als `reason` in den
+/// redigierten Domänen-Fehler `SourceError::StorageUnavailable` weiter (neben der opaken Quell-ID),
+/// damit ein unerreichbarer Store diagnostizierbar bleibt — lokal, **kein Egress**: in ein
+/// ausgehendes DTO fließt sie nie.
 ///
 /// **Redaktions-Pflicht am Seam (Vertrag, nicht Konstruktion):** die Meldung beschreibt die
-/// **Zugriffs-Mechanik** und zitiert **nie** Zeilen-/Feldinhalt; io muss das beim Erfüllen einhalten.
+/// **Zugriffs-Mechanik** und zitiert **nie** Zeilen-/Feldinhalt; io muss das beim Erfüllen einhalten —
+/// weil sie durchgereicht wird, ist genau das die Bedingung dafür, dass der Domänen-Fehler redigiert
+/// bleibt.
 /// Seit [ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md) (Punkt 5)
 /// **formgleich** mit den `StoreUnavailable` der drei anderen Slices — die frühere feldlose
 /// Sonderform war eine Drift.

@@ -168,3 +168,28 @@ fn vorhandene_zeile_mit_leerem_pflichtfeld_scheitert_terminal() {
     );
     api.assert_nothing_emitted();
 }
+
+// --- Ablage unerreichbar: terminal, io-Diagnose durchgereicht -------------------
+
+#[test]
+fn ein_fehlschlag_beim_ablegen_scheitert_terminal_mit_durchgereichter_diagnose() {
+    // Die Zeile ist gültig, aber der Speicher ist unerreichbar. Der Fehlschlag ist terminal (kein
+    // Retry im Slice) und trägt **beides**: die opake Quell-ID und die io-Diagnose — die darf an der
+    // Adapter-Grenze nicht verfallen, sonst ist ein unerreichbarer Store nicht diagnostizierbar.
+    let api = api_mit_zeile(gültige_zeile()).with_failing_store("Tabelle gesperrt");
+
+    let ergebnis = api.run("buchung-1");
+
+    // Ein Match statt zweier — wie beim `NotFound`-Spec: den Fehler EINMAL auspacken, dann Variante
+    // und Wortlaut am gebundenen Wert prüfen (die opake `BookingId` baut die Spec nicht selbst nach).
+    let fehler = ergebnis.expect_err("erwartet terminalen Fehler");
+    assert!(
+        matches!(fehler, SourceError::StorageUnavailable { .. }),
+        "erwartet terminales StorageUnavailable: {fehler:?}"
+    );
+    assert_eq!(
+        fehler.to_string(),
+        "could not store obfuscated booking for source booking buchung-1: Tabelle gesperrt"
+    );
+    api.assert_nothing_emitted();
+}
