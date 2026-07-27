@@ -30,7 +30,7 @@ mod store;
 
 pub use obfuscator::SeededObfuscator;
 pub use source::EinlesenRowSource;
-pub use store::{ObfuskierungSqliteStore, ObfuskierungUnit};
+pub use store::{ObfuskiertBookings, ObfuskierungSqliteStore, ObfuskierungUnit};
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
