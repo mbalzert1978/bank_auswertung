@@ -14,11 +14,13 @@ pub enum SourceError {
     NotFound(BookingId),
     /// Eine vorhandene Zeile hat ein leeres/fehlendes Pflichtfeld — trägt nur den statischen Feldnamen.
     MissingMandatoryField { field: &'static str },
-    /// Die Ablage der obfuskierten Buchung ist gescheitert. Trägt die opake Quell-[`BookingId`] **und**
-    /// die durchgereichte io-Diagnose (`reason` — Zugriffs-Mechanik, nie ein Rohwert), formgleich mit
-    /// `fenstern`/`auswerten`: ein unerreichbarer Store bleibt damit diagnostizierbar, statt dass die
-    /// Diagnose an der Adapter-Grenze verfällt.
-    StorageUnavailable { source: BookingId, reason: String },
+    /// Die Ablage der obfuskierten Buchung ist gescheitert. Trägt **nur** die durchgereichte
+    /// io-Diagnose (`reason` — Zugriffs-Mechanik, nie ein Rohwert) und ist damit formgleich mit
+    /// `fenstern`/`auswerten`: ein unerreichbarer Store bleibt diagnostizierbar, statt dass die
+    /// Diagnose an der Adapter-Grenze verfällt. Die opake ID gehört in
+    /// [`NotFound`](Self::NotFound), wo sie die eigentliche Aussage ist — hier trüge sie nur, was
+    /// ohnehin im `partition_key` der Nachricht steht.
+    StorageUnavailable { reason: String },
 }
 
 impl fmt::Display for SourceError {
@@ -30,12 +32,8 @@ impl fmt::Display for SourceError {
             SourceError::MissingMandatoryField { field } => {
                 write!(f, "mandatory field missing in source booking: {field}")
             }
-            SourceError::StorageUnavailable { source, reason } => {
-                write!(
-                    f,
-                    "could not store obfuscated booking for source booking {}: {reason}",
-                    source.as_str()
-                )
+            SourceError::StorageUnavailable { reason } => {
+                write!(f, "could not store obfuscated booking: {reason}")
             }
         }
     }

@@ -180,16 +180,13 @@ fn ein_fehlschlag_beim_ablegen_scheitert_terminal_mit_durchgereichter_diagnose()
 
     let ergebnis = api.run("buchung-1");
 
-    // Ein Match statt zweier — wie beim `NotFound`-Spec: den Fehler EINMAL auspacken, dann Variante
-    // und Wortlaut am gebundenen Wert prüfen (die opake `BookingId` baut die Spec nicht selbst nach).
-    let fehler = ergebnis.expect_err("erwartet terminalen Fehler");
-    assert!(
-        matches!(fehler, SourceError::StorageUnavailable { .. }),
-        "erwartet terminales StorageUnavailable: {fehler:?}"
-    );
+    // Ganzwert-Vergleich wie bei `fenstern`/`auswerten`: er nagelt Variante **und** Nutzlast in
+    // einer Zusicherung fest und beweist zugleich, dass der Fehler nichts weiter trägt.
     assert_eq!(
-        fehler.to_string(),
-        "could not store obfuscated booking for source booking buchung-1: Tabelle gesperrt"
+        ergebnis,
+        Err(SourceError::StorageUnavailable {
+            reason: "Tabelle gesperrt".to_string()
+        })
     );
     api.assert_nothing_emitted();
 }
