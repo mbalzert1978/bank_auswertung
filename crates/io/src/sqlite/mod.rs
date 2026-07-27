@@ -21,9 +21,10 @@
 //! Outbox-Passthrough) trägt seit
 //! [Issue 0074](../../../../docs/issues/0074-storespec-abstraktion-einf-hren-und-einlesen-migrieren.md)
 //! der generische [`SliceStore`]/[`SliceUnit`] **einmal**, parametrisiert über [`StoreSpec`]
-//! ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)); `einlesen`
-//! ist darauf migriert. Die drei noch nicht migrierten Stores
-//! (`obfuskierung`/`fenstern`/`auswerten`) nutzen weiterhin `mint_id`, `SqliteUnit::stage` und das
+//! ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)); `einlesen`,
+//! `obfuskierung` und — seit [Issue 0076](../../../../docs/issues/0076-fenstern-migrieren-zwei-tabellen-fall.md),
+//! dem Mehr-Tabellen-Fall — `fenstern` sind darauf migriert. Der **eine** noch nicht migrierte Store
+//! (`auswerten`) nutzt weiterhin `mint_id`, `SqliteUnit::stage` und das
 //! `sqlite_backed_unit!`-Makro — alle drei sind **transitorisch** und fallen mit dem `auswerten`-
 //! Capstone ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
 //! ersatzlos weg.

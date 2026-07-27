@@ -11,7 +11,7 @@
 //!
 //! **Atomarität (Tabelle = Wahrheit, Message = Zeiger, [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):**
 //! [`FensternSqliteStore`] ist die [`UnitFactory`](crate::fenstern::UnitFactory) des Slice — je
-//! Nachricht öffnet es eine [`FensternUnit`] über einer [`SqliteUnit`]. Deren
+//! Nachricht öffnet es eine [`FensternUnit`] über dem generischen [`SliceUnit`]. Deren
 //! [`save`](AnalysisWindowStoreSeam::save) **mintet die neue ID synchron an der DB** (`randomblob`)
 //! und **stagt** das Fenster-`INSERT` **und** die Buchungs-Fremdschlüssel in **dieselbe** committende
 //! Transaktion wie die ausgehenden Nachrichten (`WindowClosed`/`AdvanceWindow`/`HistoryComplete`)
@@ -22,6 +22,21 @@
 //! die Domäne) und die eine Währung; `auswertungsfenster_buchungen` die Fremdschlüssel auf die
 //! obfuskierten Zeilen, **positionsgetreu** (die Reihenfolge, in der das Aggregat sie trägt).
 //!
+//! **Seit [Issue 0076](../../../../docs/issues/0076-fenstern-migrieren-zwei-tabellen-fall.md) trägt
+//! dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
+//! sein [`StoreSpec`]-`impl` (Schema + Inserts + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
+//! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
+//! Preflight/Minten und der Outbox-Passthrough leben generisch in [`SliceStore`]/[`SliceUnit`]. Er ist
+//! der **Mehr-Tabellen-Fall** der Abstraktion: **beide** Tabellen stehen mit DDL und Ablage-Statement
+//! in **einer** [`TableSpec`]-Liste (also legt `new` beide an, rüstet auf beiden die Audit-Spalten
+//! nach und der Preflight probt **beide** Statements), und [`stage`](StoreSpec::stage) liefert
+//! **eine** Schreibung, die Kopf- und Detail-Zeilen positionsgetreu in dieselbe Transaktion schreibt.
+//! Handgeschrieben bleibt **noch** das [`UnitFactory`]-`impl` unten — ein reiner Durchgriff auf
+//! `SliceStore::begin`, solange es die vier strukturgleichen `UnitFactory`-Traits der Slices gibt
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+//! Der Seam-Vertrag Richtung Slice ist davon **unberührt**
+//! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
+//!
 //! **Fehlbar + terminal:** ein unerreichbarer Store (Schema fehlt) failt **synchron** in `save` als
 //! [`StoreUnavailable`] (→ Domänen-`WindowError::StorageUnavailable`), terminal. Kein Dead-Letter,
 //! kein Retry im Slice.
@@ -31,90 +46,84 @@ use rusqlite::{Transaction, params};
 
 use crate::MessageId;
 use crate::fenstern::UnitFactory;
-use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
+use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
-/// Der reale `fenstern`-Ergebnis-Store: die [`UnitFactory`](crate::fenstern::UnitFactory) des Slice
-/// über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt beim
-/// Aufbau seine beiden Ergebnis-Tabellen sicher. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
-#[derive(Clone)]
-pub struct FensternSqliteStore {
-    outbox: SqliteOutbox,
-}
+/// Die `fenstern`-Persistenz als [`StoreSpec`]: der **Zwei-Tabellen-Fall** — Kopf
+/// (`auswertungsfenster`) und Detail (`auswertungsfenster_buchungen`) je mit ihrem `INSERT`, und als
+/// fehlbare Umdeutung der positionsgetreue Vorlauf über die Buchungs-Fremdschlüssel. Der Marker-Typ
+/// parametrisiert [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
+pub struct AuswertungsfensterWindows;
 
-impl FensternSqliteStore {
-    /// Baut den Store über dem gegebenen Rückgrat und legt die `auswertungsfenster`-/
-    /// `auswertungsfenster_buchungen`-Tabellen an (`IF NOT EXISTS` — ein bestehender Bestand bleibt
-    /// erhalten). `ensure_columns` rüstet die Audit-Spalten auf **beiden** Tabellen nach, falls sie
-    /// aus einer **alten** DB-Datei ohne sie stammen.
-    pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
-        outbox.with_connection(|conn| {
-            conn.execute_batch(SCHEMA)?;
-            crate::sqlite::ensure_columns(
-                conn,
-                "auswertungsfenster",
-                crate::sqlite::AUDIT_COLUMNS,
-            )?;
-            crate::sqlite::ensure_columns(
-                conn,
-                "auswertungsfenster_buchungen",
-                crate::sqlite::AUDIT_COLUMNS,
-            )
-        })?;
-        Ok(Self { outbox })
+impl StoreSpec for AuswertungsfensterWindows {
+    type Dto = AnalysisWindowRow;
+    /// Das abgeflachte Fenster ohne seine ID — schreibbar wird erst die `WindowRow`, die `stage`
+    /// daraus **mit** der geminteten ID baut (Kopf **und** Detail tragen sie).
+    type Prepared = WindowFields;
+    type Error = StoreUnavailable;
+
+    fn tables() -> &'static [TableSpec] {
+        TABLES
+    }
+
+    fn flatten(window: &AnalysisWindowRow) -> Result<WindowFields, StoreUnavailable> {
+        WindowFields::try_from(window)
+    }
+
+    /// Baut **eine** Schreibung über beide Tabellen: erst die Kopf-Zeile unter der frisch geminteten
+    /// `id`, dann positionsgetreu ihre Detail-Zeilen unter derselben `id`.
+    fn stage(fields: WindowFields, id: String) -> StagedRow {
+        let row = WindowRow::new(id, fields);
+        Box::new(move |tx| row.insert(tx))
+    }
+
+    /// Reicht die `rusqlite`-Diagnose eines misslungenen Store-Zugriffs durch (fehlendes Schema,
+    /// DB-Fehler) — Mechanik, nie ein Zell-/Feldwert.
+    fn unavailable(error: rusqlite::Error) -> StoreUnavailable {
+        store_unavailable(&error.to_string())
     }
 }
+
+/// Der reale `fenstern`-Ergebnis-Store: der generische [`SliceStore`] über
+/// [`AuswertungsfensterWindows`] und damit die [`UnitFactory`](crate::fenstern::UnitFactory) des
+/// Slice. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
+pub type FensternSqliteStore = SliceStore<AuswertungsfensterWindows>;
+
+/// Eine `fenstern`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`AnalysisWindowStoreSeam`)
+/// **und** die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`).
+pub type FensternUnit = SliceUnit<AuswertungsfensterWindows>;
 
 impl UnitFactory for FensternSqliteStore {
     type Unit = FensternUnit;
 
     fn begin(&self, ack: MessageId<'_>) -> FensternUnit {
-        FensternUnit(self.outbox.begin(ack))
+        SliceStore::begin(self, ack)
     }
 }
-
-/// Eine `fenstern`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`AnalysisWindowStoreSeam`)
-/// **und** die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`) — ein Newtype
-/// über der generischen [`SqliteUnit`], der ihr das slice-spezifische Ablage-`INSERT` gibt und
-/// Publish/Commit durchreicht.
-pub struct FensternUnit(SqliteUnit);
 
 impl AnalysisWindowStoreSeam for FensternUnit {
     /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt das Fenster- und die
     /// Buchungs-`INSERT`s in die committende Transaktion; ein unerreichbarer Store (Schema fehlt /
-    /// DB-Fehler) failt **hier** terminal als [`StoreUnavailable`]. Der Preflight probt **beide**
-    /// Ablage-Statements (`INSERT_WINDOW` **und** `INSERT_BOOKING`) — fehlt auch nur eine der beiden
-    /// Tabellen, failt es hier terminal statt erst als Commit-Retry.
+    /// DB-Fehler) failt **hier** terminal als redigierte [`StoreUnavailable`]. Der Preflight probt
+    /// **beide** Ablage-Statements (Kopf **und** Detail — beide stehen in `TABLES`): fehlt auch nur
+    /// eine der beiden Tabellen, failt es hier terminal statt erst als Commit-Retry.
     fn save(&self, window: &AnalysisWindowRow) -> Result<String, StoreUnavailable> {
-        let bookings = numbered_bookings(&window.booking_ids)?;
-        let id: String = self
-            .0
-            .with_connection(|conn| {
-                // Beide Ablage-Statements proben, nicht nur INSERT_WINDOW: erst so gilt die
-                // terminal-in-`save`-Zusage auch für eine fehlende auswertungsfenster_buchungen.
-                conn.prepare(INSERT_BOOKING).map(drop)?;
-                crate::sqlite::mint_id(conn, INSERT_WINDOW)
-            })
-            .map_err(unavailable)?;
-        let row = WindowRow::new(id.clone(), window, bookings);
-        self.0.stage(move |tx| row.insert(tx));
-        Ok(id)
+        self.store_dto(window)
     }
 }
 
-sqlite_backed_unit!(FensternUnit);
-
-fn unavailable(err: rusqlite::Error) -> StoreUnavailable {
+/// Eine redigierte [`StoreUnavailable`] aus io-eigener Diagnose (Zugriffs-Mechanik, nie ein
+/// Zell-/Feldwert — der Seam-Vertrag verlangt die Redaktion).
+fn store_unavailable(message: &str) -> StoreUnavailable {
     StoreUnavailable {
-        message: format!("auswertungsfenster-Store nicht erreichbar: {err}"),
+        message: format!("auswertungsfenster-Store nicht erreichbar: {message}"),
     }
 }
 
 /// Nummeriert die Buchungs-Fremdschlüssel positionsgetreu. `i64::try_from` auf die Position ist eine
 /// reine Speicher-Mechanik-Absicherung (ein Fenster mit mehr als `i64::MAX` Buchungen ist
-/// unrealistisch) und failt terminal als [`StoreUnavailable`], nie mit einem Rohwert. Läuft vor dem
-/// Minten (wie `einlesen`s Betrags-Prüfung), damit [`WindowRow::new`] die schreibbare Row **in einem
-/// Zug mit** der ID bauen kann.
+/// unrealistisch) und failt terminal als [`StoreUnavailable`], nie mit einem Rohwert. Läuft im
+/// fehlbaren [`flatten`](StoreSpec::flatten) und damit **vor** dem Minten, damit
+/// [`WindowRow::new`] die schreibbare Row **in einem Zug mit** der ID bauen kann.
 fn numbered_bookings(booking_ids: &[String]) -> Result<Vec<(i64, String)>, StoreUnavailable> {
     booking_ids
         .iter()
@@ -129,52 +138,90 @@ fn numbered_bookings(booking_ids: &[String]) -> Result<Vec<(i64, String)>, Store
         .collect()
 }
 
-/// Die abgeflachte [`AnalysisWindowRow`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
-/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruiert **stets mit**
-/// der frisch geminteten DB-ID ([`new`](WindowRow::new)) — eine Row mit leerer Platzhalter-ID ist
-/// unkonstruierbar (Domänenmodell-Regel: illegale Zustände unkonstruierbar machen). `bookings` trägt
-/// die Fremdschlüssel bereits **positionsgetreu** nummeriert ([`numbered_bookings`]).
-struct WindowRow {
-    id: String,
+/// Das abgeflachte [`AnalysisWindowRow`] in seiner besitzenden Speicher-Form — **ohne** seine ID und
+/// darum **nicht** schreibbar. Der einzige Ort, an dem dieser Store die Adapter-DTO anfasst; alles
+/// Fehlbare (der positionsgetreue Vorlauf über die Buchungs-Fremdschlüssel) ist danach entschieden.
+///
+/// `pub` aus Sichtbarkeits-Zwang (sie steht als `Prepared` in der Signatur eines öffentlichen
+/// Trait-`impl`, `private_interfaces`), **nicht** als API: das Modul `store` ist privat, also bleibt
+/// sie außerhalb von `io` unerreichbar.
+pub struct WindowFields {
     from_day: i64,
     to_day: i64,
     currency: String,
     bookings: Vec<(i64, String)>,
 }
 
-impl WindowRow {
-    /// Baut die schreibbare Row unter der frisch geminteten DB-`id` (zugleich der publizierte Zeiger).
-    fn new(id: String, window: &AnalysisWindowRow, bookings: Vec<(i64, String)>) -> Self {
-        Self {
-            id,
+impl TryFrom<&AnalysisWindowRow> for WindowFields {
+    type Error = StoreUnavailable;
+
+    /// Fehlbar allein in der Positions-Nummerierung ([`numbered_bookings`]) — reine
+    /// Speicher-Mechanik, nie ein Rohwert.
+    fn try_from(window: &AnalysisWindowRow) -> Result<Self, StoreUnavailable> {
+        Ok(Self {
             from_day: window.from,
             to_day: window.to,
             currency: window.currency.clone(),
-            bookings,
-        }
-    }
-
-    fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
-        tx.execute(
-            INSERT_WINDOW,
-            params![self.id, self.from_day, self.to_day, self.currency],
-        )?;
-        for (position, booking_id) in &self.bookings {
-            tx.execute(INSERT_BOOKING, params![self.id, position, booking_id])?;
-        }
-        Ok(())
+            bookings: numbered_bookings(&window.booking_ids)?,
+        })
     }
 }
 
-/// Das Schema der beiden `fenstern`-Ergebnis-Tabellen: `auswertungsfenster` trägt die Spanne (als
-/// `i64`-Tag-Stamps) und die eine Währung unter der DB-vergebenen ID;
-/// `auswertungsfenster_buchungen` die Fremdschlüssel auf die obfuskierten Zeilen, **positionsgetreu**
-/// (`window_id`, `position`) — **kein** DB-`FOREIGN KEY`-Constraint (SQLite erzwingt FKs nur mit
-/// aktiviertem `PRAGMA foreign_keys`, das die synchrone Outbox-Spine bewusst nicht schaltet), aber
-/// die **Referenz-Spalte `window_id` ist indiziert** (`.rules/sql/queries-und-performance.md`).
-/// `created_at`/`updated_at` (Epoch-Millis) tragen den Audit-Zeitstempel; die Tabelle ist append-only,
-/// darum fällt `updated_at` mit `created_at` zusammen.
-const SCHEMA: &str = "\
+/// Die SQL-fertigen Zeilen **beider** Tabellen: die abgeflachten Felder **unter** ihrer
+/// DB-vergebenen ID (zugleich der publizierte Zeiger), die Kopf und Detail gemeinsam tragen. Sie
+/// reist in die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster
+/// Parameter von [`new`](WindowRow::new); dass es die eben gemintete ist, trägt der einzige Aufrufer
+/// (`AuswertungsfensterWindows::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
+struct WindowRow {
+    id: String,
+    fields: WindowFields,
+}
+
+impl WindowRow {
+    /// Baut die schreibbare Row unter der frisch geminteten DB-`id` (zugleich der publizierte Zeiger).
+    const fn new(id: String, fields: WindowFields) -> Self {
+        Self { id, fields }
+    }
+
+    /// Schreibt beide Tabellen in **einer** Transaktion: die Kopf-Zeile, dann positionsgetreu ihre
+    /// Detail-Zeilen unter derselben ID.
+    fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
+        let fields = &self.fields;
+        tx.execute(
+            INSERT_WINDOW,
+            params![self.id, fields.from_day, fields.to_day, fields.currency],
+        )?;
+        fields
+            .bookings
+            .iter()
+            .try_for_each(|(position, booking_id)| {
+                tx.execute(INSERT_BOOKING, params![self.id, position, booking_id])
+                    .map(drop)
+            })
+    }
+}
+
+/// Die **beiden** Tabellen des Slice, je mit ihrem DDL und ihrem Ablage-`INSERT` — der
+/// Mehr-Tabellen-Fall der Abstraktion. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen alle
+/// über diese Liste, also gilt der Preflight-Beweis für **beide**: eine Tabelle, die eines davon
+/// verpasst, ist gar nicht erst deklarierbar.
+const TABLES: &[TableSpec] = &[
+    TableSpec {
+        name: "auswertungsfenster",
+        ddl: SCHEMA_WINDOWS,
+        insert: INSERT_WINDOW,
+    },
+    TableSpec {
+        name: "auswertungsfenster_buchungen",
+        ddl: SCHEMA_BOOKINGS,
+        insert: INSERT_BOOKING,
+    },
+];
+
+/// Das Schema der **Kopf**-Tabelle: `auswertungsfenster` trägt die Spanne (als `i64`-Tag-Stamps) und
+/// die eine Währung unter der DB-vergebenen ID. `created_at`/`updated_at` (Epoch-Millis) tragen den
+/// Audit-Zeitstempel; die Tabelle ist append-only, darum fällt `updated_at` mit `created_at` zusammen.
+const SCHEMA_WINDOWS: &str = "\
 CREATE TABLE IF NOT EXISTS auswertungsfenster (
     id         TEXT    PRIMARY KEY,
     from_day   INTEGER NOT NULL,
@@ -182,7 +229,14 @@ CREATE TABLE IF NOT EXISTS auswertungsfenster (
     currency   TEXT    NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
     updated_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
-);
+);";
+
+/// Das Schema der **Detail**-Tabelle: `auswertungsfenster_buchungen` trägt die Fremdschlüssel auf die
+/// obfuskierten Zeilen, **positionsgetreu** (`window_id`, `position`) — **kein** DB-`FOREIGN
+/// KEY`-Constraint (SQLite erzwingt FKs nur mit aktiviertem `PRAGMA foreign_keys`, das die synchrone
+/// Outbox-Spine bewusst nicht schaltet), aber die **Referenz-Spalte `window_id` ist indiziert**
+/// (`.rules/sql/queries-und-performance.md`). Audit-Zeitstempel wie bei der Kopf-Tabelle.
+const SCHEMA_BOOKINGS: &str = "\
 CREATE TABLE IF NOT EXISTS auswertungsfenster_buchungen (
     window_id  TEXT    NOT NULL,
     position   INTEGER NOT NULL,
@@ -228,6 +282,7 @@ mod tests {
     use crate::pipeline_test_support::{
         CapturingAck, Stage, drain, register_fresh, seed_through, stamp,
     };
+    use crate::sqlite::SqliteOutbox;
 
     /// Die `message_type`s der stromabwärtigen Nachrichten — aus den kanonischen
     /// `PublishCommand::MESSAGE_TYPE`s der DTOs statt als String-Literal, damit eine Umbenennung
@@ -490,9 +545,7 @@ mod tests {
 
         let source = ObfuskiertWindowSource::new(outbox.clone());
         // Bewusst an `new` vorbeigebaut: die Ergebnis-Tabellen fehlen → unerreichbar.
-        let store = FensternSqliteStore {
-            outbox: outbox.clone(),
-        };
+        let store = FensternSqliteStore::without_schema(outbox.clone());
         let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
 
         let mut dispatcher = Dispatcher::new();
