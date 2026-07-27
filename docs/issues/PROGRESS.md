@@ -1,7 +1,8 @@
 # Issue Progress
 
-Stand: 2026-07-24
+Stand: 2026-07-27
 
 ## Erledigt
 
-_(none yet)_
+- [x] **[0075-obfuskierung-migrieren-und-storeunavailable-vereinheitlichen.md](0075-obfuskierung-migrieren-und-storeunavailable-vereinheitlichen.md)** (2026-07-27)
+  obfuskierung migrieren und StoreUnavailable vereinheitlichen

@@ -1,7 +1,7 @@
 ---
 id: "0075"
 title: obfuskierung migrieren und StoreUnavailable vereinheitlichen
-status: blocked
+status: closed
 ---
 
 # obfuskierung migrieren und StoreUnavailable vereinheitlichen
