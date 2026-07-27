@@ -1,7 +1,7 @@
 ---
 id: "0074"
 title: StoreSpec-Abstraktion einführen und einlesen migrieren
-status: open
+status: closed
 ---
 
 # StoreSpec-Abstraktion einführen und einlesen migrieren

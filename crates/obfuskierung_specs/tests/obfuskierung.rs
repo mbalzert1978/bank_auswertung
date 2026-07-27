@@ -168,3 +168,25 @@ fn vorhandene_zeile_mit_leerem_pflichtfeld_scheitert_terminal() {
     );
     api.assert_nothing_emitted();
 }
+
+// --- Ablage unerreichbar: terminal, io-Diagnose durchgereicht -------------------
+
+#[test]
+fn ein_fehlschlag_beim_ablegen_scheitert_terminal_mit_durchgereichter_diagnose() {
+    // Die Zeile ist gültig, aber der Speicher ist unerreichbar. Der Fehlschlag ist terminal (kein
+    // Retry im Slice) und trägt **beides**: die opake Quell-ID und die io-Diagnose — die darf an der
+    // Adapter-Grenze nicht verfallen, sonst ist ein unerreichbarer Store nicht diagnostizierbar.
+    let api = api_mit_zeile(gültige_zeile()).with_failing_store("Tabelle gesperrt");
+
+    let ergebnis = api.run("buchung-1");
+
+    // Ganzwert-Vergleich wie bei `fenstern`/`auswerten`: er nagelt Variante **und** Nutzlast in
+    // einer Zusicherung fest und beweist zugleich, dass der Fehler nichts weiter trägt.
+    assert_eq!(
+        ergebnis,
+        Err(SourceError::StorageUnavailable {
+            reason: "Tabelle gesperrt".to_string()
+        })
+    );
+    api.assert_nothing_emitted();
+}
