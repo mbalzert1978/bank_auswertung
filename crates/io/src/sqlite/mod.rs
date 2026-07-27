@@ -23,12 +23,14 @@
 //! der generische [`SliceStore`]/[`SliceUnit`] **einmal**, parametrisiert über [`StoreSpec`]
 //! ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)); `einlesen`
 //! ist darauf migriert. Die drei noch nicht migrierten Stores
-//! (`obfuskierung`/`fenstern`/`auswerten`) nutzen weiterhin `mint_id` und das
-//! `sqlite_backed_unit!`-Makro.
+//! (`obfuskierung`/`fenstern`/`auswerten`) nutzen weiterhin `mint_id`, `SqliteUnit::stage` und das
+//! `sqlite_backed_unit!`-Makro — alle drei sind **transitorisch** und fallen mit dem `auswerten`-
+//! Capstone ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
+//! ersatzlos weg.
 
 mod slice_store;
 
-pub use slice_store::{SliceStore, SliceUnit, StagedRow, StoreSpec};
+pub use slice_store::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 use std::cell::RefCell;
 use std::rc::Rc;

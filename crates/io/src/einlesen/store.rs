@@ -32,38 +32,30 @@ use rusqlite::{Transaction, params};
 
 use crate::MessageId;
 use crate::einlesen::UnitFactory;
-use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec};
+use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
-/// Die `einlesen`-Persistenz als [`StoreSpec`]: **eine** Tabelle, **ein** `INSERT`, und als fehlbare
-/// Vor-Umdeutung nur die u64→i64-Deutung des Betrags. Der Marker-Typ parametrisiert
+/// Die `einlesen`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als fehlbare
+/// Umdeutung nur die u64→i64-Deutung des Betrags. Der Marker-Typ parametrisiert
 /// [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
 pub struct EinlesenLines;
 
 impl StoreSpec for EinlesenLines {
     type Dto = Line;
-    /// Der auf die `INTEGER`-Spalte geprüfte Betrag — die einzige fehlbare Vor-Umdeutung.
-    type Prepared = i64;
+    /// Die abgeflachte Zeile ohne ihre ID — schreibbar wird erst die `LineRow`, die `stage` daraus
+    /// **mit** der geminteten ID baut.
+    type Prepared = LineFields;
     type Error = StoreUnavailable;
 
-    fn tables() -> &'static [&'static str] {
-        &["einlesen_lines"]
+    fn tables() -> &'static [TableSpec] {
+        TABLES
     }
 
-    fn schema() -> &'static str {
-        SCHEMA
+    fn flatten(line: &Line) -> Result<LineFields, StoreUnavailable> {
+        LineFields::try_from(line)
     }
 
-    fn inserts() -> &'static [&'static str] {
-        &[INSERT_LINE]
-    }
-
-    fn flatten(line: &Line) -> Result<i64, StoreUnavailable> {
-        i64::try_from(line.amount_minor_units)
-            .map_err(|_overflow| store_unavailable("amount out of range for storage"))
-    }
-
-    fn stage(line: &Line, amount_minor_units: i64, id: String) -> StagedRow {
-        let row = LineRow::new(id, line, amount_minor_units);
+    fn stage(fields: LineFields, id: String) -> StagedRow {
+        let row = LineRow::new(id, fields);
         Box::new(move |tx| row.insert(tx))
     }
 
@@ -109,10 +101,14 @@ fn store_unavailable(message: &str) -> StoreUnavailable {
     }
 }
 
-/// Die abgeflachte [`Line`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in die gestagete
-/// Ablage-Closure und wird erst am Commit-Rand geschrieben.
-struct LineRow {
-    id: String,
+/// Die abgeflachte [`Line`] in ihrer besitzenden Speicher-Form — **ohne** ihre ID und darum **nicht**
+/// schreibbar. Der einzige Ort, an dem dieser Store die Adapter-DTO anfasst; alles Fehlbare (die
+/// u64→i64-Deutung des Betrags) ist danach entschieden.
+///
+/// `pub` aus Sichtbarkeits-Zwang (sie steht als `Prepared` in der Signatur eines öffentlichen
+/// Trait-`impl`, `private_interfaces`), **nicht** als API: das Modul `store` ist privat, also bleibt
+/// sie außerhalb von `io` unerreichbar.
+pub struct LineFields {
     ordering_account: String,
     counter_account: Option<String>,
     amount_minor_units: i64,
@@ -126,13 +122,18 @@ struct LineRow {
     booking_text: Option<String>,
 }
 
-impl LineRow {
-    fn new(id: String, line: &Line, amount_minor_units: i64) -> Self {
-        Self {
-            id,
+impl TryFrom<&Line> for LineFields {
+    type Error = StoreUnavailable;
+
+    /// Fehlbar allein im Betrag: eine Magnitude jenseits `i64::MAX` passt nicht in die
+    /// `INTEGER`-Spalte und failt terminal als redigierte [`StoreUnavailable`] (Speicher-Mechanik,
+    /// nie ein Rohwert).
+    fn try_from(line: &Line) -> Result<Self, StoreUnavailable> {
+        Ok(Self {
             ordering_account: line.ordering_account.clone(),
             counter_account: line.counter_account.clone(),
-            amount_minor_units,
+            amount_minor_units: i64::try_from(line.amount_minor_units)
+                .map_err(|_overflow| store_unavailable("amount out of range for storage"))?,
             currency: line.currency.clone(),
             direction: direction_token(line.direction),
             recipient_name: line.recipient_name.clone(),
@@ -141,29 +142,44 @@ impl LineRow {
             value_date: line.value_date,
             purpose: line.purpose.clone(),
             booking_text: line.booking_text.clone(),
-        }
+        })
+    }
+}
+
+/// Die SQL-fertige Zeile: die abgeflachten Felder **unter** ihrer DB-vergebenen ID. Sie reist in die
+/// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruierbar **nur mit** der
+/// ID ([`new`](LineRow::new)) — eine Row mit leerer Platzhalter-ID gibt es gar nicht.
+struct LineRow {
+    id: String,
+    fields: LineFields,
+}
+
+impl LineRow {
+    const fn new(id: String, fields: LineFields) -> Self {
+        Self { id, fields }
     }
 
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
+        let fields = &self.fields;
         tx.execute(
             INSERT_LINE,
             params![
                 self.id,
-                self.ordering_account,
-                self.counter_account,
-                self.amount_minor_units,
-                self.currency,
-                self.direction,
-                self.recipient_name,
-                self.creditor_id,
-                self.booking_day.year,
-                self.booking_day.month,
-                self.booking_day.day,
-                self.value_date.year,
-                self.value_date.month,
-                self.value_date.day,
-                self.purpose,
-                self.booking_text,
+                fields.ordering_account,
+                fields.counter_account,
+                fields.amount_minor_units,
+                fields.currency,
+                fields.direction,
+                fields.recipient_name,
+                fields.creditor_id,
+                fields.booking_day.year,
+                fields.booking_day.month,
+                fields.booking_day.day,
+                fields.value_date.year,
+                fields.value_date.month,
+                fields.value_date.day,
+                fields.purpose,
+                fields.booking_text,
             ],
         )
         .map(drop)
@@ -177,6 +193,15 @@ fn direction_token(direction: Direction) -> &'static str {
         Direction::Outgoing => "outgoing",
     }
 }
+
+/// Die **eine** Tabelle des Slice mit ihrem DDL und ihrem Ablage-`INSERT`. Anlegen,
+/// Audit-Spalten-Nachrüstung und Preflight laufen alle über diese Liste — eine Tabelle, die eines
+/// davon verpasst, ist gar nicht erst deklarierbar.
+const TABLES: &[TableSpec] = &[TableSpec {
+    name: "einlesen_lines",
+    ddl: SCHEMA,
+    insert: INSERT_LINE,
+}];
 
 /// Das Schema der `einlesen`-Ergebnis-Tabelle: die abgeflachte [`Line`] unter der DB-vergebenen ID.
 /// Rohe Identifikatoren (IBANs, Klarname) liegen hier **roh** — das ist erlaubt (lokale Persistenz,
