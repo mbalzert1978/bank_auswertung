@@ -18,9 +18,13 @@
 //! **Seit [Issue 0074](../../../../docs/issues/0074-storespec-abstraktion-einf-hren-und-einlesen-migrieren.md)
 //! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
 //! sein [`StoreSpec`]-`impl` (Schema + Insert + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
-//! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, `UnitFactory`,
-//! Unit-Newtype, Preflight/Minten und der Outbox-Passthrough leben generisch in
-//! [`SliceStore`]/[`SliceUnit`]. Der Seam-Vertrag Richtung Slice ist davon **unberührt**
+//! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
+//! Preflight/Minten und der Outbox-Passthrough leben generisch in [`SliceStore`]/[`SliceUnit`].
+//! Handgeschrieben bleibt **noch** das [`UnitFactory`]-`impl` unten — ein reiner Durchgriff auf
+//! `SliceStore::begin`, solange es die vier strukturgleichen `UnitFactory`-Traits der Slices gibt;
+//! sie kollabieren mit dem `auswerten`-Capstone
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+//! Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
 //! **Fehlbar + terminal (redigiert):** ein unerreichbarer Store (Schema fehlt) failt **synchron** in
@@ -147,8 +151,9 @@ impl TryFrom<&Line> for LineFields {
 }
 
 /// Die SQL-fertige Zeile: die abgeflachten Felder **unter** ihrer DB-vergebenen ID. Sie reist in die
-/// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruierbar **nur mit** der
-/// ID ([`new`](LineRow::new)) — eine Row mit leerer Platzhalter-ID gibt es gar nicht.
+/// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster Parameter von
+/// [`new`](LineRow::new); dass es die eben gemintete ist, trägt der einzige Aufrufer
+/// (`EinlesenLines::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
 struct LineRow {
     id: String,
     fields: LineFields,

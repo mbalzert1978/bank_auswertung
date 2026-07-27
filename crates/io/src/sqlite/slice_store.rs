@@ -6,7 +6,12 @@
 //! [`SqliteUnit`]: Store-Struct · `new` · `UnitFactory` · `Unit`-Newtype · Seam-Body-„Tanz" · `Row`.
 //! Slice-spezifisch ist einzig **seine [`TableSpec`]-Liste + Row-Flatten** — genau das, und nur das,
 //! verlangt [`StoreSpec`]. Das Skelett trägt [`SliceStore`]/[`SliceUnit`] **einmal**; ein Slice
-//! liefert sein `StoreSpec`-`impl` und eine dünne Seam-`impl`, die [`SliceUnit::store_dto`] aufruft.
+//! liefert sein `StoreSpec`-`impl`, eine dünne Seam-`impl`, die [`SliceUnit::store_dto`] aufruft,
+//! und — **noch** — sein eigenes `UnitFactory`-`impl`, das auf [`begin`](SliceStore::begin)
+//! durchreicht: die vier strukturgleichen `UnitFactory`-Traits der Slices (Unterschied: einzig der
+//! Seam-Bound auf `type Unit`) kollabieren erst mit dem `auswerten`-Capstone zu **einem** io-privaten
+//! Trait mit **einem** generischen `impl`
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
 //!
 //! **Der Seam-Vertrag Richtung Slice bleibt unberührt** ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):
 //! diese Abstraktion gehört **nicht** zum Slice↔`io`-Vertrag. Sie ist nur deshalb `pub`, weil die
@@ -84,8 +89,9 @@ pub trait StoreSpec {
     fn flatten(dto: &Self::Dto) -> Result<Self::Prepared, Self::Error>;
 
     /// Baut die SQL-fertige, **id-tragende** Row in einem Zug mit der frisch geminteten `id` und
-    /// liefert **eine** Schreibung, die Kopf- und alle Detail-Inserts fährt. Eine Row ohne ihre ID
-    /// ist so gar nicht erst konstruierbar.
+    /// liefert **eine** Schreibung, die Kopf- und alle Detail-Inserts fährt. Die ID ist stets erster
+    /// Konstruktor-Parameter der Row; dass sie die **eben gemintete** ist, trägt der einzige
+    /// Aufrufer (`SliceUnit::store_dto`) — Konvention an einer Stelle, keine Typ-Garantie.
     fn stage(prepared: Self::Prepared, id: String) -> StagedRow;
 
     /// Der **redigierte** Konstruktor des Slice-Fehlers aus einer `rusqlite`-Diagnose: reine
@@ -163,7 +169,10 @@ impl<S: StoreSpec> SliceStore<S> {
 /// Eine generische Slice-Arbeitseinheit: der gestagete Ergebnis-Speicher **und** die Outbox in
 /// einem, atomar committbar — ein Newtype über der [`SqliteUnit`], der ihr über [`StoreSpec`] die
 /// slice-spezifische Ablage gibt und Publish/Commit durchreicht.
-pub struct SliceUnit<S>(SqliteUnit, PhantomData<S>);
+///
+/// `fn() -> S` statt `S` aus demselben Grund wie beim [`SliceStore`]: die Einheit **besitzt** kein
+/// `S` und soll dessen Auto-Traits und Drop-Check nicht erben.
+pub struct SliceUnit<S>(SqliteUnit, PhantomData<fn() -> S>);
 
 impl<S: StoreSpec> SliceUnit<S> {
     /// Die generische **Ablage-Primitive**, auf die jede Seam-`impl` schrumpft: fehlbares
