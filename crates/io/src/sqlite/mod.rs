@@ -13,9 +13,22 @@
 //! [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) auf diesem
 //! Fundament: [`EinlesenSqliteStore`](crate::einlesen::EinlesenSqliteStore) legt seine
 //! `einlesen`-Tabelle über die crate-interne `SqliteOutbox::with_connection` an und stagt das
-//! Zeilen-`INSERT` über `SqliteUnit::stage` in **dieselbe** committende Transaktion wie Ack und
-//! `Ingested`-Publish. Dieses Modul selbst bleibt slice-blind — es liefert nur **Broker + UnitOfWork**
-//! und die crate-internen Ablage-/Verbindungs-Primitive, auf die ein Store aufsetzt.
+//! Zeilen-`INSERT` in **dieselbe** committende Transaktion wie Ack und `Ingested`-Publish. Dieses
+//! Modul selbst bleibt slice-blind — es liefert nur **Broker + UnitOfWork** und die crate-internen
+//! Ablage-/Verbindungs-Primitive, auf die ein Store aufsetzt.
+//!
+//! Das **Skelett über diesen Primitiven** (Store-Struct, `new`, Unit-Newtype, Preflight, Minten,
+//! Outbox-Passthrough) trägt seit
+//! [Issue 0074](../../../../docs/issues/0074-storespec-abstraktion-einf-hren-und-einlesen-migrieren.md)
+//! der generische [`SliceStore`]/[`SliceUnit`] **einmal**, parametrisiert über [`StoreSpec`]
+//! ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)); `einlesen`
+//! ist darauf migriert. Die drei noch nicht migrierten Stores
+//! (`obfuskierung`/`fenstern`/`auswerten`) nutzen weiterhin `mint_id` und das
+//! `sqlite_backed_unit!`-Makro.
+
+mod slice_store;
+
+pub use slice_store::{SliceStore, SliceUnit, StagedRow, StoreSpec};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -176,10 +189,8 @@ pub struct SqliteUnit {
     /// Die ID der konsumierten Nachricht, die diese Einheit beim Commit ackt — explizit von
     /// [`begin`](SqliteOutbox::begin) gesetzt, nie aus geteiltem Zustand.
     message_id: String,
-    staged: RefCell<Vec<StagedWrite>>,
+    staged: RefCell<Vec<StagedRow>>,
 }
-
-type StagedWrite = Box<dyn FnOnce(&Transaction<'_>) -> rusqlite::Result<()>>;
 
 impl SqliteUnit {
     /// Stellt eine Ablage-Schreibung für die committende Transaktion bereit — die generische
@@ -192,7 +203,13 @@ impl SqliteUnit {
     where
         F: FnOnce(&Transaction<'_>) -> rusqlite::Result<()> + 'static,
     {
-        self.staged.borrow_mut().push(Box::new(write));
+        self.stage_row(Box::new(write));
+    }
+
+    /// Dasselbe für eine **schon geboxte** Schreibung — der Weg der [`SliceUnit`], deren
+    /// [`StoreSpec`] die Row bereits als [`StagedRow`] liefert (kein zweites Boxen).
+    pub(crate) fn stage_row(&self, write: StagedRow) {
+        self.staged.borrow_mut().push(write);
     }
 
     /// Reicht die geteilte Verbindung an `f` — der crate-interne Lese-/Prüf-Zugriff, über den ein

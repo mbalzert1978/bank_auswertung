@@ -29,7 +29,7 @@ pub use calendar::GermanCalendar;
 pub use currency::IsoCurrencies;
 pub use money::GermanMoney;
 pub use source::CsvCamtV8Source;
-pub use store::{EinlesenSqliteStore, EinlesenUnit};
+pub use store::{EinlesenLines, EinlesenSqliteStore, EinlesenUnit};
 
 use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;

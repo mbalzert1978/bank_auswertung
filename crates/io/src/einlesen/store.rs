@@ -8,12 +8,20 @@
 //!
 //! **Atomarität (Tabelle = Wahrheit, Message = Zeiger, [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):**
 //! [`EinlesenSqliteStore`] ist die [`UnitFactory`](crate::einlesen::UnitFactory) des Slice — je
-//! Nachricht öffnet es eine [`EinlesenUnit`] über einer [`SqliteUnit`]. Deren
-//! [`store`](StoreSeam::store) **mintet die Zeilen-ID synchron an der DB** und **stagt** das
-//! Zeilen-`INSERT` in **dieselbe** committende Transaktion wie der `Ingested`-Publish und der Ack —
-//! eine gestagete Schreibung committet mit der Nachricht oder gar nicht. Die **DB vergibt die ID**
-//! (`randomblob`), und **genau sie** reist als `partition_key` der `Ingested`-Nachricht weiter; das
-//! Aggregat referenziert nichts Fremdes außer per diese ID.
+//! Nachricht öffnet es eine [`EinlesenUnit`]. Deren [`store`](StoreSeam::store) **mintet die
+//! Zeilen-ID synchron an der DB** und **stagt** das Zeilen-`INSERT` in **dieselbe** committende
+//! Transaktion wie der `Ingested`-Publish und der Ack — eine gestagete Schreibung committet mit der
+//! Nachricht oder gar nicht. Die **DB vergibt die ID** (`randomblob`), und **genau sie** reist als
+//! `partition_key` der `Ingested`-Nachricht weiter; das Aggregat referenziert nichts Fremdes außer
+//! per diese ID.
+//!
+//! **Seit [Issue 0074](../../../../docs/issues/0074-storespec-abstraktion-einf-hren-und-einlesen-migrieren.md)
+//! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
+//! sein [`StoreSpec`]-`impl` (Schema + Insert + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
+//! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, `UnitFactory`,
+//! Unit-Newtype, Preflight/Minten und der Outbox-Passthrough leben generisch in
+//! [`SliceStore`]/[`SliceUnit`]. Der Seam-Vertrag Richtung Slice ist davon **unberührt**
+//! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
 //! **Fehlbar + terminal (redigiert):** ein unerreichbarer Store (Schema fehlt) failt **synchron** in
 //! `store` als [`StoreUnavailable`] (→ `SinkError::StoreFailed`) und damit terminal + redigiert (nur
@@ -24,42 +32,64 @@ use rusqlite::{Transaction, params};
 
 use crate::MessageId;
 use crate::einlesen::UnitFactory;
-use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
+use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec};
 
-/// Der reale `einlesen`-Ergebnis-Store: die [`UnitFactory`](crate::einlesen::UnitFactory) des Slice
-/// über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt beim
-/// Aufbau seine Ergebnis-Tabelle sicher. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
-#[derive(Clone)]
-pub struct EinlesenSqliteStore {
-    outbox: SqliteOutbox,
-}
+/// Die `einlesen`-Persistenz als [`StoreSpec`]: **eine** Tabelle, **ein** `INSERT`, und als fehlbare
+/// Vor-Umdeutung nur die u64→i64-Deutung des Betrags. Der Marker-Typ parametrisiert
+/// [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
+pub struct EinlesenLines;
 
-impl EinlesenSqliteStore {
-    /// Baut den Store über dem gegebenen Rückgrat und legt die `einlesen`-Ergebnis-Tabelle an
-    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten). `ensure_columns` rüstet die
-    /// Audit-Spalten auf einer **alten** Tabelle nach, da `CREATE TABLE IF NOT EXISTS` das nicht tut.
-    pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
-        outbox.with_connection(|conn| {
-            conn.execute_batch(SCHEMA)?;
-            crate::sqlite::ensure_columns(conn, "einlesen_lines", crate::sqlite::AUDIT_COLUMNS)
-        })?;
-        Ok(Self { outbox })
+impl StoreSpec for EinlesenLines {
+    type Dto = Line;
+    /// Der auf die `INTEGER`-Spalte geprüfte Betrag — die einzige fehlbare Vor-Umdeutung.
+    type Prepared = i64;
+    type Error = StoreUnavailable;
+
+    fn tables() -> &'static [&'static str] {
+        &["einlesen_lines"]
+    }
+
+    fn schema() -> &'static str {
+        SCHEMA
+    }
+
+    fn inserts() -> &'static [&'static str] {
+        &[INSERT_LINE]
+    }
+
+    fn flatten(line: &Line) -> Result<i64, StoreUnavailable> {
+        i64::try_from(line.amount_minor_units)
+            .map_err(|_overflow| store_unavailable("amount out of range for storage"))
+    }
+
+    fn stage(line: &Line, amount_minor_units: i64, id: String) -> StagedRow {
+        let row = LineRow::new(id, line, amount_minor_units);
+        Box::new(move |tx| row.insert(tx))
+    }
+
+    /// Reicht die `rusqlite`-Diagnose eines misslungenen Store-Zugriffs durch (fehlendes Schema,
+    /// DB-Fehler) — Mechanik, nie ein Zell-/Feldwert.
+    fn unavailable(error: rusqlite::Error) -> StoreUnavailable {
+        store_unavailable(&error.to_string())
     }
 }
+
+/// Der reale `einlesen`-Ergebnis-Store: der generische [`SliceStore`] über [`EinlesenLines`] und
+/// damit die [`UnitFactory`](crate::einlesen::UnitFactory) des Slice. `Clone` teilt dasselbe
+/// Rückgrat (`Rc` im Innern).
+pub type EinlesenSqliteStore = SliceStore<EinlesenLines>;
+
+/// Eine `einlesen`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`StoreSeam`) **und** die Outbox
+/// (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`).
+pub type EinlesenUnit = SliceUnit<EinlesenLines>;
 
 impl UnitFactory for EinlesenSqliteStore {
     type Unit = EinlesenUnit;
 
     fn begin(&self, ack: MessageId<'_>) -> EinlesenUnit {
-        EinlesenUnit(self.outbox.begin(ack))
+        SliceStore::begin(self, ack)
     }
 }
-
-/// Eine `einlesen`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`StoreSeam`) **und** die Outbox
-/// (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`) — ein Newtype über der generischen
-/// [`SqliteUnit`], der ihr das slice-spezifische Ablage-`INSERT` gibt und Publish/Commit durchreicht.
-pub struct EinlesenUnit(SqliteUnit);
 
 impl StoreSeam for EinlesenUnit {
     /// Mintet die Zeilen-ID **synchron an der DB** (`randomblob`) und stagt das Zeilen-`INSERT` in die
@@ -67,15 +97,7 @@ impl StoreSeam for EinlesenUnit {
     /// terminal als redigierte [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und
     /// `Ingested`-Publish oder gar nicht.
     fn store(&self, line: &Line) -> Result<String, StoreUnavailable> {
-        let amount_minor_units = i64::try_from(line.amount_minor_units)
-            .map_err(|_overflow| store_unavailable("amount out of range for storage"))?;
-        let id: String = self
-            .0
-            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_LINE))
-            .map_err(store_unavailable_io)?;
-        let row = LineRow::new(id.clone(), line, amount_minor_units);
-        self.0.stage(move |tx| row.insert(tx));
-        Ok(id)
+        self.store_dto(line)
     }
 }
 
@@ -84,14 +106,6 @@ impl StoreSeam for EinlesenUnit {
 fn store_unavailable(message: &str) -> StoreUnavailable {
     StoreUnavailable {
         message: format!("einlesen store unavailable: {message}"),
-    }
-}
-
-/// Reicht die `rusqlite`-Diagnose eines misslungenen Store-Zugriffs durch (fehlendes Schema,
-/// DB-Fehler) — Mechanik, nie ein Zell-/Feldwert.
-fn store_unavailable_io(error: rusqlite::Error) -> StoreUnavailable {
-    StoreUnavailable {
-        message: format!("einlesen store unavailable: {error}"),
     }
 }
 
@@ -164,8 +178,6 @@ fn direction_token(direction: Direction) -> &'static str {
     }
 }
 
-sqlite_backed_unit!(EinlesenUnit);
-
 /// Das Schema der `einlesen`-Ergebnis-Tabelle: die abgeflachte [`Line`] unter der DB-vergebenen ID.
 /// Rohe Identifikatoren (IBANs, Klarname) liegen hier **roh** — das ist erlaubt (lokale Persistenz,
 /// kein Egress; obfuskiert wird der nachgelagerte Slice, [ADR-0008](../../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)).
@@ -229,7 +241,7 @@ impl EinlesenSqliteStore {
     /// Lesepfad des Folge-Slice liegt hinter dessen eigenem Seam, io-seitig, vertagt). Rekonstruiert
     /// die [`Line`] feld-treu, sodass ein Test die ganze DTO in **einem** `assert_eq!` vergleichen kann.
     fn lines(&self) -> rusqlite::Result<Vec<(String, Line)>> {
-        self.outbox.with_connection(|conn| {
+        self.with_connection(|conn| {
             let mut statement = conn.prepare(SELECT_LINES)?;
             let rows = statement.query_map([], |row| {
                 // Die Währung ist der kanonische ISO-Code als Text — feld-treu zurückgelesen, ohne
@@ -397,9 +409,7 @@ mod tests {
         // Ein Store **ohne** seine Ergebnis-Tabelle (bewusst an `new` vorbeigebaut) ist unerreichbar:
         // die Ablage failt synchron und terminal, bevor irgendetwas committet.
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = EinlesenSqliteStore {
-            outbox: outbox.clone(),
-        };
+        let store = EinlesenSqliteStore::without_schema(outbox.clone());
         let leck = "DE89370400440532013000";
 
         let outcomes = deliver(&outbox, store, "gueltig.csv")?;
