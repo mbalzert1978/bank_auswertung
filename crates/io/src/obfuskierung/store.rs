@@ -24,79 +24,107 @@
 //! ist die öffentliche `Gläubiger-ID` einer Firma (ADR-0010). Der Seed reist **mit** jeder Zeile (für
 //! die Rehydrierung), bleibt aber lokal — kein Egress-DTO trägt ihn.
 //!
+//! **Seit [Issue 0075](../../../../docs/issues/0075-obfuskierung-migrieren-und-storeunavailable-vereinheitlichen.md)
+//! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
+//! sein [`StoreSpec`]-`impl` (Schema + Insert + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
+//! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
+//! Preflight/Minten und der Outbox-Passthrough leben generisch in [`SliceStore`]/[`SliceUnit`].
+//! Handgeschrieben bleibt **noch** das [`UnitFactory`]-`impl` unten — ein reiner Durchgriff auf
+//! `SliceStore::begin`, solange es die vier strukturgleichen `UnitFactory`-Traits der Slices gibt
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+//! Der Seam-Vertrag Richtung Slice ist davon **unberührt**
+//! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
+//!
 //! **Fehlbar + terminal (redigiert):** ein unerreichbarer Store (Schema fehlt) failt **synchron** in
-//! `save` als [`StoreUnavailable`] (→ Domänen-`SourceError::StorageUnavailable` mit opaker Quell-ID),
-//! terminal und redigiert. Kein Dead-Letter, kein Retry im Slice.
+//! `save` als [`StoreUnavailable`] (→ Domänen-`SourceError::StorageUnavailable` mit durchgereichtem
+//! `reason`), terminal und redigiert — die Diagnose trägt seit Issue 0075 **denselben** redigierten
+//! `message` wie die drei anderen Slices: nur io-Zugriffs-Mechanik, nie ein
+//! Zell-/Feldwert. Dass sie hier keinen Zellwert tragen **kann**, ist strukturell: [`unavailable`](StoreSpec::unavailable)
+//! ist allein aus dem Preflight/Mint-Zweig von [`store_dto`](crate::sqlite::SliceUnit) erreichbar, der
+//! keine DTO-Daten anfasst. Kein Dead-Letter, kein Retry im Slice.
 
 use obfuskierung_adapter::{ObfuscatedBooking, ObfuscatedStoreSeam, Recipient, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
 use crate::MessageId;
 use crate::obfuskierung::UnitFactory;
-use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
+use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
-/// Der reale `obfuskierung`-Ergebnis-Store: die [`UnitFactory`](crate::obfuskierung::UnitFactory) des
-/// Slice über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt
-/// beim Aufbau seine Ergebnis-Tabelle sicher. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
-#[derive(Clone)]
-pub struct ObfuskierungSqliteStore {
-    outbox: SqliteOutbox,
-}
+/// Die `obfuskierung`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als
+/// fehlbare Umdeutung nur die u64→i64-Deutung der Betrags-Magnitude. Der Marker-Typ parametrisiert
+/// [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
+pub struct ObfuskiertBookings;
 
-impl ObfuskierungSqliteStore {
-    /// Baut den Store über dem gegebenen Rückgrat und legt die `obfuskiert`-Ergebnis-Tabelle an
-    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten). `ensure_columns` rüstet die
-    /// Audit-Spalten auf einer **alten** Tabelle nach, da `CREATE TABLE IF NOT EXISTS` das nicht tut.
-    pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
-        outbox.with_connection(|conn| {
-            conn.execute_batch(SCHEMA)?;
-            crate::sqlite::ensure_columns(conn, "obfuskiert", crate::sqlite::AUDIT_COLUMNS)
-        })?;
-        Ok(Self { outbox })
+impl StoreSpec for ObfuskiertBookings {
+    type Dto = ObfuscatedBooking;
+    /// Die abgeflachte Buchung ohne ihre ID — schreibbar wird erst die `BookingRow`, die `stage`
+    /// daraus **mit** der geminteten ID baut.
+    type Prepared = BookingFields;
+    type Error = StoreUnavailable;
+
+    fn tables() -> &'static [TableSpec] {
+        TABLES
+    }
+
+    fn flatten(booking: &ObfuscatedBooking) -> Result<BookingFields, StoreUnavailable> {
+        BookingFields::try_from(booking)
+    }
+
+    fn stage(fields: BookingFields, id: String) -> StagedRow {
+        let row = BookingRow::new(id, fields);
+        Box::new(move |tx| row.insert(tx))
+    }
+
+    /// Reicht die `rusqlite`-Diagnose eines misslungenen Store-Zugriffs durch (fehlendes Schema,
+    /// DB-Fehler) — Mechanik, nie ein Zell-/Feldwert.
+    fn unavailable(error: rusqlite::Error) -> StoreUnavailable {
+        store_unavailable(&error.to_string())
     }
 }
+
+/// Der reale `obfuskierung`-Ergebnis-Store: der generische [`SliceStore`] über [`ObfuskiertBookings`]
+/// und damit die [`UnitFactory`](crate::obfuskierung::UnitFactory) des Slice. `Clone` teilt dasselbe
+/// Rückgrat (`Rc` im Innern).
+pub type ObfuskierungSqliteStore = SliceStore<ObfuskiertBookings>;
+
+/// Eine `obfuskierung`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`ObfuscatedStoreSeam`)
+/// **und** die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`).
+pub type ObfuskierungUnit = SliceUnit<ObfuskiertBookings>;
 
 impl UnitFactory for ObfuskierungSqliteStore {
     type Unit = ObfuskierungUnit;
 
     fn begin(&self, ack: MessageId<'_>) -> ObfuskierungUnit {
-        ObfuskierungUnit(self.outbox.begin(ack))
+        SliceStore::begin(self, ack)
     }
 }
-
-/// Eine `obfuskierung`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`ObfuscatedStoreSeam`)
-/// **und** die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`) — ein Newtype
-/// über der generischen [`SqliteUnit`], der ihr das slice-spezifische Ablage-`INSERT` gibt und
-/// Publish/Commit durchreicht.
-pub struct ObfuskierungUnit(SqliteUnit);
 
 impl ObfuscatedStoreSeam for ObfuskierungUnit {
     /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt das Zeilen-`INSERT` in die
     /// committende Transaktion; ein unerreichbarer Store (Schema fehlt / DB-Fehler) failt **hier**
-    /// terminal als [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und
+    /// terminal als redigierte [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und
     /// `Obfuscated`-Publish oder gar nicht.
     fn save(&self, booking: &ObfuscatedBooking) -> Result<String, StoreUnavailable> {
-        let amount_minor_units =
-            i64::try_from(booking.amount_minor_units).map_err(|_overflow| StoreUnavailable)?;
-        let id: String = self
-            .0
-            .with_connection(|conn| crate::sqlite::mint_id(conn, INSERT_BOOKING))
-            .map_err(|_io| StoreUnavailable)?;
-        let row = BookingRow::new(id.clone(), booking, amount_minor_units);
-        self.0.stage(move |tx| row.insert(tx));
-        Ok(id)
+        self.store_dto(booking)
     }
 }
 
-sqlite_backed_unit!(ObfuskierungUnit);
+/// Eine redigierte [`StoreUnavailable`] aus io-eigener Diagnose (Zugriffs-Mechanik, nie ein
+/// Zell-/Feldwert — der Seam-Vertrag verlangt die Redaktion).
+fn store_unavailable(message: &str) -> StoreUnavailable {
+    StoreUnavailable {
+        message: format!("obfuskiert store unavailable: {message}"),
+    }
+}
 
-/// Die abgeflachte [`ObfuscatedBooking`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
-/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruiert **stets mit**
-/// der frisch geminteten DB-ID ([`new`](BookingRow::new)) — eine Row mit leerer Platzhalter-ID ist
-/// unkonstruierbar (Domänenmodell-Regel: illegale Zustände unkonstruierbar machen).
-struct BookingRow {
-    id: String,
+/// Die abgeflachte [`ObfuscatedBooking`] in ihrer besitzenden Speicher-Form — **ohne** ihre ID und
+/// darum **nicht** schreibbar. Der einzige Ort, an dem dieser Store die Adapter-DTO anfasst; alles
+/// Fehlbare (die u64→i64-Deutung der Betrags-Magnitude) ist danach entschieden.
+///
+/// `pub` aus Sichtbarkeits-Zwang (sie steht als `Prepared` in der Signatur eines öffentlichen
+/// Trait-`impl`, `private_interfaces`), **nicht** als API: das Modul `store` ist privat, also bleibt
+/// sie außerhalb von `io` unerreichbar.
+pub struct BookingFields {
     source_id: String,
     ordering_account: String,
     counter_account: Option<String>,
@@ -146,23 +174,24 @@ impl From<&Recipient> for RecipientRow {
     }
 }
 
-impl BookingRow {
-    /// Flacht die obfuskierte Buchung unter der frisch geminteten DB-`id` (zugleich der publizierte
-    /// Zeiger) ab. `amount_minor_units` ist schon als `i64` vorgeprüft — eine **Magnitude** jenseits
-    /// `i64::MAX` ist unrealistisch und failt terminal im `save` als [`StoreUnavailable`]
-    /// (Speicher-Mechanik, nie ein Rohwert). Der `seed` dagegen ist ein **opaker `u64`** und wird
-    /// **bitweise** als `i64` umgedeutet (`u64::cast_signed`, Rückweg `i64::cast_unsigned`), damit ein
-    /// Seed > `i64::MAX` verlustfrei durch die INTEGER-Spalte reist, statt terminal abgelehnt zu werden.
-    fn new(id: String, booking: &ObfuscatedBooking, amount_minor_units: i64) -> Self {
-        Self {
-            id,
+impl TryFrom<&ObfuscatedBooking> for BookingFields {
+    type Error = StoreUnavailable;
+
+    /// Fehlbar allein im Betrag: eine **Magnitude** jenseits `i64::MAX` passt nicht in die
+    /// `INTEGER`-Spalte und failt terminal als redigierte [`StoreUnavailable`] (Speicher-Mechanik,
+    /// nie ein Rohwert). Der `seed` dagegen ist ein **opaker `u64`** und wird **bitweise** als `i64`
+    /// umgedeutet (`u64::cast_signed`, Rückweg `i64::cast_unsigned`), damit ein Seed > `i64::MAX`
+    /// verlustfrei durch die INTEGER-Spalte reist, statt terminal abgelehnt zu werden.
+    fn try_from(booking: &ObfuscatedBooking) -> Result<Self, StoreUnavailable> {
+        Ok(Self {
             source_id: booking.source_id.clone(),
             ordering_account: booking.ordering_account.as_str().to_string(),
             counter_account: booking
                 .counter_account
                 .as_ref()
                 .map(|account| account.as_str().to_string()),
-            amount_minor_units,
+            amount_minor_units: i64::try_from(booking.amount_minor_units)
+                .map_err(|_overflow| store_unavailable("amount out of range for storage"))?,
             currency: booking.currency.clone(),
             direction: booking.direction.clone(),
             recipient: RecipientRow::from(&booking.recipient),
@@ -177,34 +206,60 @@ impl BookingRow {
                 .as_ref()
                 .map(|text| text.as_str().to_string()),
             seed: booking.seed.cast_signed(),
-        }
+        })
+    }
+}
+
+/// Die SQL-fertige Zeile: die abgeflachten Felder **unter** ihrer DB-vergebenen ID (zugleich der
+/// publizierte Zeiger). Sie reist in die gestagete Ablage-Closure und wird erst am Commit-Rand
+/// geschrieben. Die ID ist erster Parameter von [`new`](BookingRow::new); dass es die eben gemintete
+/// ist, trägt der einzige Aufrufer (`ObfuskiertBookings::stage`) — Konvention in diesem Modul, keine
+/// Typ-Garantie.
+struct BookingRow {
+    id: String,
+    fields: BookingFields,
+}
+
+impl BookingRow {
+    const fn new(id: String, fields: BookingFields) -> Self {
+        Self { id, fields }
     }
 
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
+        let fields = &self.fields;
         tx.execute(
             INSERT_BOOKING,
             params![
                 self.id,
-                self.source_id,
-                self.ordering_account,
-                self.counter_account,
-                self.amount_minor_units,
-                self.currency,
-                self.direction,
-                self.recipient.kind,
-                self.recipient.name,
-                self.recipient.creditor_id,
-                self.recipient.pseudonym,
-                self.booking_day,
-                self.value_date,
-                self.purpose,
-                self.booking_text,
-                self.seed,
+                fields.source_id,
+                fields.ordering_account,
+                fields.counter_account,
+                fields.amount_minor_units,
+                fields.currency,
+                fields.direction,
+                fields.recipient.kind,
+                fields.recipient.name,
+                fields.recipient.creditor_id,
+                fields.recipient.pseudonym,
+                fields.booking_day,
+                fields.value_date,
+                fields.purpose,
+                fields.booking_text,
+                fields.seed,
             ],
         )
         .map(drop)
     }
 }
+
+/// Die **eine** Tabelle des Slice mit ihrem DDL und ihrem Ablage-`INSERT`. Anlegen,
+/// Audit-Spalten-Nachrüstung und Preflight laufen alle über diese Liste — eine Tabelle, die eines
+/// davon verpasst, ist gar nicht erst deklarierbar.
+const TABLES: &[TableSpec] = &[TableSpec {
+    name: "obfuskiert",
+    ddl: SCHEMA,
+    insert: INSERT_BOOKING,
+}];
 
 /// Das Schema der `obfuskiert`-Ergebnis-Tabelle: die abgeflachte obfuskierte Buchung unter der
 /// DB-vergebenen ID. Sie trägt **nur Token** (`KONTO_…`/`PERSON_…`, obfuskierter Freitext); einzige
@@ -270,6 +325,7 @@ mod tests {
     };
     use crate::outbox::OutboxError;
     use crate::pipeline_test_support::{SEED, Stage, register_fresh, seed_through};
+    use crate::sqlite::SqliteOutbox;
     use application_kernel::PublishCommand;
     use obfuskierung_adapter::ObfuscatedMessage;
 
@@ -304,7 +360,7 @@ mod tests {
     /// Liest die abgelegten obfuskiert-Zeilen (nur für Tests). Der reale Lesepfad des Folge-Slice
     /// (`fenstern`) liegt hinter dessen eigenem Seam (`ObfuskiertWindowSource`, Issue 0057).
     fn stored_bookings(store: &ObfuskierungSqliteStore) -> rusqlite::Result<Vec<StoredBooking>> {
-        store.outbox.with_connection(|conn| {
+        store.with_connection(|conn| {
             let mut statement = conn.prepare(
                 "SELECT id, source_id, ordering_account, counter_account, amount_minor_units, \
                  currency, direction, recipient_kind, recipient_name, recipient_creditor_id, \
@@ -508,13 +564,14 @@ mod tests {
         // Ein Store **ohne** seine Ergebnis-Tabelle (bewusst an `new` vorbeigebaut) ist unerreichbar:
         // die Ablage failt synchron und terminal, bevor irgendetwas committet.
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = ObfuskierungSqliteStore {
-            outbox: outbox.clone(),
-        };
+        let store = ObfuskierungSqliteStore::without_schema(outbox.clone());
 
         let outcomes = run_pipeline(&outbox, store, "gueltig.csv", SEED)?;
 
-        // Terminal (Warning), redigiert: der Grund trägt die opake Quell-ID, nie die rohe IBAN.
+        // Terminal (Warning), redigiert: der Grund trägt die durchgereichte io-Diagnose — und damit
+        // deckt dieser Leak-Test die Meldung ab, die der Seam konstruiert hat
+        // (`obfuskiert store unavailable: …`): keine rohe IBAN, kein Zellwert. Dass er heute nur
+        // **negativ** zusichert, härtet Issue 0079.
         assert!(
             matches!(
                 outcomes.as_slice(),

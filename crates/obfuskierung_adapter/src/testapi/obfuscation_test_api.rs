@@ -64,6 +64,14 @@ impl ObfuscationTestApi {
         self
     }
 
+    /// Lässt das **Ablegen** terminal scheitern (io-Diagnose durchgereicht) — das Gegenstück zu den
+    /// gleichnamigen Arrangeuren der drei anderen Slices.
+    #[must_use]
+    pub fn with_failing_store(mut self, message: &str) -> Self {
+        self.store.fail_with(message);
+        self
+    }
+
     /// Fährt die echte Kette (Decoder → Handler) für einen `Ingested`-**Zeiger** (die ID reist als
     /// `partition_key` der Envelope, kein Inhalt) und gibt das Handler-Ergebnis zurück (`Ok(())` =
     /// verarbeitet, `Err` = terminaler [`SourceError`]).
