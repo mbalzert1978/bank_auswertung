@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::ArrangedFailure;
 use crate::abstractions::{IngestedSourceSeam, SourceUnavailable};
 use crate::models::IngestedRow;
 
@@ -12,7 +13,7 @@ use crate::models::IngestedRow;
 #[derive(Default)]
 pub(crate) struct FakeIngestedSource {
     rows: HashMap<String, IngestedRow>,
-    failure: Option<String>,
+    failure: ArrangedFailure,
 }
 
 impl FakeIngestedSource {
@@ -23,20 +24,14 @@ impl FakeIngestedSource {
 
     /// Lässt jede Beschaffung terminal mit der gegebenen io-Diagnose scheitern.
     pub(crate) fn fail_with(&mut self, message: &str) {
-        self.failure = Some(message.to_string());
-    }
-
-    /// Das arrangierte Scheitern als Vorbedingung — `Ok(())`, solange keines gesetzt ist.
-    fn arranged_failure(&self) -> Result<(), SourceUnavailable> {
-        self.failure
-            .clone()
-            .map_or(Ok(()), |message| Err(SourceUnavailable { message }))
+        self.failure.arm(message);
     }
 }
 
 impl IngestedSourceSeam for FakeIngestedSource {
     fn read(&self, id: &str) -> Result<Option<IngestedRow>, SourceUnavailable> {
-        self.arranged_failure()?;
+        self.failure
+            .check(|message| SourceUnavailable { message })?;
         Ok(self.rows.get(id).cloned())
     }
 }
