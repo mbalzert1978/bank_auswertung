@@ -49,7 +49,7 @@ use auswerten_adapter::{
 };
 use rusqlite::{Transaction, params};
 
-use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
+use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `auswerten`-Persistenz als [`StoreSpec`]: der **Fünf-Tabellen-Fall** — der Kopf
 /// (`window_evaluations`) und seine vier positionsgetreuen Detail-Listen, je mit ihrem `INSERT`, und
@@ -74,7 +74,7 @@ impl StoreSpec for AuswertenEvaluations {
 
     /// Baut **eine** Schreibung über alle fünf Tabellen: erst die Kopf-Zeile unter der frisch
     /// geminteten `id`, dann positionsgetreu die vier Detail-Listen unter derselben `id`.
-    fn stage(fields: EvaluationFields, id: String) -> StagedRow {
+    fn stage(fields: EvaluationFields, id: MintedId) -> StagedRow {
         let row = EvaluationRow::new(id, fields);
         Box::new(move |tx| row.insert(tx))
     }
@@ -241,17 +241,18 @@ impl From<&auswerten_adapter::CategoryRow> for CategoryRow {
 /// Die SQL-fertigen Zeilen **aller fünf** Tabellen: die abgeflachten Felder **unter** ihrer
 /// DB-vergebenen ID, die Kopf und alle vier Detail-Listen gemeinsam tragen. Sie reist in die
 /// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster Parameter von
-/// [`new`](EvaluationRow::new); dass es die eben gemintete ist, trägt der einzige Aufrufer
-/// (`AuswertenEvaluations::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
+/// [`new`](EvaluationRow::new); dass es die eben an der DB gemintete ist, trägt ihr Typ
+/// [`MintedId`] — eine von Hand gebaute Schein-ID, die Kopf und die vier Detail-Listen unter einem
+/// Schein-Primärschlüssel zusammenbände, ist hier ein Compile-Fehler.
 struct EvaluationRow {
-    id: String,
+    id: MintedId,
     fields: EvaluationFields,
 }
 
 impl EvaluationRow {
     /// Baut die schreibbare Row unter der frisch geminteten DB-`id`. Diese Reichweite publiziert
     /// keinen Zeiger — die ID bleibt DB-intern und bindet nur die Detail-Zeilen an ihren Kopf.
-    const fn new(id: String, fields: EvaluationFields) -> Self {
+    const fn new(id: MintedId, fields: EvaluationFields) -> Self {
         Self { id, fields }
     }
 

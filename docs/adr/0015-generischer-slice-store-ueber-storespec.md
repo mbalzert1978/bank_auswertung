@@ -115,9 +115,15 @@ Die getroffenen Weichen im Einzelnen:
    liefert, die Kopf- und alle Detail-Inserts (positionsgetreu per `enumerate`) fährt. Die
    **Reihenfolge** ist damit erzwungen — die `Prepared` ist nicht schreibbar, schreibbar ist nur die
    Row, und die nimmt die ID **stets als ersten Konstruktor-Parameter**. Dass es die *eben
-   gemintete* ID ist, trägt der einzige Aufrufer (`store_dto`): Konvention an **einer** Stelle,
-   keine Typ-Garantie — die Row ist io-intern, und eine schärfere Fassung (die ID als Argument des
-   einzigen Schreibwegs) kostet mehr Trage-Konstruktion, als sie hier wert ist. Dass `stage`
+   gemintete* ID ist, trug zunächst der einzige Aufrufer (`store_dto`): Konvention an **einer**
+   Stelle, keine Typ-Garantie — die Row ist io-intern, und eine schärfere Fassung schien mehr
+   Trage-Konstruktion zu kosten, als sie wert ist. **Nachgezogen durch
+   [Issue 0082](../issues/0082-gemintete-zeilen-id-als-mintedid-newtype-durch-den-slice-store-seam-fuehren.md):**
+   die ID reist als `MintedId`-Newtype durch `stage` — konstruierbar **einzig** im Mint-Zweig
+   (privates Feld, kein Konstruktor), geschrieben über ihr `ToSql`. Die Trage-Konstruktion blieb
+   damit auf einen Newtype beschränkt, und eine erfundene Schein-ID ist nun ein **Compile-Fehler**
+   statt einer Review-Frage ([ADR-0005](0005-domaenenmodell-value-objects-und-summentypen.md)); am
+   Seam Richtung Slice ändert das nichts (`store_dto` gibt weiter die `String`-ID). Dass `stage`
    die DTO **nicht** ein zweites Mal sieht, hält die Umdeutung an **einer** Stelle statt sie über
    zwei Trait-Methoden zu verschmieren. `tables()` listet **jede** Tabelle mit ihrem Statement,
    sodass der Preflight **jedes** probt (das erhält `auswerten`s heutige Eigenschaft *„hier terminal

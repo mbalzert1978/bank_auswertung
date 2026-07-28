@@ -44,7 +44,7 @@
 use fenstern_adapter::{AnalysisWindowRow, AnalysisWindowStoreSeam, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
-use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
+use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `fenstern`-Persistenz als [`StoreSpec`]: der **Zwei-Tabellen-Fall** — Kopf
 /// (`auswertungsfenster`) und Detail (`auswertungsfenster_buchungen`) je mit ihrem `INSERT`, und als
@@ -69,7 +69,7 @@ impl StoreSpec for FensternWindows {
 
     /// Baut **eine** Schreibung über beide Tabellen: erst die Kopf-Zeile unter der frisch geminteten
     /// `id`, dann positionsgetreu ihre Detail-Zeilen unter derselben `id`.
-    fn stage(fields: WindowFields, id: String) -> StagedRow {
+    fn stage(fields: WindowFields, id: MintedId) -> StagedRow {
         let row = WindowRow::new(id, fields);
         Box::new(move |tx| row.insert(tx))
     }
@@ -155,16 +155,17 @@ impl TryFrom<&AnalysisWindowRow> for WindowFields {
 /// Die SQL-fertigen Zeilen **beider** Tabellen: die abgeflachten Felder **unter** ihrer
 /// DB-vergebenen ID (zugleich der publizierte Zeiger), die Kopf und Detail gemeinsam tragen. Sie
 /// reist in die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster
-/// Parameter von [`new`](WindowRow::new); dass es die eben gemintete ist, trägt der einzige Aufrufer
-/// (`FensternWindows::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
+/// Parameter von [`new`](WindowRow::new); dass es die eben an der DB gemintete ist, trägt ihr Typ
+/// [`MintedId`] — eine von Hand gebaute Schein-ID, die Kopf und Detail unter einem
+/// Schein-Primärschlüssel zusammenbände, ist hier ein Compile-Fehler.
 struct WindowRow {
-    id: String,
+    id: MintedId,
     fields: WindowFields,
 }
 
 impl WindowRow {
     /// Baut die schreibbare Row unter der frisch geminteten DB-`id` (zugleich der publizierte Zeiger).
-    const fn new(id: String, fields: WindowFields) -> Self {
+    const fn new(id: MintedId, fields: WindowFields) -> Self {
         Self { id, fields }
     }
 
