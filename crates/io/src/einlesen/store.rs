@@ -7,7 +7,7 @@
 //! echter Broker), alles in **einer** Transaktion.
 //!
 //! **Atomarität (Tabelle = Wahrheit, Message = Zeiger, [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):**
-//! [`EinlesenSqliteStore`] ist die [`UnitFactory`](crate::einlesen::UnitFactory) des Slice — je
+//! [`EinlesenSqliteStore`] ist die [`UnitFactory`](crate::UnitFactory) des Slice — je
 //! Nachricht öffnet es eine [`EinlesenUnit`]. Deren [`store`](StoreSeam::store) **mintet die
 //! Zeilen-ID synchron an der DB** und **stagt** das Zeilen-`INSERT` in **dieselbe** committende
 //! Transaktion wie der `Ingested`-Publish und der Ack — eine gestagete Schreibung committet mit der
@@ -19,11 +19,10 @@
 //! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
 //! sein [`StoreSpec`]-`impl` (Schema + Insert + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
 //! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
-//! Preflight/Minten und der Outbox-Passthrough leben generisch in [`SliceStore`]/[`SliceUnit`].
-//! Handgeschrieben bleibt **noch** das [`UnitFactory`]-`impl` unten — ein reiner Durchgriff auf
-//! `SliceStore::begin`, solange es die vier strukturgleichen `UnitFactory`-Traits der Slices gibt;
-//! sie kollabieren mit dem `auswerten`-Capstone
-//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+//! Preflight/Minten, die [`UnitFactory`](crate::UnitFactory) und der Outbox-Passthrough leben
+//! generisch in [`SliceStore`]/[`SliceUnit`] — die Unit-Quelle seit dem `auswerten`-Capstone
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)),
+//! der die vier strukturgleichen `UnitFactory`-Traits zu **einem** kollabiert hat.
 //! Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
@@ -34,8 +33,6 @@
 use einlesen_adapter::{CalendarDay, Direction, Line, StoreSeam, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
-use crate::MessageId;
-use crate::einlesen::UnitFactory;
 use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `einlesen`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als fehlbare
@@ -71,21 +68,13 @@ impl StoreSpec for EinlesenLines {
 }
 
 /// Der reale `einlesen`-Ergebnis-Store: der generische [`SliceStore`] über [`EinlesenLines`] und
-/// damit die [`UnitFactory`](crate::einlesen::UnitFactory) des Slice. `Clone` teilt dasselbe
+/// damit die [`UnitFactory`](crate::UnitFactory) des Slice. `Clone` teilt dasselbe
 /// Rückgrat (`Rc` im Innern).
 pub type EinlesenSqliteStore = SliceStore<EinlesenLines>;
 
 /// Eine `einlesen`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`StoreSeam`) **und** die Outbox
 /// (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`).
 pub type EinlesenUnit = SliceUnit<EinlesenLines>;
-
-impl UnitFactory for EinlesenSqliteStore {
-    type Unit = EinlesenUnit;
-
-    fn begin(&self, ack: MessageId<'_>) -> EinlesenUnit {
-        SliceStore::begin(self, ack)
-    }
-}
 
 impl StoreSeam for EinlesenUnit {
     /// Mintet die Zeilen-ID **synchron an der DB** (`randomblob`) und stagt das Zeilen-`INSERT` in die

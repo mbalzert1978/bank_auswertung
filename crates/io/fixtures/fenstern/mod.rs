@@ -27,7 +27,7 @@ use fenstern_adapter::{
     SourceUnavailable, StoreUnavailable,
 };
 use io::Dispatcher;
-use io::fenstern::UnitFactory;
+use io::UnitFactory;
 use io::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 
 #[path = "../commit_failed.rs"]

@@ -32,33 +32,20 @@ pub use obfuscator::SeededObfuscator;
 pub use source::EinlesenRowSource;
 pub use store::{ObfuskiertBookings, ObfuskierungSqliteStore, ObfuskierungUnit};
 
-use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
 use obfuskierung_adapter::{
     IngestedSourceSeam, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedStoreSeam,
     ObfuscatingHandler, ObfuscatorSeam, SourceError,
 };
 
-use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{
+    MessageId, OutboxConsumer, TransactionError, TransactionalHandler, UnitFactory, run_in_unit,
+};
 
 /// Der `message_type`, unter dem der Dispatcher den `obfuskierung`-Consumer auflöst (der konsumierte
 /// Auslöser, `Ingested`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
 /// Slice-Eingang.
 pub const CONSUMED_MESSAGE_TYPE: &str = obfuskierung_adapter::CONSUMED_MESSAGE_TYPE;
-
-/// Die **Unit-Quelle** von `obfuskierung`: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
-/// **zugleich** die gestagete `obfuskiert`-Ablage ([`ObfuscatedStoreSeam`]) **und** die Outbox
-/// ([`OutboxPublisher`]) ist und beides atomar committet ([`UnitOfWork`]). Weil dieselbe Unit staged
-/// **und** committet, committet eine gestagete Schreibung mit der Nachricht oder gar nicht. Spiegel
-/// von einlesens `UnitFactory`; der echte io backt eine Unit mit **einer** `rusqlite`-Transaktion.
-pub trait UnitFactory {
-    /// Die Arbeitseinheit: gestagete Ablage + Outbox in einem, atomar committbar.
-    type Unit: UnitOfWork + ObfuscatedStoreSeam + OutboxPublisher;
-
-    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
-    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand).
-    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
-}
 
 /// Der [`TransactionalHandler`] von `obfuskierung`: hält die message-unabhängigen Seams (Lese-Quelle
 /// und Obfuskator) und den Seed sowie die [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den
@@ -66,6 +53,10 @@ pub trait UnitFactory {
 /// wenn der Handler gelingt. Weil beide committenden Ports dieselbe Unit sind, kann eine gestagete
 /// Schreibung die Transaktion nicht überleben. Der nackte [`SourceError`] ist **terminal** →
 /// [`TransactionError::Handler`].
+///
+/// Dass die Unit **zusätzlich** die gestagete `obfuskiert`-Ablage ist, verlangt das `impl` unten als
+/// `where F::Unit: ObfuscatedStoreSeam` — dort, wo der Seam benutzt wird, statt in der uniformen
+/// [`UnitFactory`] (ADR-0015, Issue 0077).
 pub struct ObfuskierungTransactionalHandler<'a, F: UnitFactory> {
     source: &'a dyn IngestedSourceSeam,
     obfuscator: &'a dyn ObfuscatorSeam,
@@ -73,7 +64,10 @@ pub struct ObfuskierungTransactionalHandler<'a, F: UnitFactory> {
     units: F,
 }
 
-impl<F: UnitFactory> TransactionalHandler for ObfuskierungTransactionalHandler<'_, F> {
+impl<F: UnitFactory> TransactionalHandler for ObfuskierungTransactionalHandler<'_, F>
+where
+    F::Unit: ObfuscatedStoreSeam,
+{
     type Command = ObfuscateCommand;
     type Decoder = ObfuscateCommandDecoder;
     type Error = SourceError;
@@ -99,7 +93,10 @@ pub fn consumer<'a, F: UnitFactory>(
     obfuscator: &'a dyn ObfuscatorSeam,
     seed: u64,
     units: F,
-) -> OutboxConsumer<ObfuskierungTransactionalHandler<'a, F>> {
+) -> OutboxConsumer<ObfuskierungTransactionalHandler<'a, F>>
+where
+    F::Unit: ObfuscatedStoreSeam,
+{
     OutboxConsumer::new(ObfuskierungTransactionalHandler {
         source,
         obfuscator,

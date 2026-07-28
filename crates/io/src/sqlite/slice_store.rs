@@ -6,19 +6,18 @@
 //! [`SqliteUnit`]: Store-Struct · `new` · `UnitFactory` · `Unit`-Newtype · Seam-Body-„Tanz" · `Row`.
 //! Slice-spezifisch ist einzig **seine [`TableSpec`]-Liste + Row-Flatten** — genau das, und nur das,
 //! verlangt [`StoreSpec`]. Das Skelett trägt [`SliceStore`]/[`SliceUnit`] **einmal**; ein Slice
-//! liefert sein `StoreSpec`-`impl`, eine dünne Seam-`impl`, die [`SliceUnit::store_dto`] aufruft,
-//! und — **noch** — sein eigenes `UnitFactory`-`impl`, das auf [`begin`](SliceStore::begin)
-//! durchreicht: die vier strukturgleichen `UnitFactory`-Traits der Slices (Unterschied: einzig der
-//! Seam-Bound auf `type Unit`) kollabieren erst mit dem `auswerten`-Capstone zu **einem** io-privaten
-//! Trait mit **einem** generischen `impl`
-//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+//! liefert nur noch sein `StoreSpec`-`impl` und eine dünne Seam-`impl`, die
+//! [`SliceUnit::store_dto`] aufruft. Seit dem `auswerten`-Capstone
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
+//! gilt das auch für die Unit-Quelle: die vier strukturgleichen `UnitFactory`-Traits der Slices
+//! (Unterschied: einzig der Seam-Bound auf `type Unit`) sind zu **einem** [`UnitFactory`]
+//! kollabiert, das hier **einmal** generisch erfüllt wird.
 //!
 //! **Der Seam-Vertrag Richtung Slice bleibt unberührt** ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):
 //! diese Abstraktion gehört **nicht** zum Slice↔`io`-Vertrag. Sie ist nur deshalb `pub`, weil die
 //! öffentlichen Store-Aliase der Slices sie in ihrer Signatur tragen (ein privates Trait als Bound
 //! einer öffentlichen `impl` wäre `private_bounds`); implementiert wird sie ausschließlich `io`-intern,
-//! und die tragenden Methoden ([`begin`](SliceStore::begin), [`store_dto`](SliceUnit::store_dto))
-//! bleiben crate-privat. Jeder Store zeigt weiterhin explizit, **welchen** Seam er erfüllt —
+//! und die tragende Methode ([`store_dto`](SliceUnit::store_dto)) bleibt crate-privat. Jeder Store zeigt weiterhin explizit, **welchen** Seam er erfüllt —
 //! versteckt wird nur die Mechanik, nicht die Slice-Fläche.
 //!
 //! **Ablauf der Ablage-Primitive** ([ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):
@@ -31,11 +30,11 @@ use std::marker::PhantomData;
 
 use rusqlite::{Connection, Transaction};
 
-use crate::MessageId;
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
 use crate::sqlite::{
     AUDIT_COLUMNS, MINT_ID, SqliteCommitError, SqliteOutbox, SqliteUnit, ensure_columns,
 };
+use crate::{MessageId, UnitFactory};
 
 /// Eine SQL-fertige, **besitzende** Ablage-Schreibung: sie reist in die gestagete Closure und wird
 /// erst am Commit-Rand in die committende Transaktion geschrieben.
@@ -148,12 +147,6 @@ impl<S: StoreSpec> SliceStore<S> {
         }
     }
 
-    /// Öffnet die Arbeitseinheit für die Nachricht `ack` — der Rumpf jeder slice-eigenen
-    /// `UnitFactory`.
-    pub(crate) fn begin(&self, ack: MessageId<'_>) -> SliceUnit<S> {
-        SliceUnit(self.outbox.begin(ack), PhantomData)
-    }
-
     /// Reicht die geteilte Verbindung an `f` — der Lese-Zugriff auf den abgelegten Bestand. Heute
     /// **nur für Tests**: der reale Lesepfad eines Slice liegt hinter dessen eigenem Lese-Seam, nicht
     /// hinter dem Store.
@@ -163,6 +156,19 @@ impl<S: StoreSpec> SliceStore<S> {
         f: impl FnOnce(&Connection) -> rusqlite::Result<R>,
     ) -> rusqlite::Result<R> {
         self.outbox.with_connection(f)
+    }
+}
+
+/// **Die** [`UnitFactory`] jedes migrierten Slice — **ein** generisches `impl` statt vier
+/// handgeschriebener Durchgriffe ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md),
+/// [Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)):
+/// welchen Ablage-Seam die geöffnete Einheit zusätzlich erfüllt, verlangt der jeweilige
+/// [`TransactionalHandler`](crate::TransactionalHandler) dort, wo er ihn benutzt.
+impl<S: StoreSpec> UnitFactory for SliceStore<S> {
+    type Unit = SliceUnit<S>;
+
+    fn begin(&self, ack: MessageId<'_>) -> SliceUnit<S> {
+        SliceUnit(self.outbox.begin(ack), PhantomData)
     }
 }
 
@@ -200,7 +206,8 @@ impl<S: StoreSpec> SliceUnit<S> {
     }
 }
 
-// Der Outbox-Passthrough **einmal** generisch, statt pro Store per `sqlite_backed_unit!`-Makro: die
+// Der Outbox-Passthrough **einmal** generisch — das frühere, pro Store aufgerufene
+// `sqlite_backed_unit!`-Makro ist mit dem letzten migrierten Store entfallen (Issue 0077). Die
 // `SqliteUnit` implementiert beides bereits, der Newtype reicht wortgleich durch.
 impl<S> OutboxPublisher for SliceUnit<S> {
     fn publish<T: OutboxCommand>(&self, command: T) {

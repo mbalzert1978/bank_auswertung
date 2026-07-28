@@ -38,8 +38,9 @@ use fenstern_adapter::{
     WindowError, WindowingHandler,
 };
 
-use crate::outbox::{OutboxPublisher, UnitOfWork};
-use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{
+    MessageId, OutboxConsumer, TransactionError, TransactionalHandler, UnitFactory, run_in_unit,
+};
 
 mod source;
 mod store;
@@ -58,36 +59,26 @@ pub const CONSUMED_MESSAGE_TYPE: &str = fenstern_adapter::CONSUMED_MESSAGE_TYPE;
 /// zweite vom Slice konsumierte Auslöser. Re-exportiert aus dem Adapter.
 pub const START_MESSAGE_TYPE: &str = fenstern_adapter::START_MESSAGE_TYPE;
 
-/// Die **Unit-Quelle** von `fenstern`: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
-/// **zugleich** die gestagete Fenster-Ablage ([`AnalysisWindowStoreSeam`]) **und** die Outbox
-/// ([`OutboxPublisher`]) ist und beides atomar committet ([`UnitOfWork`]). Weil dieselbe Unit staged
-/// **und** committet, committet eine gestagete Schreibung mit ihren Nachrichten oder gar nicht.
-/// Spiegel von einlesens/obfuskierungs `UnitFactory`; der echte io backt eine Unit mit **einer**
-/// `rusqlite`-Transaktion.
-///
-/// **Eine** Unit-Quelle für **beide** Handler: es gibt eine Ablage und eine Outbox, also auch eine
-/// Transaktions-Quelle. Dass der Anstoß die Ablage nicht nutzt, ändert daran nichts.
-pub trait UnitFactory {
-    /// Die Arbeitseinheit: gestagete Fenster-Ablage + Outbox in einem, atomar committbar.
-    type Unit: UnitOfWork + AnalysisWindowStoreSeam + OutboxPublisher;
-
-    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
-    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand).
-    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
-}
-
 /// Der [`TransactionalHandler`] des **Fenster-Schritts**: hält den message-unabhängigen Lese-Seam,
 /// die Seitengröße und die [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den
 /// `WindowingHandler` **aus ihr** (Ablage = die Unit, Publish über die Unit) und committet atomar,
 /// wenn der Handler gelingt. Der nackte [`WindowError`] ist **terminal** →
 /// [`TransactionError::Handler`].
+///
+/// Dass die Unit **zusätzlich** die gestagete Fenster-Ablage ist, verlangt das `impl` unten als
+/// `where F::Unit: AnalysisWindowStoreSeam` — dort, wo der Seam benutzt wird, statt in der uniformen
+/// [`UnitFactory`] (ADR-0015, Issue 0077). Der Anstoß daneben legt nichts ab und verlangt darum auch
+/// nichts.
 pub struct WindowingTransactionalHandler<'a, F: UnitFactory> {
     window_days: NonZeroU32,
     source: &'a dyn ObfuscatedWindowSeam,
     units: F,
 }
 
-impl<F: UnitFactory> TransactionalHandler for WindowingTransactionalHandler<'_, F> {
+impl<F: UnitFactory> TransactionalHandler for WindowingTransactionalHandler<'_, F>
+where
+    F::Unit: AnalysisWindowStoreSeam,
+{
     type Command = AdvanceWindowCommand;
     type Decoder = AdvanceWindowCommandDecoder;
     type Error = WindowError;
@@ -137,7 +128,10 @@ pub fn consumer<'a, F: UnitFactory>(
     window_days: NonZeroU32,
     source: &'a dyn ObfuscatedWindowSeam,
     units: F,
-) -> OutboxConsumer<WindowingTransactionalHandler<'a, F>> {
+) -> OutboxConsumer<WindowingTransactionalHandler<'a, F>>
+where
+    F::Unit: AnalysisWindowStoreSeam,
+{
     OutboxConsumer::new(WindowingTransactionalHandler {
         window_days,
         source,

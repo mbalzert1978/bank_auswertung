@@ -59,4 +59,5 @@ pub use common::outbox;
 pub(crate) use common::run_in_unit;
 pub use common::{
     Dispatcher, MessageId, OutboxConsumer, PublishingPort, TransactionError, TransactionalHandler,
+    UnitFactory,
 };

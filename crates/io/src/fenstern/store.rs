@@ -10,7 +10,7 @@
 //! damit **end-to-end ohne einen einzigen Fake**.
 //!
 //! **Atomarität (Tabelle = Wahrheit, Message = Zeiger, [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):**
-//! [`FensternSqliteStore`] ist die [`UnitFactory`](crate::fenstern::UnitFactory) des Slice — je
+//! [`FensternSqliteStore`] ist die [`UnitFactory`](crate::UnitFactory) des Slice — je
 //! Nachricht öffnet es eine [`FensternUnit`] über dem generischen [`SliceUnit`]. Deren
 //! [`save`](AnalysisWindowStoreSeam::save) **mintet die neue ID synchron an der DB** (`randomblob`)
 //! und **stagt** das Fenster-`INSERT` **und** die Buchungs-Fremdschlüssel in **dieselbe** committende
@@ -26,7 +26,10 @@
 //! dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
 //! sein [`StoreSpec`]-`impl` (Schema + Inserts + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
 //! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
-//! Preflight/Minten und der Outbox-Passthrough leben generisch in [`SliceStore`]/[`SliceUnit`]. Er ist
+//! Preflight/Minten, die [`UnitFactory`](crate::UnitFactory) und der Outbox-Passthrough leben
+//! generisch in [`SliceStore`]/[`SliceUnit`] — die Unit-Quelle seit dem `auswerten`-Capstone
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)),
+//! der die vier strukturgleichen `UnitFactory`-Traits zu **einem** kollabiert hat. Er ist
 //! der **Mehr-Tabellen-Fall** der Abstraktion: **beide** Tabellen stehen mit DDL und Ablage-Statement
 //! in **einer** [`TableSpec`]-Liste (also legt `new` beide an, rüstet auf beiden die Audit-Spalten
 //! nach und der Preflight probt **beide** Statements), und [`stage`](StoreSpec::stage) liefert
@@ -44,8 +47,6 @@
 use fenstern_adapter::{AnalysisWindowRow, AnalysisWindowStoreSeam, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
-use crate::MessageId;
-use crate::fenstern::UnitFactory;
 use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `fenstern`-Persistenz als [`StoreSpec`]: der **Zwei-Tabellen-Fall** — Kopf
@@ -84,21 +85,13 @@ impl StoreSpec for FensternWindows {
 }
 
 /// Der reale `fenstern`-Ergebnis-Store: der generische [`SliceStore`] über
-/// [`FensternWindows`] und damit die [`UnitFactory`](crate::fenstern::UnitFactory) des
+/// [`FensternWindows`] und damit die [`UnitFactory`](crate::UnitFactory) des
 /// Slice. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
 pub type FensternSqliteStore = SliceStore<FensternWindows>;
 
 /// Eine `fenstern`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`AnalysisWindowStoreSeam`)
 /// **und** die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`).
 pub type FensternUnit = SliceUnit<FensternWindows>;
-
-impl UnitFactory for FensternSqliteStore {
-    type Unit = FensternUnit;
-
-    fn begin(&self, ack: MessageId<'_>) -> FensternUnit {
-        SliceStore::begin(self, ack)
-    }
-}
 
 impl AnalysisWindowStoreSeam for FensternUnit {
     /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt das Fenster- und die

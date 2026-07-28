@@ -317,15 +317,12 @@ impl FakeDb {
     }
 }
 
-impl io::fenstern::UnitFactory for FakeDb {
-    type Unit = FakeUnit;
-
-    fn begin(&self, _ack: io::MessageId<'_>) -> FakeUnit {
-        FakeUnit::of(self)
-    }
-}
-
-impl io::auswerten::UnitFactory for FakeDb {
+/// **Eine** Unit-Quelle für **beide** Slices dieses Laufs (`fenstern` und `auswerten`): seit dem
+/// Kollaps der vier `UnitFactory`-Traits zu einem
+/// ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
+/// braucht es dafür **ein** `impl` statt zweier wortgleicher — die [`FakeUnit`] erfüllt beide
+/// Ablage-Seams ohnehin.
+impl io::UnitFactory for FakeDb {
     type Unit = FakeUnit;
 
     fn begin(&self, _ack: io::MessageId<'_>) -> FakeUnit {

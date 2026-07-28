@@ -11,8 +11,8 @@
 //! (bis zum `report`).
 //!
 //! **Atomarität (Tabelle = Wahrheit, [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):**
-//! [`AuswertenSqliteStore`] ist die [`UnitFactory`](crate::auswerten::UnitFactory) des Slice — je
-//! Nachricht öffnet es eine [`AuswertenUnit`] über einer [`SqliteUnit`]. Deren
+//! [`AuswertenSqliteStore`] ist die [`UnitFactory`](crate::UnitFactory) des Slice — je
+//! Nachricht öffnet es eine [`AuswertenUnit`] über dem generischen [`SliceUnit`]. Deren
 //! [`save`](EvaluationStoreSeam::save) **mintet die neue ID synchron an der DB** (`randomblob`) und
 //! **stagt** die Ergebnis-`INSERT`s (Kopf + vier Detail-Tabellen) in **dieselbe** committende
 //! Transaktion wie der Ack. Diese Reichweite **publiziert keinen Zeiger** stromabwärts (sie ist das
@@ -26,6 +26,19 @@
 //! den Kopf **per `evaluation_id`** (indiziert), **kein** DB-`FOREIGN KEY`-Constraint (SQLite erzwingt
 //! FKs nur mit `PRAGMA foreign_keys`, das die synchrone Outbox-Spine bewusst nicht schaltet).
 //!
+//! **Seit [Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)
+//! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
+//! sein [`StoreSpec`]-`impl` (Schema + Inserts + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
+//! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
+//! Preflight/Minten, die [`UnitFactory`](crate::UnitFactory) und der Outbox-Passthrough leben
+//! generisch in [`SliceStore`]/[`SliceUnit`]. Er ist der **Fünf-Tabellen-Fall** und damit der
+//! Capstone der Abstraktion: **alle fünf** Tabellen stehen mit DDL und Ablage-Statement in **einer**
+//! [`TableSpec`]-Liste (also legt `new` jede an, rüstet auf jeder die Audit-Spalten nach und der
+//! Preflight probt **jedes** ihrer Statements), und [`stage`](StoreSpec::stage) liefert **eine**
+//! Schreibung, die Kopf- und alle vier Detail-Listen positionsgetreu in dieselbe Transaktion
+//! schreibt. Der Seam-Vertrag Richtung Slice ist davon **unberührt**
+//! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
+//!
 //! **Fehlbar + terminal:** ein unerreichbarer Store (Schema fehlt) failt **synchron** in `save` als
 //! [`StoreUnavailable`] (→ Domänen-`EvaluationError::StorageUnavailable`), terminal. Kein Dead-Letter,
 //! kein Retry im Slice.
@@ -36,81 +49,75 @@ use auswerten_adapter::{
 };
 use rusqlite::{Transaction, params};
 
-use crate::MessageId;
-use crate::auswerten::UnitFactory;
-use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{SqliteCommitError, SqliteOutbox, SqliteUnit, sqlite_backed_unit};
+use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
-/// Der reale `auswerten`-Ergebnis-Store: die [`UnitFactory`](crate::auswerten::UnitFactory) des Slice
-/// über dem SQLite-Rückgrat. Hält den [`SqliteOutbox`] (Broker **und** Unit-Quelle) und stellt beim
-/// Aufbau seine fünf Ergebnis-Tabellen sicher. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
-#[derive(Clone)]
-pub struct AuswertenSqliteStore {
-    outbox: SqliteOutbox,
-}
+/// Die `auswerten`-Persistenz als [`StoreSpec`]: der **Fünf-Tabellen-Fall** — der Kopf
+/// (`window_evaluations`) und seine vier positionsgetreuen Detail-Listen, je mit ihrem `INSERT`, und
+/// als fehlbare Umdeutung die u64→i64-Deutung der Monats-Beträge. Der Marker-Typ parametrisiert
+/// [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
+pub struct AuswertenEvaluations;
 
-impl AuswertenSqliteStore {
-    /// Baut den Store über dem gegebenen Rückgrat und legt die fünf `window_evaluation*`-Tabellen an
-    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten). `ensure_columns` rüstet die
-    /// Audit-Spalten auf **jeder** Tabelle nach, falls sie aus einer **alten** DB-Datei ohne sie
-    /// stammen.
-    pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
-        outbox.with_connection(|conn| {
-            conn.execute_batch(SCHEMA)?;
-            for table in TABLES {
-                crate::sqlite::ensure_columns(conn, table, crate::sqlite::AUDIT_COLUMNS)?;
-            }
-            Ok(())
-        })?;
-        Ok(Self { outbox })
+impl StoreSpec for AuswertenEvaluations {
+    type Dto = WindowEvaluationRow;
+    /// Das abgeflachte Ergebnis ohne seine ID — schreibbar wird erst die `EvaluationRow`, die
+    /// `stage` daraus **mit** der geminteten ID baut (Kopf **und** alle vier Detail-Listen tragen sie).
+    type Prepared = EvaluationFields;
+    type Error = StoreUnavailable;
+
+    fn tables() -> &'static [TableSpec] {
+        TABLES
+    }
+
+    fn flatten(evaluation: &WindowEvaluationRow) -> Result<EvaluationFields, StoreUnavailable> {
+        EvaluationFields::try_from(evaluation)
+    }
+
+    /// Baut **eine** Schreibung über alle fünf Tabellen: erst die Kopf-Zeile unter der frisch
+    /// geminteten `id`, dann positionsgetreu die vier Detail-Listen unter derselben `id`.
+    fn stage(fields: EvaluationFields, id: String) -> StagedRow {
+        let row = EvaluationRow::new(id, fields);
+        Box::new(move |tx| row.insert(tx))
+    }
+
+    /// Reicht die `rusqlite`-Diagnose eines misslungenen Store-Zugriffs durch (fehlendes Schema,
+    /// DB-Fehler) — Mechanik, nie ein Zell-/Feldwert.
+    fn unavailable(error: rusqlite::Error) -> StoreUnavailable {
+        store_unavailable(&error.to_string())
     }
 }
 
-impl UnitFactory for AuswertenSqliteStore {
-    type Unit = AuswertenUnit;
-
-    fn begin(&self, ack: MessageId<'_>) -> AuswertenUnit {
-        AuswertenUnit(self.outbox.begin(ack))
-    }
-}
+/// Der reale `auswerten`-Ergebnis-Store: der generische [`SliceStore`] über [`AuswertenEvaluations`]
+/// und damit die [`UnitFactory`](crate::UnitFactory) des Slice. `Clone` teilt dasselbe Rückgrat
+/// (`Rc` im Innern).
+pub type AuswertenSqliteStore = SliceStore<AuswertenEvaluations>;
 
 /// Eine `auswerten`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`EvaluationStoreSeam`) **und**
-/// die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`) — ein Newtype über der
-/// generischen [`SqliteUnit`], der ihr das slice-spezifische Ablage-`INSERT` gibt und Publish/Commit
-/// durchreicht. Dass der Publish-Rand dieser Reichweite ungenutzt bleibt, ändert die Einheit nicht:
-/// sie umspannt Ack und Ablage und wächst ohne Umbau um den späteren `report`-Anstoß.
-pub struct AuswertenUnit(SqliteUnit);
+/// die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`). Dass der Publish-Rand
+/// dieser Reichweite ungenutzt bleibt, ändert die Einheit nicht: sie umspannt Ack und Ablage und
+/// wächst ohne Umbau um den späteren `report`-Anstoß.
+pub type AuswertenUnit = SliceUnit<AuswertenEvaluations>;
 
 impl EvaluationStoreSeam for AuswertenUnit {
-    /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt Kopf- und Detail-`INSERT`s
-    /// in die committende Transaktion; ein unerreichbarer Store (Schema fehlt / DB-Fehler) failt
-    /// **hier** terminal als [`StoreUnavailable`]. Der Preflight probt **alle vier** Detail-Statements —
-    /// fehlt auch nur eine Detail-Tabelle, failt es hier terminal statt erst als Commit-Retry. Die
-    /// fehlbare u64→i64-Deutung der Monats-Beträge (`month_rows`) läuft **vor** dem Minten, damit
-    /// `StagedEvaluation::new` die schreibbare Zeile in einem Zug mit der ID baut (wie `fenstern`s
-    /// `numbered_bookings`-Vorlauf).
+    /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt Kopf- und alle vier
+    /// Detail-`INSERT`s in die committende Transaktion; ein unerreichbarer Store (Schema fehlt /
+    /// DB-Fehler) failt **hier** terminal als redigierte [`StoreUnavailable`]. Der Preflight probt
+    /// **alle fünf** Ablage-Statements (Kopf **und** die vier Detail — alle stehen in `TABLES`):
+    /// fehlt auch nur eine Detail-Tabelle, failt es hier terminal statt erst als Commit-Retry.
+    ///
+    /// Diese Reichweite ist das **Pipeline-Ende** und publiziert nichts, darum verwirft sie die
+    /// gemintete ID per `map(drop)`: die ID bleibt **DB-vergeben** und bindet die Detail-Zeilen an
+    /// ihren Kopf, sie reist nur nirgends als Zeiger weiter
+    /// ([ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
     fn save(&self, evaluation: &WindowEvaluationRow) -> Result<(), StoreUnavailable> {
-        let months = month_rows(evaluation)?;
-        let id: String = self
-            .0
-            .with_connection(|conn| {
-                for statement in DETAIL_INSERTS {
-                    conn.prepare(statement).map(drop)?;
-                }
-                crate::sqlite::mint_id(conn, INSERT_EVALUATION)
-            })
-            .map_err(unavailable)?;
-        let row = StagedEvaluation::new(id, evaluation, months);
-        self.0.stage(move |tx| row.insert(tx));
-        Ok(())
+        self.store_dto(evaluation).map(drop)
     }
 }
 
-sqlite_backed_unit!(AuswertenUnit);
-
-fn unavailable(err: rusqlite::Error) -> StoreUnavailable {
+/// Eine redigierte [`StoreUnavailable`] aus io-eigener Diagnose (Zugriffs-Mechanik, nie ein
+/// Zell-/Feldwert — der Seam-Vertrag verlangt die Redaktion).
+fn store_unavailable(message: &str) -> StoreUnavailable {
     StoreUnavailable {
-        message: format!("window_evaluations-Store nicht erreichbar: {err}"),
+        message: format!("window_evaluations-Store nicht erreichbar: {message}"),
     }
 }
 
@@ -118,25 +125,59 @@ fn unavailable(err: rusqlite::Error) -> StoreUnavailable {
 /// jenseits `i64::MAX` ist unrealistisch und failt terminal als [`StoreUnavailable`]
 /// (Speicher-Mechanik, nie ein Rohwert) — dieselbe Linie, die `obfuskierung` beim Betrag zieht.
 fn magnitude(value: u64) -> Result<i64, StoreUnavailable> {
-    i64::try_from(value).map_err(|_overflow| StoreUnavailable {
-        message: "Cashflow-Betrag jenseits des darstellbaren Bereichs".to_string(),
+    i64::try_from(value).map_err(|_overflow| {
+        store_unavailable("Cashflow-Betrag jenseits des darstellbaren Bereichs")
     })
 }
 
-/// Die abgeflachte [`WindowEvaluationRow`] in ihrer SQL-fertigen, **besitzenden** Form — sie reist in
-/// die gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Konstruiert **stets mit** der
-/// frisch geminteten DB-ID ([`new`](StagedEvaluation::new)) — eine Zeile mit leerer Platzhalter-ID ist
-/// unkonstruierbar (Domänenmodell-Regel: illegale Zustände unkonstruierbar machen). Die fehlbare
-/// u64→i64-Deutung der Monats-Beträge liegt vorgelagert in [`month_rows`], deren Ergebnis `new`
-/// besitzend übernimmt.
-struct StagedEvaluation {
-    id: String,
+/// Die abgeflachte [`WindowEvaluationRow`] in ihrer besitzenden Speicher-Form — **ohne** ihre ID und
+/// darum **nicht** schreibbar. Der einzige Ort, an dem dieser Store die Adapter-DTO anfasst; alles
+/// Fehlbare (die u64→i64-Deutung der Monats-Beträge) ist danach entschieden. Schreibbar wird erst die
+/// [`EvaluationRow`], die [`stage`](StoreSpec::stage) daraus **mit** der geminteten ID baut.
+///
+/// `pub` aus Sichtbarkeits-Zwang (sie steht als `Prepared` in der Signatur eines öffentlichen
+/// Trait-`impl`, `private_interfaces`), **nicht** als API: das Modul `store` ist privat, also bleibt
+/// sie außerhalb von `io` nicht konstruierbar und nicht lesbar (benennbar ist sie als
+/// `<AuswertenEvaluations as StoreSpec>::Prepared` schon — nur eben inert).
+pub struct EvaluationFields {
     window_id: String,
     currency: String,
     months: Vec<MonthRow>,
     fingerprints: Vec<String>,
     counter_accounts: Vec<CounterRow>,
     categories: Vec<CategoryRow>,
+}
+
+impl TryFrom<&WindowEvaluationRow> for EvaluationFields {
+    type Error = StoreUnavailable;
+
+    /// Übernimmt die vier Detail-Listen in ihrer **Reihenfolge** — die *ist* die Position; die
+    /// Positionszahl entsteht erst beim Schreiben ([`insert_positional`]), kann der Reihenfolge also
+    /// nicht widersprechen. Fehlbar allein in der u64→i64-Deutung der Monats-Beträge, die damit
+    /// **vor** dem Minten läuft, sodass [`EvaluationRow::new`] die schreibbare Row **in einem Zug
+    /// mit** der ID bauen kann.
+    fn try_from(evaluation: &WindowEvaluationRow) -> Result<Self, StoreUnavailable> {
+        Ok(Self {
+            window_id: evaluation.window_id.clone(),
+            currency: evaluation.currency.clone(),
+            months: evaluation
+                .months
+                .iter()
+                .map(MonthRow::try_from)
+                .collect::<Result<_, _>>()?,
+            fingerprints: evaluation.fingerprints.clone(),
+            counter_accounts: evaluation
+                .counter_accounts
+                .iter()
+                .map(CounterRow::from)
+                .collect(),
+            categories: evaluation
+                .categories
+                .iter()
+                .map(CategoryRow::from)
+                .collect(),
+        })
+    }
 }
 
 /// Ein Monats-Bucket in seiner Speicher-Form: die Cashflow-Beträge schon als `i64` vorgeprüft.
@@ -158,15 +199,6 @@ struct CounterRow {
 struct CategoryRow {
     fingerprint: String,
     category: String,
-}
-
-/// Deutet die Monats-Buckets der Adapter-Zeile in ihre besitzende Speicher-Form — **hier** liegt die
-/// fehlbare u64→i64-Umdeutung der Monats-Beträge, die **vor** dem Minten laufen muss (Positionen
-/// vergibt erst [`insert`](StagedEvaluation::insert) per `enumerate`). Spiegelt den `numbered_bookings`-
-/// Vorlauf des `fenstern`-Store: fehlbarer Vorlauf, dann baut [`new`](StagedEvaluation::new) die Zeile
-/// in einem Zug mit der ID.
-fn month_rows(evaluation: &WindowEvaluationRow) -> Result<Vec<MonthRow>, StoreUnavailable> {
-    evaluation.months.iter().map(MonthRow::try_from).collect()
 }
 
 impl TryFrom<&MonthlyCashflowRow> for MonthRow {
@@ -206,28 +238,21 @@ impl From<&auswerten_adapter::CategoryRow> for CategoryRow {
     }
 }
 
-impl StagedEvaluation {
-    /// Baut die schreibbare Zeile unter der frisch geminteten DB-`id`. Das Ergebnis vergibt keinen
-    /// publizierten Zeiger — die ID bleibt DB-intern und bindet nur die Detail-Zeilen an ihren Kopf.
-    /// Die fehlbaren Monats-Buckets kommen fertig aus [`month_rows`], der Rest wird besitzend übernommen.
-    fn new(id: String, evaluation: &WindowEvaluationRow, months: Vec<MonthRow>) -> Self {
-        Self {
-            id,
-            window_id: evaluation.window_id.clone(),
-            currency: evaluation.currency.clone(),
-            months,
-            fingerprints: evaluation.fingerprints.clone(),
-            counter_accounts: evaluation
-                .counter_accounts
-                .iter()
-                .map(CounterRow::from)
-                .collect(),
-            categories: evaluation
-                .categories
-                .iter()
-                .map(CategoryRow::from)
-                .collect(),
-        }
+/// Die SQL-fertigen Zeilen **aller fünf** Tabellen: die abgeflachten Felder **unter** ihrer
+/// DB-vergebenen ID, die Kopf und alle vier Detail-Listen gemeinsam tragen. Sie reist in die
+/// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster Parameter von
+/// [`new`](EvaluationRow::new); dass es die eben gemintete ist, trägt der einzige Aufrufer
+/// (`AuswertenEvaluations::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
+struct EvaluationRow {
+    id: String,
+    fields: EvaluationFields,
+}
+
+impl EvaluationRow {
+    /// Baut die schreibbare Row unter der frisch geminteten DB-`id`. Diese Reichweite publiziert
+    /// keinen Zeiger — die ID bleibt DB-intern und bindet nur die Detail-Zeilen an ihren Kopf.
+    const fn new(id: String, fields: EvaluationFields) -> Self {
+        Self { id, fields }
     }
 
     /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion. Jede der vier Detail-Listen
@@ -235,11 +260,12 @@ impl StagedEvaluation {
     /// an **einer** Stelle bündelt; jede Closure trägt nur noch das listen-eigene Statement und seine
     /// Feld-Params.
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
+        let fields = &self.fields;
         tx.execute(
             INSERT_EVALUATION,
-            params![self.id, self.window_id, self.currency],
+            params![self.id, fields.window_id, fields.currency],
         )?;
-        insert_positional(&self.months, |position, month| {
+        insert_positional(&fields.months, |position, month| {
             tx.execute(
                 INSERT_MONTH,
                 params![
@@ -253,11 +279,11 @@ impl StagedEvaluation {
             )
             .map(drop)
         })?;
-        insert_positional(&self.fingerprints, |position, fingerprint| {
+        insert_positional(&fields.fingerprints, |position, fingerprint| {
             tx.execute(INSERT_FINGERPRINT, params![self.id, position, fingerprint])
                 .map(drop)
         })?;
-        insert_positional(&self.counter_accounts, |position, counter_account| {
+        insert_positional(&fields.counter_accounts, |position, counter_account| {
             tx.execute(
                 INSERT_COUNTER_ACCOUNT,
                 params![
@@ -269,14 +295,13 @@ impl StagedEvaluation {
             )
             .map(drop)
         })?;
-        insert_positional(&self.categories, |position, category| {
+        insert_positional(&fields.categories, |position, category| {
             tx.execute(
                 INSERT_CATEGORY,
                 params![self.id, position, category.fingerprint, category.category],
             )
             .map(drop)
-        })?;
-        Ok(())
+        })
     }
 }
 
@@ -305,34 +330,44 @@ fn position_or_sql_error(index: usize) -> rusqlite::Result<i64> {
     })
 }
 
-/// Die fünf Tabellen, deren Audit-Spalten [`AuswertenSqliteStore::new`] nachrüstet.
-const TABLES: [&str; 5] = [
-    "window_evaluations",
-    "window_evaluation_months",
-    "window_evaluation_fingerprints",
-    "window_evaluation_counter_accounts",
-    "window_evaluation_categories",
+/// Die **fünf** Tabellen des Slice, je mit ihrem DDL und ihrem Ablage-`INSERT` — der Capstone-Fall
+/// der Abstraktion. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen alle über diese Liste,
+/// also gilt der Preflight-Beweis für **jede**: eine Tabelle, die eines davon verpasst, ist gar nicht
+/// erst deklarierbar.
+const TABLES: &[TableSpec] = &[
+    TableSpec {
+        name: "window_evaluations",
+        ddl: SCHEMA_EVALUATIONS,
+        insert: INSERT_EVALUATION,
+    },
+    TableSpec {
+        name: "window_evaluation_months",
+        ddl: SCHEMA_MONTHS,
+        insert: INSERT_MONTH,
+    },
+    TableSpec {
+        name: "window_evaluation_fingerprints",
+        ddl: SCHEMA_FINGERPRINTS,
+        insert: INSERT_FINGERPRINT,
+    },
+    TableSpec {
+        name: "window_evaluation_counter_accounts",
+        ddl: SCHEMA_COUNTER_ACCOUNTS,
+        insert: INSERT_COUNTER_ACCOUNT,
+    },
+    TableSpec {
+        name: "window_evaluation_categories",
+        ddl: SCHEMA_CATEGORIES,
+        insert: INSERT_CATEGORY,
+    },
 ];
 
-/// Die vier Detail-`INSERT`s, die der Preflight in `save` allesamt probt (eine fehlende Detail-Tabelle
-/// soll terminal in `save` failen, nicht erst als Commit-Retry).
-const DETAIL_INSERTS: [&str; 4] = [
-    INSERT_MONTH,
-    INSERT_FINGERPRINT,
-    INSERT_COUNTER_ACCOUNT,
-    INSERT_CATEGORY,
-];
-
-/// Das Schema der fünf `auswerten`-Ergebnis-Tabellen. Der Kopf `window_evaluations` trägt den
-/// **Fremdschlüssel** `window_id` auf `auswertungsfenster` (indiziert) und die Währung; die vier
-/// Detail-Tabellen die positionsgetreuen Listen, jede per `evaluation_id` (indiziert) an ihren Kopf
-/// gebunden. `kind` der Gegenkonten ist per `CHECK` auf `own`/`foreign` erzwungen; ein **zweites
-/// `CHECK`** koppelt `role` an `kind` (nur `own` trägt eine Rolle, `foreign` nie) — so ist der
-/// Summentyp `CounterAccountRow` auch **auf DB-Ebene** unkonstruierbar-illegal statt „geprüft"
-/// (ADR-0005), nicht nur im Rust-Modell. `created_at`/`updated_at` (Epoch-Millis) tragen den
-/// Audit-Zeitstempel — die Tabellen sind append-only, `updated_at` fällt mit `created_at` zusammen
+/// Das Schema der **Kopf**-Tabelle: `window_evaluations` trägt den **Fremdschlüssel** `window_id` auf
+/// `auswertungsfenster` (indiziert) und die Währung unter der DB-vergebenen ID.
+/// `created_at`/`updated_at` (Epoch-Millis) tragen den Audit-Zeitstempel — die Tabelle ist
+/// append-only, `updated_at` fällt mit `created_at` zusammen
 /// (`.rules/sql/schema-konventionen.md`).
-const SCHEMA: &str = "\
+const SCHEMA_EVALUATIONS: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluations (
     id         TEXT    PRIMARY KEY,
     window_id  TEXT    NOT NULL,
@@ -341,7 +376,13 @@ CREATE TABLE IF NOT EXISTS window_evaluations (
     updated_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 );
 CREATE INDEX IF NOT EXISTS window_evaluations_window_id_idx
-    ON window_evaluations (window_id);
+    ON window_evaluations (window_id);";
+
+/// Das Schema der **Monats-Bucket**-Detail-Tabelle: die positionsgetreuen Cashflow-Buckets, per
+/// `evaluation_id` (indiziert) an ihren Kopf gebunden — **kein** DB-`FOREIGN KEY`-Constraint (SQLite
+/// erzwingt FKs nur mit aktiviertem `PRAGMA foreign_keys`, das die synchrone Outbox-Spine bewusst
+/// nicht schaltet). Audit-Zeitstempel wie bei der Kopf-Tabelle; das gilt für alle vier Detail-Tabellen.
+const SCHEMA_MONTHS: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluation_months (
     evaluation_id        TEXT    NOT NULL,
     position             INTEGER NOT NULL,
@@ -354,7 +395,11 @@ CREATE TABLE IF NOT EXISTS window_evaluation_months (
     PRIMARY KEY (evaluation_id, position)
 );
 CREATE INDEX IF NOT EXISTS window_evaluation_months_evaluation_id_idx
-    ON window_evaluation_months (evaluation_id);
+    ON window_evaluation_months (evaluation_id);";
+
+/// Das Schema der **Fingerabdruck**-Detail-Tabelle: die positionsgetreuen, im Fenster vorkommenden
+/// Fingerabdrücke.
+const SCHEMA_FINGERPRINTS: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluation_fingerprints (
     evaluation_id TEXT    NOT NULL,
     position      INTEGER NOT NULL,
@@ -364,7 +409,13 @@ CREATE TABLE IF NOT EXISTS window_evaluation_fingerprints (
     PRIMARY KEY (evaluation_id, position)
 );
 CREATE INDEX IF NOT EXISTS window_evaluation_fingerprints_evaluation_id_idx
-    ON window_evaluation_fingerprints (evaluation_id);
+    ON window_evaluation_fingerprints (evaluation_id);";
+
+/// Das Schema der **Gegenkonten**-Detail-Tabelle: die positionsgetreu eingeordneten Gegenkonten.
+/// `kind` ist per `CHECK` auf `own`/`foreign` erzwungen; ein **zweites `CHECK`** koppelt `role` an
+/// `kind` (nur `own` trägt eine Rolle, `foreign` nie) — so ist der Summentyp `CounterAccountRow` auch
+/// **auf DB-Ebene** unkonstruierbar-illegal statt „geprüft" (ADR-0005), nicht nur im Rust-Modell.
+const SCHEMA_COUNTER_ACCOUNTS: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluation_counter_accounts (
     evaluation_id TEXT    NOT NULL,
     position      INTEGER NOT NULL,
@@ -376,7 +427,11 @@ CREATE TABLE IF NOT EXISTS window_evaluation_counter_accounts (
     CHECK ((kind = 'own' AND role IS NOT NULL) OR (kind = 'foreign' AND role IS NULL))
 );
 CREATE INDEX IF NOT EXISTS window_evaluation_counter_accounts_evaluation_id_idx
-    ON window_evaluation_counter_accounts (evaluation_id);
+    ON window_evaluation_counter_accounts (evaluation_id);";
+
+/// Das Schema der **Kategorien**-Detail-Tabelle: die positionsgetreu zugeordneten Orakel-Kategorien,
+/// je unter dem Fingerabdruck, auf den sie antworten.
+const SCHEMA_CATEGORIES: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluation_categories (
     evaluation_id TEXT    NOT NULL,
     position      INTEGER NOT NULL,
@@ -442,7 +497,6 @@ mod tests {
     use rusqlite::params;
 
     use super::*;
-    use crate::Dispatcher;
     use crate::auswerten::source::seed_marker;
     use crate::auswerten::{
         AuswertungsfensterSource, CONSUMED_HISTORY_MESSAGE_TYPE,
@@ -456,6 +510,8 @@ mod tests {
     use crate::pipeline_test_support::{
         CapturingAck, SEED, Stage, drain, register_fresh, seed_through, stamp,
     };
+    use crate::sqlite::SqliteOutbox;
+    use crate::{Dispatcher, MessageId, UnitFactory};
 
     const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MESSAGE_TYPE;
 
@@ -735,27 +791,64 @@ mod tests {
     fn ein_unerreichbarer_store_failt_save_terminal_und_redigiert() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         // Bewusst an `new` vorbeigebaut: die Ergebnis-Tabellen fehlen → unerreichbar.
-        let store = AuswertenSqliteStore {
-            outbox: outbox.clone(),
-        };
+        let store = AuswertenSqliteStore::without_schema(outbox.clone());
         let unit = store.begin(MessageId("egal"));
 
-        let evaluation = WindowEvaluationRow {
-            window_id: "w".to_string(),
-            currency: "EUR".to_string(),
-            months: vec![],
-            fingerprints: vec![],
-            counter_accounts: vec![],
-            categories: vec![],
-        };
-
         let fehler = unit
-            .save(&evaluation)
+            .save(&leeres_ergebnis())
             .expect_err("ein fehlendes Schema muss save terminal failen lassen");
         assert!(
             !format!("{fehler}").is_empty(),
             "der terminale Store-Fehler trägt eine (redigierte) Diagnose"
         );
         Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn jede_fehlende_der_fuenf_tabellen_failt_die_ablage_terminal() -> rusqlite::Result<()> {
+        // Der Fünf-Tabellen-Beweis (Issue 0077, Kriterium 3): je Durchgang stehen **alle** Tabellen
+        // bis auf **eine**. Weil der Preflight über **jedes** `TableSpec::insert` aus `TABLES` läuft,
+        // failt schon `save` terminal — nicht erst der Commit als Retry. Fiele eine Tabelle aus
+        // `TABLES` (oder würde ihr `insert` nicht mehr geprobt), wird dieser Test für genau sie rot,
+        // während der Ausfall-Test über den ganz schemalosen Store weiter grün bliebe.
+        TABLES.iter().try_for_each(|fehlend| {
+            let outbox = SqliteOutbox::open_in_memory()?;
+            // Bewusst an `new` vorbeigebaut, damit `new` die fehlende Tabelle nicht doch anlegt.
+            outbox.with_connection(|conn| {
+                TABLES
+                    .iter()
+                    .filter(|table| table.name != fehlend.name)
+                    .try_for_each(|table| conn.execute_batch(table.ddl))
+            })?;
+            let store = AuswertenSqliteStore::without_schema(outbox.clone());
+            let unit = store.begin(MessageId("egal"));
+
+            let fehler = unit.save(&leeres_ergebnis()).expect_err(&format!(
+                "eine fehlende {} muss save terminal failen lassen",
+                fehlend.name
+            ));
+            assert!(
+                !format!("{fehler}").is_empty(),
+                "der terminale Store-Fehler trägt eine (redigierte) Diagnose"
+            );
+            Ok(())
+        })
+    }
+
+    /// Ein leeres Fenster-Ergebnis: die Ablage-Wege sind hier nicht das Prüfobjekt, sondern der
+    /// Preflight, der **vor** jedem Schreiben läuft.
+    fn leeres_ergebnis() -> WindowEvaluationRow {
+        WindowEvaluationRow {
+            window_id: "w".to_string(),
+            currency: "EUR".to_string(),
+            months: vec![],
+            fingerprints: vec![],
+            counter_accounts: vec![],
+            categories: vec![],
+        }
     }
 }
