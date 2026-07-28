@@ -207,7 +207,8 @@ impl SqliteUnit {
 
     /// Reicht die geteilte Verbindung an `f` — der crate-interne Lese-/Prüf-Zugriff, über den ein
     /// Slice-Store seine ID **synchron** an der DB mintet und die Store-Verfügbarkeit prüft (der
-    /// `INSERT` selbst wird über [`stage`](SqliteUnit::stage) in die committende Transaktion gelegt).
+    /// `INSERT` selbst wird über [`stage_row`](SqliteUnit::stage_row) in die committende Transaktion
+    /// gelegt).
     /// **Nur außerhalb des Commit-Rands** aufrufen: der Handler läuft, bevor [`commit`](UnitOfWork::commit)
     /// die Verbindung für die schreibende Transaktion leiht (strikt serielle Verarbeitung), also
     /// überlappt diese Leihgabe nie mit jener.

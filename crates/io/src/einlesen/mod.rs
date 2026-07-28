@@ -5,8 +5,7 @@
 //! zusammen; registriert wird der beim [`Dispatcher`](crate::Dispatcher) unter
 //! [`CONSUMED_MESSAGE_TYPE`] (message_type-Auflösung).
 //!
-//! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle
-//! ([`UnitFactory`])
+//! Die message-unabhängigen Seams (Quelle/Kalender/Geld) und die Unit-Quelle ([`UnitFactory`])
 //! reicht der Aufrufer herein. **Alle sind seit
 //! [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) real** — der Slice
 //! läuft end-to-end **ohne einen einzigen Fake**: **Kalender und Geld** seit

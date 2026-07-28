@@ -17,8 +17,9 @@
 //! diese Abstraktion gehört **nicht** zum Slice↔`io`-Vertrag. Sie ist nur deshalb `pub`, weil die
 //! öffentlichen Store-Aliase der Slices sie in ihrer Signatur tragen (ein privates Trait als Bound
 //! einer öffentlichen `impl` wäre `private_bounds`); implementiert wird sie ausschließlich `io`-intern,
-//! und die tragende Methode ([`store_dto`](SliceUnit::store_dto)) bleibt crate-privat. Jeder Store zeigt weiterhin explizit, **welchen** Seam er erfüllt —
-//! versteckt wird nur die Mechanik, nicht die Slice-Fläche.
+//! und die tragende Methode ([`store_dto`](SliceUnit::store_dto)) bleibt crate-privat. Jeder Store
+//! zeigt weiterhin explizit, **welchen** Seam er erfüllt — versteckt wird nur die Mechanik, nicht
+//! die Slice-Fläche.
 //!
 //! **Ablauf der Ablage-Primitive** ([ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):
 //! fehlbares [`flatten`](StoreSpec::flatten) → Preflight **aller** [`TableSpec::insert`] → ID an der

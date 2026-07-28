@@ -22,6 +22,10 @@
 //!   `message_type` + `partition_key` (Tabelle = Wahrheit, Message = Zeiger), kein `content`.
 //!   Ein erster nutzlast-tragender Slice erweitert den Outbox-Vertrag um einen Content-/serde-
 //!   Seam — dann ist es kein reiner Zeiger mehr.
+//! - [`UnitFactory`] ist die **eine** Unit-Quelle jedes Slice: `begin` öffnet je Nachricht die
+//!   Arbeitseinheit, die Ack, Ablage und Publishes gemeinsam committet. Ihr Bound trägt nur, was
+//!   **jede** Einheit kann (`UnitOfWork` + `OutboxPublisher`); den slice-eigenen Ablage-Seam
+//!   verlangt der jeweilige [`TransactionalHandler`] dort, wo er ihn benutzt (`where F::Unit: …`).
 //! - [`Dispatcher`] löst eine Nachricht per `message_type` auf ihren Consumer auf.
 //! - [`einlesen`], [`obfuskierung`], [`fenstern`] und [`auswerten`] verdrahten je den
 //!   Slice-Handler und -Decoder in einen [`OutboxConsumer`] — dieselbe generische Maschinerie, vier
@@ -39,9 +43,15 @@
 //! sitzt seit [Issue 0053](../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) darauf:
 //! [`einlesen::EinlesenSqliteStore`] erfüllt `einlesen`s `StoreSeam` über eine echte `rusqlite`-Tabelle
 //! (DB-vergebene ID; Zeilen-`INSERT`, `Ingested`-Publish und Ack in **einer** Transaktion), sodass der
-//! `einlesen`-Slice end-to-end **ohne einen Fake** läuft — das **Muster** für obfuskieren/fenstern/
-//! auswerten (je hinter dem eigenen Seam, danach geschnitten). **Noch draußen (Build-Order Schritt 5/6):**
-//! die übrigen slice-spezifischen Stores und die Config-Loader (`toml`/`fs`).
+//! `einlesen`-Slice end-to-end **ohne einen Fake** läuft. Sein **Muster** tragen inzwischen **alle
+//! vier** Slices: `obfuskierung`, `fenstern` und `auswerten` haben ihren realen Ergebnis-Store je
+//! hinter dem eigenen Seam (Issues 0056–0058), und seit
+//! [ADR-0015](../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md) steht jeder davon
+//! als [`StoreSpec`](sqlite::StoreSpec)-`impl` auf **einem** generischen
+//! [`SliceStore`](sqlite::SliceStore). Von den Config-Loadern sind die Fenster- und die Seed-Config
+//! real ([`config`], Issues 0054/0059). **Noch draußen (Build-Order Schritt 5/6):** der
+//! Eigene-Konten-Loader ([Issue 0002](../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)),
+//! der `Speicher` für DTOs/Kategorie-Register und der `report`-Presenter.
 
 mod common;
 

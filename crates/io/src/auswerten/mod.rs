@@ -10,8 +10,8 @@
 //! **Was in die Transaktion gehört und was nicht:** die Unit erfüllt genau die **committenden**
 //! Ports ([`EvaluationStoreSeam`] + [`OutboxPublisher`](crate::outbox::OutboxPublisher) +
 //! [`UnitOfWork`](crate::outbox::UnitOfWork)). Die **Lese**-Seams
-//! ([`AnalysisWindowSeam`]/[`OccurrenceSeam`]) und das Orakel sind **message-unabhängig** und
-//! werden vom Aufrufer separat hereingereicht — das direkte Gegenstück zu `fenstern`s Lese-Quelle;
+//! ([`AnalysisWindowSeam`]/[`OccurrenceSeam`]) und das Orakel sind **message-unabhängig** und werden
+//! vom Aufrufer separat hereingereicht — das direkte Gegenstück zu `fenstern`s Lese-Quelle;
 //! idempotentes Lesen bleibt **außerhalb** der Transaktion und weitet sie nicht.
 //!
 //! **Dieser Slice publiziert nichts.** Er ist das **Ende** der Pipeline (bis der `report` gebaut
@@ -182,6 +182,13 @@ where
 
 /// Steckt die **fenster-übergreifende** Reichweite zu einem [`OutboxConsumer`] zusammen
 /// (registrieren unter [`CONSUMED_HISTORY_MESSAGE_TYPE`]).
+///
+/// **Bewusst ohne Seam-Bound auf `F::Unit`:** anders als [`consumer`] daneben verlangt diese
+/// Reichweite **keinen** [`EvaluationStoreSeam`] — sie legt nichts ab, ihre Arbeitseinheit umspannt
+/// genau den Ack. Seit dem Trait-Kollaps (ADR-0015, Issue 0077) type-checkt hier darum auch die Unit
+/// eines fremden Slice-Stores; das ist der Preis dafür, den Bound dort zu verlangen, wo er benutzt
+/// wird, statt ihn jeder Unit-Quelle aufzuzwingen. Er kostet keine Garantie: die Einheit wird allein
+/// zum Committen des Acks geöffnet, und der Ack-Pfad ist slice-unabhängig.
 pub fn history_consumer<'a, F: UnitFactory, S: OccurrenceSink>(
     source: &'a dyn OccurrenceSeam,
     sink: S,

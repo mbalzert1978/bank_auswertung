@@ -34,9 +34,6 @@
 //! in **einer** [`TableSpec`]-Liste (also legt `new` beide an, rüstet auf beiden die Audit-Spalten
 //! nach und der Preflight probt **beide** Statements), und [`stage`](StoreSpec::stage) liefert
 //! **eine** Schreibung, die Kopf- und Detail-Zeilen positionsgetreu in dieselbe Transaktion schreibt.
-//! Handgeschrieben bleibt **noch** das [`UnitFactory`]-`impl` unten — ein reiner Durchgriff auf
-//! `SliceStore::begin`, solange es die vier strukturgleichen `UnitFactory`-Traits der Slices gibt
-//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
 //! Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
