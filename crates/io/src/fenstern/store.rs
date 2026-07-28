@@ -50,7 +50,7 @@ use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `fenstern`-Persistenz als [`StoreSpec`]: der **Zwei-Tabellen-Fall** — Kopf
 /// (`auswertungsfenster`) und Detail (`auswertungsfenster_buchungen`) je mit ihrem `INSERT`, und als
-/// fehlbare Umdeutung der positionsgetreue Vorlauf über die Buchungs-Fremdschlüssel. Der Marker-Typ
+/// fehlbare Umdeutung die Ordenbarkeits-Absicherung über die Zahl der Buchungen. Der Marker-Typ
 /// parametrisiert [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
 pub struct FensternWindows;
 
@@ -119,25 +119,9 @@ fn store_unavailable(message: &str) -> StoreUnavailable {
     }
 }
 
-/// Übernimmt die Buchungs-Fremdschlüssel in ihrer **Reihenfolge** — die *ist* die Position, darum
-/// trägt keine Buchung ihre Positionszahl daneben (sie könnte ihr sonst widersprechen); nummeriert
-/// wird erst beim Schreiben ([`WindowRow::insert`]). Das `i64::try_from` auf die **Länge** ist die
-/// eine reine Speicher-Mechanik-Absicherung (ein Fenster mit mehr als `i64::MAX` Buchungen ist
-/// unrealistisch) und failt terminal als [`StoreUnavailable`], nie mit einem Rohwert — durch
-/// [`store_unavailable`], den einen redigierenden Konstruktor dieses Moduls. Läuft im fehlbaren
-/// [`flatten`](StoreSpec::flatten) und damit **vor** dem Minten, damit [`WindowRow::new`] die
-/// schreibbare Row **in einem Zug mit** der ID bauen kann.
-fn ordered_bookings(booking_ids: &[String]) -> Result<Vec<String>, StoreUnavailable> {
-    i64::try_from(booking_ids.len())
-        .map(|_fits| booking_ids.to_vec())
-        .map_err(|_overflow| {
-            store_unavailable("Fenster trägt mehr Buchungen als sich ordnen lassen")
-        })
-}
-
 /// Das abgeflachte [`AnalysisWindowRow`] in seiner besitzenden Speicher-Form — **ohne** seine ID und
 /// darum **nicht** schreibbar. Der einzige Ort, an dem dieser Store die Adapter-DTO anfasst; alles
-/// Fehlbare (der positionsgetreue Vorlauf über die Buchungs-Fremdschlüssel) ist danach entschieden.
+/// Fehlbare (die Ordenbarkeits-Absicherung über die Zahl der Buchungen) ist danach entschieden.
 ///
 /// `pub` aus Sichtbarkeits-Zwang (sie steht als `Prepared` in der Signatur eines öffentlichen
 /// Trait-`impl`, `private_interfaces`), **nicht** als API: das Modul `store` ist privat, also bleibt
@@ -155,14 +139,25 @@ pub struct WindowFields {
 impl TryFrom<&AnalysisWindowRow> for WindowFields {
     type Error = StoreUnavailable;
 
-    /// Fehlbar allein in der Ordenbarkeits-Absicherung ([`ordered_bookings`]) — reine
-    /// Speicher-Mechanik, nie ein Rohwert.
+    /// Übernimmt die Buchungs-Fremdschlüssel in ihrer **Reihenfolge** — die *ist* die Position, darum
+    /// trägt keine Buchung ihre Positionszahl daneben (sie könnte ihr sonst widersprechen);
+    /// nummeriert wird erst beim Schreiben ([`WindowRow::insert`]).
+    ///
+    /// Fehlbar allein im vorangestellten Wächter: dass die **Zahl** der Buchungen in den
+    /// `i64`-Positionszähler passt, ist die eine reine Speicher-Mechanik-Absicherung (ein Fenster mit
+    /// mehr als `i64::MAX` Buchungen ist unrealistisch). Sie failt terminal als [`StoreUnavailable`],
+    /// nie mit einem Rohwert — durch [`store_unavailable`], den einen redigierenden Konstruktor
+    /// dieses Moduls. Läuft im fehlbaren [`flatten`](StoreSpec::flatten) und damit **vor** dem
+    /// Minten, damit [`WindowRow::new`] die schreibbare Row **in einem Zug mit** der ID bauen kann.
     fn try_from(window: &AnalysisWindowRow) -> Result<Self, StoreUnavailable> {
+        i64::try_from(window.booking_ids.len()).map_err(|_overflow| {
+            store_unavailable("Fenster trägt mehr Buchungen als sich ordnen lassen")
+        })?;
         Ok(Self {
             from_day: window.from,
             to_day: window.to,
             currency: window.currency.clone(),
-            bookings: ordered_bookings(&window.booking_ids)?,
+            bookings: window.booking_ids.clone(),
         })
     }
 }
@@ -186,7 +181,8 @@ impl WindowRow {
     /// Schreibt beide Tabellen in **einer** Transaktion: die Kopf-Zeile, dann positionsgetreu ihre
     /// Detail-Zeilen unter derselben ID. Die Positionszahl entsteht **hier**, aus der Reihenfolge
     /// selbst (`0i64..`), statt in den Feldern neben ihr zu liegen — sie kann ihr also nicht
-    /// widersprechen; dass der Zähler reicht, hat [`ordered_bookings`] über die Länge abgesichert.
+    /// widersprechen; dass der Zähler reicht, hat der Wächter in `WindowFields::try_from` über die
+    /// Zahl der Buchungen abgesichert.
     fn insert(&self, tx: &Transaction<'_>) -> rusqlite::Result<()> {
         let fields = &self.fields;
         tx.execute(
@@ -357,28 +353,20 @@ mod tests {
         })
     }
 
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
-    )]
-    #[test]
-    fn mehrere_seiten_werden_real_paginiert_gespeichert_und_schliessen_mit_historie_vollstaendig()
-    -> rusqlite::Result<()> {
-        let outbox = SqliteOutbox::open_in_memory()?;
-        seed_through(&outbox, Stage::Obfuskierung, "mehrseitig.csv")?;
-
-        // Die vier realen, DB-geminteten obfuskiert-IDs — über den je CSV-Zeile eindeutigen Betrag
-        // zugeordnet (A=20.06., B=19.06., C=15.06., D=10.06.).
-        let id_a = obfuskiert_id_by_amount(&outbox, 1000)?;
-        let id_b = obfuskiert_id_by_amount(&outbox, 2000)?;
-        let id_c = obfuskiert_id_by_amount(&outbox, 3000)?;
-        let id_d = obfuskiert_id_by_amount(&outbox, 4000)?;
-
+    /// Fährt den `fenstern`-Slice über dem **gegebenen** Store einmal durch: der Anstoß
+    /// (`StartAnalysis`) und der sich selbst fortsetzende Fenster-Schritt hängen am realen Lese-Seam,
+    /// die stromabwärtigen Zeiger räumt der gegebene [`CapturingAck`] ab (sonst konvergiert die
+    /// Broker-Schleife nie) und protokolliert sie zugleich. Gibt die Ausgänge des ganzen Laufs
+    /// zurück. Bündelt die sonst je Test wiederholte Consumer-Verdrahtung an **einer** Stelle — wie
+    /// `run_pipeline` im `obfuskierung`-Store, dessen Muster dieses Modul repliziert —, sodass jeder
+    /// Test nur noch seinen eigenen Arrange-Zustand herstellt und prüft.
+    fn run_fenstern(
+        outbox: &SqliteOutbox,
+        store: FensternSqliteStore,
+        window_days: NonZeroU32,
+        ack: &CapturingAck,
+    ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
         let source = ObfuskiertWindowSource::new(outbox.clone());
-        let store = FensternSqliteStore::new(outbox.clone())?;
-        let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
-
-        let ack = CapturingAck::new(outbox.clone());
         let mut dispatcher = Dispatcher::new();
         register_fresh(
             &mut dispatcher,
@@ -407,7 +395,34 @@ mod tests {
         );
 
         outbox.enqueue(START_MESSAGE_TYPE, "")?;
-        let outcomes = drain(&outbox, &dispatcher)?;
+        drain(outbox, &dispatcher)
+    }
+
+    /// Die Standard-Seitengröße der Store-Tests: drei Tage je Fenster.
+    fn drei_tage() -> NonZeroU32 {
+        NonZeroU32::new(3).expect("Seitengröße ist nicht null")
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn mehrere_seiten_werden_real_paginiert_gespeichert_und_schliessen_mit_historie_vollstaendig()
+    -> rusqlite::Result<()> {
+        let outbox = SqliteOutbox::open_in_memory()?;
+        seed_through(&outbox, Stage::Obfuskierung, "mehrseitig.csv")?;
+
+        // Die vier realen, DB-geminteten obfuskiert-IDs — über den je CSV-Zeile eindeutigen Betrag
+        // zugeordnet (A=20.06., B=19.06., C=15.06., D=10.06.).
+        let id_a = obfuskiert_id_by_amount(&outbox, 1000)?;
+        let id_b = obfuskiert_id_by_amount(&outbox, 2000)?;
+        let id_c = obfuskiert_id_by_amount(&outbox, 3000)?;
+        let id_d = obfuskiert_id_by_amount(&outbox, 4000)?;
+
+        let store = FensternSqliteStore::new(outbox.clone())?;
+        let ack = CapturingAck::new(outbox.clone());
+        let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
             outcomes.iter().all(|(_, outcome)| outcome.is_ok()),
@@ -474,24 +489,9 @@ mod tests {
         // Die obfuskiert-Tabelle existiert (für den Lese-Seam), ist aber leer.
         ObfuskierungSqliteStore::new(outbox.clone())?;
 
-        let source = ObfuskiertWindowSource::new(outbox.clone());
         let store = FensternSqliteStore::new(outbox.clone())?;
-        let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
-
-        let mut dispatcher = Dispatcher::new();
-        register_fresh(
-            &mut dispatcher,
-            START_MESSAGE_TYPE,
-            Box::new(start_consumer(&source, store.clone())),
-        );
-        register_fresh(
-            &mut dispatcher,
-            FENSTERN_CONSUMED,
-            Box::new(fenstern_consumer(window_days, &source, store)),
-        );
-
-        outbox.enqueue(START_MESSAGE_TYPE, "")?;
-        let outcomes = drain(&outbox, &dispatcher)?;
+        let ack = CapturingAck::new(outbox.clone());
+        let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
             matches!(outcomes.as_slice(), [(_, Ok(()))]),
@@ -512,18 +512,9 @@ mod tests {
     fn eine_fehlende_obfuskiert_tabelle_failt_die_anker_frage_terminal() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         // Bewusst **keine** obfuskiert-Tabelle angelegt (kein ObfuskierungSqliteStore::new).
-        let source = ObfuskiertWindowSource::new(outbox.clone());
         let store = FensternSqliteStore::new(outbox.clone())?;
-
-        let mut dispatcher = Dispatcher::new();
-        register_fresh(
-            &mut dispatcher,
-            START_MESSAGE_TYPE,
-            Box::new(start_consumer(&source, store)),
-        );
-
-        outbox.enqueue(START_MESSAGE_TYPE, "")?;
-        let outcomes = outbox.deliver_open(&dispatcher)?;
+        let ack = CapturingAck::new(outbox.clone());
+        let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
             matches!(outcomes.as_slice(), [(_, Err(OutboxError::Warning { .. }))]),
@@ -544,30 +535,10 @@ mod tests {
         let outbox = SqliteOutbox::open_in_memory()?;
         seed_through(&outbox, Stage::Obfuskierung, "gueltig.csv")?;
 
-        let source = ObfuskiertWindowSource::new(outbox.clone());
         // Bewusst an `new` vorbeigebaut: die Ergebnis-Tabellen fehlen → unerreichbar.
         let store = FensternSqliteStore::without_schema(outbox.clone());
-        let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
-
-        let mut dispatcher = Dispatcher::new();
-        register_fresh(
-            &mut dispatcher,
-            OBFUSCATED_MESSAGE_TYPE,
-            Box::new(CapturingAck::new(outbox.clone())),
-        );
-        register_fresh(
-            &mut dispatcher,
-            START_MESSAGE_TYPE,
-            Box::new(start_consumer(&source, store.clone())),
-        );
-        register_fresh(
-            &mut dispatcher,
-            FENSTERN_CONSUMED,
-            Box::new(fenstern_consumer(window_days, &source, store)),
-        );
-
-        outbox.enqueue(START_MESSAGE_TYPE, "")?;
-        let outcomes = drain(&outbox, &dispatcher)?;
+        let ack = CapturingAck::new(outbox.clone());
+        let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         // Der Grund trägt die redigierte io-Diagnose, nie eine rohe Buchungs-ID.
         assert!(
@@ -600,31 +571,12 @@ mod tests {
         let outbox = SqliteOutbox::open_in_memory()?;
         seed_through(&outbox, Stage::Obfuskierung, "gueltig.csv")?;
 
-        let source = ObfuskiertWindowSource::new(outbox.clone());
+        // **Nur** die Kopf-Tabelle anlegen und bewusst an `new` vorbeibauen, damit `new` die
+        // fehlende Detail-Tabelle nicht doch anlegt.
         outbox.with_connection(|conn| conn.execute_batch(SCHEMA_WINDOWS))?;
-        // Bewusst an `new` vorbeigebaut, damit `new` die fehlende Detail-Tabelle nicht doch anlegt.
         let store = FensternSqliteStore::without_schema(outbox.clone());
-        let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
-
-        let mut dispatcher = Dispatcher::new();
-        register_fresh(
-            &mut dispatcher,
-            OBFUSCATED_MESSAGE_TYPE,
-            Box::new(CapturingAck::new(outbox.clone())),
-        );
-        register_fresh(
-            &mut dispatcher,
-            START_MESSAGE_TYPE,
-            Box::new(start_consumer(&source, store.clone())),
-        );
-        register_fresh(
-            &mut dispatcher,
-            FENSTERN_CONSUMED,
-            Box::new(fenstern_consumer(window_days, &source, store)),
-        );
-
-        outbox.enqueue(START_MESSAGE_TYPE, "")?;
-        let outcomes = drain(&outbox, &dispatcher)?;
+        let ack = CapturingAck::new(outbox.clone());
+        let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
             matches!(outcomes.last(), Some((_, Err(OutboxError::Warning { .. })))),
