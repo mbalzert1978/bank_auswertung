@@ -9,11 +9,12 @@ use crate::models::RawRecord;
 /// `einlesen_domain::RawLineSource` darauf (Records → Domänen-`RawLine`s, Präsenz-Prüfung).
 ///
 /// Ein Fehlschlag der Beschaffung ist **nie Abwesenheit**, sondern ein terminaler Fehler —
-/// darum ein `Result`, kein überladenes `Option::None` (die `Option`-Form des
-/// `IngestedSourceSeam` im Obfuskierungs-Slice kodiert eine fehlende Zeile, die dort ein
-/// gebrochenes Invariant ist — ebenfalls terminal, aber ein anderer Ausgang als der hiesige
-/// Beschaffungs-Fehlschlag). `Ok(vec![])` = leerer
-/// Batch (gültig, es passiert nichts). Seit [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
+/// darum ein `Result`, kein überladenes `Option::None`. Dieser Seam hat als **Kopf** der
+/// Pipeline keinen Abwesenheits-Ausgang: er beschafft einen ganzen Batch, und `Ok(vec![])`
+/// = leerer Batch (gültig, es passiert nichts). Die per-ID-Lese-Seams der Folge-Slices
+/// tragen beides nebeneinander (`Result<Option<_>, _>`) — der Fehlschlag der Beschaffung
+/// und die absente Zeile sind dort zwei terminale Ausgänge. Seit
+/// [ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)
 /// **öffentlich** (wie `StoreSeam`), damit `io` ihn erfüllt.
 pub trait SourceSeam {
     /// Beschafft die rohen Zeilen der Quelle (in Lesereihenfolge); `Err` = Beschaffung

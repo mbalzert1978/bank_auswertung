@@ -21,7 +21,7 @@ use io::UnitFactory;
 use io::outbox::{OutboxCommand, OutboxMessage, OutboxPublisher, UnitOfWork};
 use obfuskierung_adapter::{
     IngestedRow, IngestedSourceSeam, ObfuscatedBooking, ObfuscatedStoreSeam, ObfuscatorSeam,
-    StoreUnavailable,
+    SourceUnavailable, StoreUnavailable,
 };
 
 #[path = "../commit_failed.rs"]
@@ -33,7 +33,9 @@ const SEED: u64 = 42;
 // --- Seam-Fakes (minimale Stubs) --------------------------------------------------------
 
 /// Fake des einlesen-Lese-Seams: hält die arrangierten Roh-Zeilen je ID (spielt den vertagten
-/// einlesen-Speicher). `read` liefert die Zeile zur ID oder `None` (absent = gebrochenes Invariant).
+/// einlesen-Speicher). `read` liefert die Zeile zur ID oder `Ok(None)` (absent = gebrochenes
+/// Invariant); der Beschaffungs-Fehlschlag (`Err`) ist eine Sorge des Slice-Spec, nicht der
+/// Transaktions-Verdrahtung, darum arrangiert dieser Stub ihn nicht.
 #[derive(Default)]
 pub(crate) struct FakeSource {
     rows: RefCell<Vec<(String, IngestedRow)>>,
@@ -48,12 +50,13 @@ impl FakeSource {
 }
 
 impl IngestedSourceSeam for FakeSource {
-    fn read(&self, id: &str) -> Option<IngestedRow> {
-        self.rows
+    fn read(&self, id: &str) -> Result<Option<IngestedRow>, SourceUnavailable> {
+        Ok(self
+            .rows
             .borrow()
             .iter()
             .find(|(key, _)| key == id)
-            .map(|(_, row)| row.clone())
+            .map(|(_, row)| row.clone()))
     }
 }
 

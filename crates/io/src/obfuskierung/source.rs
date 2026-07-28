@@ -11,10 +11,13 @@
 //! endet, bevor der spätere Commit die Verbindung schreibend leiht; strikt serielle Verarbeitung,
 //! siehe [`SqliteOutbox`](crate::sqlite::SqliteOutbox)).
 //!
-//! **Fehlbar → terminal, redigiert:** der Seam liefert `Option<IngestedRow>` — eine fehlende **oder**
-//! unlesbare Zeile wird zu `None`, das die adapter-seitige `SourceBridge` in den terminalen,
-//! redigierten `SourceError::NotFound` (nur die opake ID, nie ein Rohwert) mappt. Kein Dead-Letter,
-//! kein Retry.
+//! **Fehlbar → terminal, redigiert:** der Seam liefert `Result<Option<IngestedRow>, SourceUnavailable>`
+//! und hält damit die beiden Ausgänge auseinander, die ADR-0012 verlangt — `Ok(None)` = zur ID liegt
+//! **nichts** vor (die adapter-seitige `SourceBridge` mappt es auf den terminalen
+//! `SourceError::NotFound`, nur die opake ID), `Err` = die **Beschaffung** misslang (fehlendes
+//! Schema, unerreichbare Datenbank, korrupter Bestand → `SourceError::SourceUnavailable` mit der
+//! durchgereichten Diagnose). Beides ist terminal, kein Dead-Letter, kein Retry. Die Diagnose nennt
+//! nur die **Beschaffungs-Mechanik**, nie einen Zellwert (Redaktions-Pflicht am erfüllenden Seam).
 //!
 //! **Format-Rekonstruktion:** die `einlesen`-Zeile legt Datum als drei Integer-Spalten (Jahr/Monat/Tag)
 //! ab; der Seam setzt sie zum kanonischen `YYYY-MM-DD`-Textstamp zusammen (die Pipeline-Konvention, die
@@ -22,7 +25,7 @@
 //! `einlesen`-Speicher-Token (`incoming`/`outgoing`) durch — der `obfuskierung`-Slice deutet ihn nicht,
 //! er trägt ihn nur.
 
-use obfuskierung_adapter::{IngestedRow, IngestedSourceSeam};
+use obfuskierung_adapter::{IngestedRow, IngestedSourceSeam, SourceUnavailable};
 use rusqlite::OptionalExtension;
 
 use crate::sqlite::SqliteOutbox;
@@ -44,11 +47,11 @@ impl EinlesenRowSource {
 }
 
 impl IngestedSourceSeam for EinlesenRowSource {
-    /// Liest die rohe `einlesen`-Zeile zur ID. `None` bedeutet **fehlt oder unlesbar** (eine
-    /// fehlende Zeile wie auch ein Lese-/Schema-Fehler) — beides mappt die `SourceBridge` auf den
-    /// terminalen, redigierten `SourceError::NotFound`. Der Seam bietet keinen eigenen Fehlerkanal,
-    /// darum die bewusste Zusammenfassung „nicht verwertbar → `None`".
-    fn read(&self, id: &str) -> Option<IngestedRow> {
+    /// Liest die rohe `einlesen`-Zeile zur ID. `Ok(None)` = die Tabelle antwortete und hat zu dieser
+    /// ID **keine** Zeile (→ terminaler `SourceError::NotFound`); `Err` = die Beschaffung selbst
+    /// misslang — fehlendes Schema, unerreichbare Datenbank oder ein korrupter Bestand (→ terminaler
+    /// `SourceError::SourceUnavailable` mit der durchgereichten, redigierten Diagnose).
+    fn read(&self, id: &str) -> Result<Option<IngestedRow>, SourceUnavailable> {
         self.outbox
             .with_connection(|conn| {
                 conn.query_row(SELECT_LINE, [id], |row| {
@@ -69,10 +72,16 @@ impl IngestedSourceSeam for EinlesenRowSource {
                 })
                 .optional()
             })
-            // Ein `rusqlite`-Fehler (fehlendes Schema o. Ä.) wird — wie ein fehlender Treffer — zu
-            // `None`; der Seam-Vertrag kennt keinen Fehlerkanal, und stromabwärts ist beides terminal.
-            .ok()
-            .flatten()
+            .map_err(unavailable)
+    }
+}
+
+/// Deutet einen `rusqlite`-Fehler in den terminalen Seam-Fehler: die Meldung nennt die
+/// **Beschaffungs-Mechanik** (Query-/Schema-/Konvertierungs-Fehlschlag), nie einen Zellwert —
+/// [`negative_amount`] speist bewusst einen internen Marker statt des gelesenen Betrags ein.
+fn unavailable(err: rusqlite::Error) -> SourceUnavailable {
+    SourceUnavailable {
+        message: format!("einlesen-Bestand nicht lesbar: {err}"),
     }
 }
 
@@ -83,8 +92,9 @@ fn iso_day(year: i64, month: i64, day: i64) -> String {
 }
 
 /// Ein negativer Betrag im Bestand (kann nur bei manuell verfälschter DB feuern) — als
-/// `rusqlite`-Konvertierungsfehler; führt über `read`s `.ok()` zu `None` (terminal stromabwärts).
-/// Der Marker ist ein interner Text, nie ein Roh-Zellwert.
+/// `rusqlite`-Konvertierungsfehler; er reist über [`unavailable`] als terminaler
+/// `SourceUnavailable` hinaus, denn ein korrupter Bestand ist ein Beschaffungs-Fehlschlag und keine
+/// abwesende Zeile. Der Marker ist ein interner Text, nie ein Roh-Zellwert.
 fn negative_amount(column: usize) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(
         column,

@@ -7,6 +7,6 @@ mod ingested_source_seam;
 mod obfuscated_store_seam;
 mod obfuscator_seam;
 
-pub use ingested_source_seam::IngestedSourceSeam;
+pub use ingested_source_seam::{IngestedSourceSeam, SourceUnavailable};
 pub use obfuscated_store_seam::{ObfuscatedStoreSeam, StoreUnavailable};
 pub use obfuscator_seam::ObfuscatorSeam;

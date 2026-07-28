@@ -20,8 +20,9 @@ use crate::models::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, P
 /// Fakes. **Keine Outbox-Mechanik mehr:** der Slice ist eine reine Pipeline; die
 /// `OutboxConsumer`/`UnitOfWork`/Dead-Letter-Taktik prüft der io-Integrationstest, nicht dieser Spec.
 ///
-/// `run` gibt den **nackten Domänen-[`SourceError`]** zurück (kein `OutboxError`): eine absente Zeile
-/// oder ein fehlendes Pflichtfeld lässt ihn **terminal** scheitern; nichts wird abgelegt/publiziert.
+/// `run` gibt den **nackten Domänen-[`SourceError`]** zurück (kein `OutboxError`): eine misslungene
+/// Beschaffung, eine absente Zeile oder ein fehlendes Pflichtfeld lässt ihn **terminal** scheitern;
+/// nichts wird abgelegt/publiziert.
 ///
 /// **Erwartungen prüft die TestApi selbst** (`assert_*`): die Spec formuliert das erwartete Ergebnis
 /// als **DTO** — die Token-Felder über die deterministischen `expected_*`-Helfer (dieselbe
@@ -61,6 +62,14 @@ impl ObfuscationTestApi {
     #[must_use]
     pub fn with_ingested(mut self, id: &str, row: IngestedRow) -> Self {
         self.source.insert(id, row);
+        self
+    }
+
+    /// Lässt das **Lesen** terminal scheitern (io-Diagnose durchgereicht) — der unerreichbare
+    /// Lese-Speicher, kategorisch verschieden von der schlicht absenten ID.
+    #[must_use]
+    pub fn with_failing_source(mut self, message: &str) -> Self {
+        self.source.fail_with(message);
         self
     }
 

@@ -43,7 +43,9 @@ mod handler;
 mod models;
 mod testapi;
 
-pub use abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, StoreUnavailable};
+pub use abstractions::{
+    IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, SourceUnavailable, StoreUnavailable,
+};
 pub use handler::ObfuscatingHandler;
 pub use models::{
     AccountId, CONSUMED_MESSAGE_TYPE, IngestedRow, ObfuscateCommand, ObfuscateCommandDecoder,

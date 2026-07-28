@@ -148,6 +148,28 @@ fn absente_id_scheitert_terminal_ohne_etwas_zu_emittieren() {
     api.assert_nothing_emitted();
 }
 
+// --- Lese-Speicher unerreichbar: terminal, io-Diagnose durchgereicht ------------
+
+#[test]
+fn ein_fehlschlag_beim_lesen_scheitert_terminal_mit_durchgereichter_diagnose() {
+    // Der Lese-Speicher ist unerreichbar (fehlende Roh-Tabelle, kaputte Datenbank) — kategorisch
+    // etwas anderes, als dass zur ID nichts vorläge, und darum am Domänen-Fehler unterscheidbar.
+    // Ganzwert-Vergleich wie bei `fenstern`/`auswerten`: er nagelt Variante **und** Nutzlast in
+    // einer Zusicherung fest und beweist zugleich, dass der Fehler nichts weiter trägt — die
+    // Diagnose ist reine Zugriffs-Mechanik, kein Rohwert der Zeile.
+    let api = api_mit_zeile(gültige_zeile()).with_failing_source("Roh-Tabelle nicht vorhanden");
+
+    let ergebnis = api.run("buchung-1");
+
+    assert_eq!(
+        ergebnis,
+        Err(SourceError::SourceUnavailable {
+            reason: "Roh-Tabelle nicht vorhanden".to_string()
+        })
+    );
+    api.assert_nothing_emitted();
+}
+
 // --- Vorhanden, aber Pflichtfeld leer: terminal (redigiert) ---------------------
 
 #[test]
