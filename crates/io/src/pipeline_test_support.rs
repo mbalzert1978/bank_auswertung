@@ -42,6 +42,37 @@ pub(crate) fn register_fresh<'a>(
     );
 }
 
+/// Nagelt einen terminalen, redigierten Fehlschlag **beidseitig** fest: der eine `Warning`-Ausgang
+/// trägt das erwartete Diagnose-Präfix des jeweiligen Seams (**positiv**) **und** keinen Rohwert
+/// (**negativ**). Bündelt die über die Store-Testmodule wiederholte Zusicherung an **einer** Stelle
+/// ([Issue 0079](../../../../docs/issues/0079-leak-tests-auf-das-diagnose-praefix-festnageln.md)):
+/// eine nur negative Prüfung bliebe grün, fiele die durchgereichte Diagnose ganz weg oder käme sie
+/// aus einer anderen Quelle — genau der Regress, den das Präfix ausschließt.
+#[expect(
+    clippy::panic,
+    reason = "Test-Helfer: genau ein Warning-Ausgang ist die Spezifikation dieses Verhaltens"
+)]
+#[track_caller]
+pub(crate) fn assert_redacted_diagnosis(
+    outcomes: &[(String, Result<(), OutboxError>)],
+    expected_prefix: &str,
+    raw_value: &str,
+) {
+    let reason = match outcomes {
+        [(_, Err(OutboxError::Warning { reason }))] => reason,
+        other => panic!("genau ein terminaler Warning-Ausgang erwartet: {other:?}"),
+    };
+    assert!(
+        reason.contains(expected_prefix),
+        "die Diagnose muss das Präfix `{expected_prefix}` tragen (sonst ist sie weg oder stammt aus \
+         anderer Quelle): {reason}"
+    );
+    assert!(
+        !reason.contains(raw_value),
+        "die Diagnose darf keinen Rohwert tragen (Redaktion) — Präfix `{expected_prefix}`"
+    );
+}
+
 /// Der feste Test-Seed, mit dem das Seeding den obfuskierten Bestand tokenisiert. Downstream-Stores
 /// (`fenstern`) sind blind für seinen Wert — sie brauchen nur einen **konsistent** getokenisierten
 /// Bestand; `obfuskierung`s eigene Tests importieren ihn als den Seed, dessen Wirkung sie prüfen.

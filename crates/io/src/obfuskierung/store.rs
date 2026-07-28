@@ -99,11 +99,18 @@ impl ObfuscatedStoreSeam for ObfuskierungUnit {
     }
 }
 
+/// Das Präfix, das dieser Store **jeder** eigenen Diagnose voranstellt — die eine Quelle für den
+/// Text, den [`store_unavailable`] setzt und den der Leak-Test **positiv** festnagelt
+/// ([Issue 0079](../../../../docs/issues/0079-leak-tests-auf-das-diagnose-praefix-festnageln.md)):
+/// fiele die durchgereichte Diagnose weg oder käme sie aus einer anderen Quelle, verschwände es aus
+/// der Meldung und der Test würde rot.
+const UNAVAILABLE_PREFIX: &str = "obfuskiert store unavailable";
+
 /// Eine redigierte [`StoreUnavailable`] aus io-eigener Diagnose (Zugriffs-Mechanik, nie ein
 /// Zell-/Feldwert — der Seam-Vertrag verlangt die Redaktion).
 fn store_unavailable(message: &str) -> StoreUnavailable {
     StoreUnavailable {
-        message: format!("obfuskiert store unavailable: {message}"),
+        message: format!("{UNAVAILABLE_PREFIX}: {message}"),
     }
 }
 
@@ -315,7 +322,9 @@ mod tests {
         CONSUMED_MESSAGE_TYPE, EinlesenRowSource, SeededObfuscator, consumer,
     };
     use crate::outbox::OutboxError;
-    use crate::pipeline_test_support::{SEED, Stage, register_fresh, seed_through};
+    use crate::pipeline_test_support::{
+        SEED, Stage, assert_redacted_diagnosis, register_fresh, seed_through,
+    };
     use crate::sqlite::SqliteOutbox;
     use application_kernel::PublishCommand;
     use obfuskierung_adapter::ObfuscatedMessage;
@@ -559,17 +568,10 @@ mod tests {
 
         let outcomes = run_pipeline(&outbox, store, "gueltig.csv", SEED)?;
 
-        // Terminal (Warning), redigiert: der Grund trägt die durchgereichte io-Diagnose — und damit
-        // deckt dieser Leak-Test die Meldung ab, die der Seam konstruiert hat
-        // (`obfuskiert store unavailable: …`): keine rohe IBAN, kein Zellwert. Dass er heute nur
-        // **negativ** zusichert, härtet Issue 0079.
-        assert!(
-            matches!(
-                outcomes.as_slice(),
-                [(_, Err(OutboxError::Warning { reason }))] if !reason.contains(ROH_IBAN)
-            ),
-            "unerreichbarer Store muss terminal + redigiert failen: {outcomes:?}"
-        );
+        // Terminal (Warning), redigiert — beidseitig festgenagelt (Issue 0079): der Grund trägt das
+        // Präfix **dieses** Stores (positiv, also ist die durchgereichte Diagnose wirklich da und
+        // stammt aus dem Seam) und keine rohe IBAN, keinen Zellwert (negativ).
+        assert_redacted_diagnosis(&outcomes, UNAVAILABLE_PREFIX, ROH_IBAN);
         // … und **nichts** ist stromabwärts publiziert (kein Dead-Letter/Retry, keine halbe Kette).
         assert!(
             partition_keys(&outbox, OBFUSCATED_MESSAGE_TYPE)?.is_empty(),
