@@ -10,7 +10,7 @@
 //! Transaktion.
 //!
 //! **Atomarität (Tabelle = Wahrheit, Message = Zeiger, [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):**
-//! [`ObfuskierungSqliteStore`] ist die [`UnitFactory`](crate::obfuskierung::UnitFactory) des Slice —
+//! [`ObfuskierungSqliteStore`] ist die [`UnitFactory`](crate::UnitFactory) des Slice —
 //! je Nachricht öffnet es eine [`ObfuskierungUnit`] über einer [`SqliteUnit`]. Deren
 //! [`save`](ObfuscatedStoreSeam::save) **mintet die neue ID synchron an der DB** (`randomblob`) und
 //! **stagt** das Zeilen-`INSERT` in **dieselbe** committende Transaktion wie der `Obfuscated`-Publish
@@ -28,10 +28,10 @@
 //! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
 //! sein [`StoreSpec`]-`impl` (Schema + Insert + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
 //! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
-//! Preflight/Minten und der Outbox-Passthrough leben generisch in [`SliceStore`]/[`SliceUnit`].
-//! Handgeschrieben bleibt **noch** das [`UnitFactory`]-`impl` unten — ein reiner Durchgriff auf
-//! `SliceStore::begin`, solange es die vier strukturgleichen `UnitFactory`-Traits der Slices gibt
-//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
+//! Preflight/Minten, die [`UnitFactory`](crate::UnitFactory) und der Outbox-Passthrough leben
+//! generisch in [`SliceStore`]/[`SliceUnit`] — die Unit-Quelle seit dem `auswerten`-Capstone
+//! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)),
+//! der die vier strukturgleichen `UnitFactory`-Traits zu **einem** kollabiert hat.
 //! Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
@@ -46,8 +46,6 @@
 use obfuskierung_adapter::{ObfuscatedBooking, ObfuscatedStoreSeam, Recipient, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
-use crate::MessageId;
-use crate::obfuskierung::UnitFactory;
 use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `obfuskierung`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als
@@ -83,21 +81,13 @@ impl StoreSpec for ObfuskiertBookings {
 }
 
 /// Der reale `obfuskierung`-Ergebnis-Store: der generische [`SliceStore`] über [`ObfuskiertBookings`]
-/// und damit die [`UnitFactory`](crate::obfuskierung::UnitFactory) des Slice. `Clone` teilt dasselbe
+/// und damit die [`UnitFactory`](crate::UnitFactory) des Slice. `Clone` teilt dasselbe
 /// Rückgrat (`Rc` im Innern).
 pub type ObfuskierungSqliteStore = SliceStore<ObfuskiertBookings>;
 
 /// Eine `obfuskierung`-Arbeitseinheit: der gestagete Ergebnis-Speicher (`ObfuscatedStoreSeam`)
 /// **und** die Outbox (`OutboxPublisher`) in einem, atomar committbar (`UnitOfWork`).
 pub type ObfuskierungUnit = SliceUnit<ObfuskiertBookings>;
-
-impl UnitFactory for ObfuskierungSqliteStore {
-    type Unit = ObfuskierungUnit;
-
-    fn begin(&self, ack: MessageId<'_>) -> ObfuskierungUnit {
-        SliceStore::begin(self, ack)
-    }
-}
 
 impl ObfuscatedStoreSeam for ObfuskierungUnit {
     /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt das Zeilen-`INSERT` in die

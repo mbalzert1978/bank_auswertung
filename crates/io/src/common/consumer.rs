@@ -34,6 +34,30 @@ pub trait TransactionalHandler {
     ) -> Result<(), TransactionError<Self::Error>>;
 }
 
+/// Die **Unit-Quelle** eines Slice: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
+/// **zugleich** die gestagete Ablage des Slice **und** die Outbox ([`OutboxPublisher`]) ist und
+/// beides atomar committet ([`UnitOfWork`]). Weil dieselbe Unit staged **und** committet, committet
+/// eine gestagete Schreibung mit der Nachricht oder gar nicht. Der echte `io` backt sie mit **einer**
+/// `rusqlite`-Transaktion ([`SliceStore`](crate::sqlite::SliceStore) erfüllt sie generisch für jeden
+/// [`StoreSpec`](crate::sqlite::StoreSpec)), der Test mit einer In-Memory-Unit.
+///
+/// **Ein** Trait für alle vier Slices ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md),
+/// [Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)):
+/// die vormals vier strukturgleichen `<slice>::UnitFactory` unterschieden sich einzig im Ablage-Seam
+/// auf `type Unit`. Der Bound hier trägt darum nur, was **jede** Einheit kann (publizieren +
+/// committen); **welchen** Ablage-Seam eine Reichweite zusätzlich braucht, verlangt der jeweilige
+/// [`TransactionalHandler`] dort, wo er ihn benutzt (`where F::Unit: …StoreSeam`) — die
+/// fenster-übergreifende `auswerten`-Reichweite etwa legt nichts ab und verlangt darum auch nichts.
+pub trait UnitFactory {
+    /// Die Arbeitseinheit: gestagete Ablage + Outbox in einem, atomar committbar.
+    type Unit: UnitOfWork + OutboxPublisher;
+
+    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
+    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand), damit die
+    /// Unit eine reine Funktion ihres Arguments ist.
+    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
+}
+
 /// Die Identität der Outbox-Nachricht, die eine Arbeitseinheit als **verarbeitet** markiert (ackt).
 /// Ein eigener Typ statt eines nackten `&str`, damit die Ack-ID nicht mit `partition_key`/`content`
 /// (ebenfalls Strings) verwechselt wird und der Datenfluss **explizit** durch die Aufrufkette läuft:

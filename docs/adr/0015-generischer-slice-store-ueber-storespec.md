@@ -82,11 +82,18 @@ Die getroffenen Weichen im Einzelnen:
    (`einlesen`/`obfuskierung`/`fenstern`/`auswerten`): sie sind strukturgleich und unterscheiden
    sich einzig im Seam-Bound auf `type Unit`. Der `auswerten`-Capstone
    ([Issue 0077](../issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
-   kollabiert sie zu **einem** io-privaten `UnitFactory` (`type Unit: UnitOfWork + OutboxPublisher`),
+   kollabiert sie zu **einem** `UnitFactory` (`type Unit: UnitOfWork + OutboxPublisher`),
    verschiebt den slice-spezifischen Seam-Bound dorthin, wo er gebraucht wird (`where F::Unit:
    StoreSeam` am Handler), und ersetzt die vier `impl`s durch **ein** generisches
    `impl<S: StoreSpec> UnitFactory for SliceStore<S>` — samt Löschung von `SliceStore::begin`. Es
    hier vorzuziehen hieße, die drei noch nicht migrierten Slices vorwegzunehmen.
+
+   Dieses eine `UnitFactory` ist **`pub` in `io`**, aber **nicht** Teil des Slice↔`io`-Vertrags
+   ([ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md)): kein Slice bindet es, nur `io`
+   selbst und seine Fixtures. `pub(crate)` scheidet aus, weil die Integrationstest-Fixtures
+   (`crates/io/fixtures/*`) als **eigene** Crate übersetzt werden und ihre In-Memory-Unit-Quellen das
+   Trait implementieren müssen — ein crate-privates Trait wäre dort unerreichbar. Die Sichtbarkeit
+   ist damit Test-Verdrahtungs-Zwang, keine Vertragserweiterung.
 
 2. **`sqlite_backed_unit!` entfällt für diese vier.** Der Passthrough
    `OutboxPublisher`/`UnitOfWork` wird **einmal generisch** implementiert
@@ -104,7 +111,7 @@ Die getroffenen Weichen im Einzelnen:
    **vollständig** in eine besitzende, **id-lose** `Prepared` um, inklusive aller fehlbaren Schritte
    (u64→i64 der Beträge, `numbered_bookings`-Positionsvorlauf). Dann mintet `store_dto` die ID und
    übergibt sie an `stage(prepared, id)`, das die **SQL-fertige, id-tragende Row in einem Zug mit
-   der ID** baut (`LineRow::new(id, fields)` / `StagedEvaluation::new(id, …)`) und **eine** Closure
+   der ID** baut (`LineRow::new(id, fields)` / `EvaluationRow::new(id, fields)`) und **eine** Closure
    liefert, die Kopf- und alle Detail-Inserts (positionsgetreu per `enumerate`) fährt. Die
    **Reihenfolge** ist damit erzwungen — die `Prepared` ist nicht schreibbar, schreibbar ist nur die
    Row, und die nimmt die ID **stets als ersten Konstruktor-Parameter**. Dass es die *eben
@@ -130,7 +137,7 @@ Die getroffenen Weichen im Einzelnen:
 6. **Benennung:** Trait `StoreSpec` (spezifiziert die ganze Persistenz des Slice, nicht bloß
    „eine Row" — `auswerten` hat 5 Tabellen), Typen `SliceStore<S>`/`SliceUnit<S>`, `type Prepared`
    für die fehlbare, **id-lose** Vor-Umdeutung. Die SQL-fertige, id-tragende Row bleibt die
-   **private** Struct des jeweiligen Slice (`LineRow`/`StagedEvaluation`), in `stage` mit der ID
+   **private** Struct des jeweiligen Slice (`LineRow`/`EvaluationRow`), in `stage` mit der ID
    konstruiert — **kein** assoziierter Typ, damit „Row ohne ID" gar nicht erst benennbar ist.
    Code-Identifier **englisch** (Infrastruktur, nicht Domäne —
    [`.rules/common/sprache.md`](../../.rules/common/sprache.md)).

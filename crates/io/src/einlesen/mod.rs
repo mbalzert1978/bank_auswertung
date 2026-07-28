@@ -31,38 +31,28 @@ pub use money::GermanMoney;
 pub use source::CsvCamtV8Source;
 pub use store::{EinlesenLines, EinlesenSqliteStore, EinlesenUnit};
 
-use crate::outbox::{OutboxPublisher, UnitOfWork};
 use application_kernel::Handler;
 use einlesen_adapter::{
     CalendarSeam, CurrencySeam, MoneySeam, ReadCommand, ReadCommandDecoder, ReadError,
     ReadingHandler, SourceSeam, StoreSeam,
 };
 
-use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{
+    MessageId, OutboxConsumer, TransactionError, TransactionalHandler, UnitFactory, run_in_unit,
+};
 
 /// Der `message_type`, unter dem der Dispatcher den `einlesen`-Consumer auflöst (der konsumierte
 /// Auslöser). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am Slice-Eingang.
 pub const CONSUMED_MESSAGE_TYPE: &str = einlesen_adapter::CONSUMED_MESSAGE_TYPE;
 
-/// Die **Unit-Quelle** von `einlesen`: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
-/// **zugleich** der gestagete Speicher (`StoreSeam`) **und** die Outbox (`OutboxPublisher`) ist und
-/// beides atomar committet (`UnitOfWork`). Weil dieselbe Unit staged **und** committet, committet
-/// eine gestagete Schreibung mit der Nachricht oder gar nicht. Der echte io backt eine Unit mit
-/// **einer** `rusqlite`-Transaktion; der Test mit einer In-Memory-Unit.
-pub trait UnitFactory {
-    /// Die Arbeitseinheit: gestageter Speicher + Outbox in einem, atomar committbar.
-    type Unit: UnitOfWork + StoreSeam + OutboxPublisher;
-
-    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
-    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand), damit die
-    /// Unit eine reine Funktion ihres Arguments ist.
-    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
-}
-
 /// Der [`TransactionalHandler`] von `einlesen`: hält die message-unabhängigen Seams und die
 /// [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den `ReadingHandler` **aus ihr** (Store =
 /// die Unit, Publish über die Unit) und committet atomar, wenn der Handler gelingt. Weil beide Ports
 /// dieselbe committende Unit sind, kann eine gestagete Schreibung die Transaktion nicht überleben.
+///
+/// Dass die Unit **zusätzlich** der gestagete Speicher dieses Slice ist, verlangt das `impl` unten
+/// als `where F::Unit: StoreSeam` — dort, wo der Seam benutzt wird, statt in der uniformen
+/// [`UnitFactory`] (ADR-0015, Issue 0077).
 pub struct EinlesenTransactionalHandler<'a, F: UnitFactory> {
     source: &'a dyn SourceSeam,
     calendar: &'a dyn CalendarSeam,
@@ -71,7 +61,10 @@ pub struct EinlesenTransactionalHandler<'a, F: UnitFactory> {
     units: F,
 }
 
-impl<F: UnitFactory> TransactionalHandler for EinlesenTransactionalHandler<'_, F> {
+impl<F: UnitFactory> TransactionalHandler for EinlesenTransactionalHandler<'_, F>
+where
+    F::Unit: StoreSeam,
+{
     type Command = ReadCommand;
     type Decoder = ReadCommandDecoder;
     type Error = ReadError;
@@ -105,7 +98,10 @@ pub fn consumer<'a, F: UnitFactory>(
     money: &'a dyn MoneySeam,
     currency: &'a dyn CurrencySeam,
     units: F,
-) -> OutboxConsumer<EinlesenTransactionalHandler<'a, F>> {
+) -> OutboxConsumer<EinlesenTransactionalHandler<'a, F>>
+where
+    F::Unit: StoreSeam,
+{
     OutboxConsumer::new(EinlesenTransactionalHandler {
         source,
         calendar,

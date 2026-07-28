@@ -21,13 +21,13 @@
 //! Outbox-Passthrough) trägt seit
 //! [Issue 0074](../../../../docs/issues/0074-storespec-abstraktion-einf-hren-und-einlesen-migrieren.md)
 //! der generische [`SliceStore`]/[`SliceUnit`] **einmal**, parametrisiert über [`StoreSpec`]
-//! ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)); `einlesen`,
-//! `obfuskierung` und — seit [Issue 0076](../../../../docs/issues/0076-fenstern-migrieren-zwei-tabellen-fall.md),
-//! dem Mehr-Tabellen-Fall — `fenstern` sind darauf migriert. Der **eine** noch nicht migrierte Store
-//! (`auswerten`) nutzt weiterhin `mint_id`, `SqliteUnit::stage` und das
-//! `sqlite_backed_unit!`-Makro — alle drei sind **transitorisch** und fallen mit dem `auswerten`-
-//! Capstone ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
-//! ersatzlos weg.
+//! ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)). Seit dem
+//! `auswerten`-Capstone ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md))
+//! laufen **alle vier** Stores darüber — `einlesen` (eine Tabelle), `obfuskierung`, `fenstern` (zwei)
+//! und `auswerten` (fünf). Die transitorischen Helfer daneben (`mint_id`, `SqliteUnit::stage` und das
+//! `sqlite_backed_unit!`-Makro, das den Outbox-Passthrough je Store erzeugte) sind damit ersatzlos
+//! entfallen: der Passthrough lebt **einmal** generisch auf [`SliceUnit`], Preflight und Minten in
+//! dessen `store_dto`.
 
 mod slice_store;
 
@@ -36,7 +36,7 @@ pub use slice_store::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use rusqlite::{Connection, Transaction};
+use rusqlite::Connection;
 
 use crate::config::AppConfig;
 use crate::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
@@ -196,28 +196,19 @@ pub struct SqliteUnit {
 }
 
 impl SqliteUnit {
-    /// Stellt eine Ablage-Schreibung für die committende Transaktion bereit — die generische
-    /// Ablage-Primitive, auf die ein Slice-Store seine `INSERT`s legt. Seit
-    /// [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) trägt sie den
-    /// realen `einlesen`-Ergebnis-Store ([`EinlesenSqliteStore`](crate::einlesen::EinlesenSqliteStore)):
-    /// dessen `store` stagt hierüber das Zeilen-`INSERT`, sodass Ablage, `Ingested`-Publish und Ack in
-    /// **einer** Transaktion committen (der Backbone-Test treibt zusätzlich dieselbe Atomarität).
-    pub(crate) fn stage<F>(&self, write: F)
-    where
-        F: FnOnce(&Transaction<'_>) -> rusqlite::Result<()> + 'static,
-    {
-        self.stage_row(Box::new(write));
-    }
-
-    /// Dasselbe für eine **schon geboxte** Schreibung — der Weg der [`SliceUnit`], deren
-    /// [`StoreSpec`] die Row bereits als [`StagedRow`] liefert (kein zweites Boxen).
+    /// Stellt eine Ablage-Schreibung für die committende Transaktion bereit — die **eine** generische
+    /// Ablage-Primitive, auf die jeder Slice-Store seine `INSERT`s legt. Sie nimmt die Schreibung
+    /// **schon geboxt** ([`StagedRow`]) entgegen: so liefert sie die [`SliceUnit`], deren
+    /// [`StoreSpec`] die Row baut — kein zweites Boxen. Was hierüber gestaget wird, committet mit dem
+    /// Ack und den Publishes derselben Einheit oder gar nicht.
     pub(crate) fn stage_row(&self, write: StagedRow) {
         self.staged.borrow_mut().push(write);
     }
 
     /// Reicht die geteilte Verbindung an `f` — der crate-interne Lese-/Prüf-Zugriff, über den ein
     /// Slice-Store seine ID **synchron** an der DB mintet und die Store-Verfügbarkeit prüft (der
-    /// `INSERT` selbst wird über [`stage`](SqliteUnit::stage) in die committende Transaktion gelegt).
+    /// `INSERT` selbst wird über [`stage_row`](SqliteUnit::stage_row) in die committende Transaktion
+    /// gelegt).
     /// **Nur außerhalb des Commit-Rands** aufrufen: der Handler läuft, bevor [`commit`](UnitOfWork::commit)
     /// die Verbindung für die schreibende Transaktion leiht (strikt serielle Verarbeitung), also
     /// überlappt diese Leihgabe nie mit jener.
@@ -246,7 +237,7 @@ impl UnitOfWork for SqliteUnit {
     /// Committet Ack + Ablage + Publishes in **einer** `rusqlite`-Transaktion: die konsumierte
     /// Nachricht wird als verarbeitet markiert, die gestageten Ablage-Schreibungen und die
     /// publizierten Outbox-Zeilen werden geschrieben, dann committet. Scheitert **irgendein**
-    /// Schritt, rollt die fallengelassene [`Transaction`] alles zurück (Rollback bei `Drop`,
+    /// Schritt, rollt die fallengelassene [`rusqlite::Transaction`] alles zurück (Rollback bei `Drop`,
     /// [ADR-0014](../../../../docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)) — nichts
     /// davon persistiert, die Nachricht bleibt offen.
     ///
@@ -462,39 +453,6 @@ pub(crate) fn ensure_columns(
 /// beim Ablegen braucht: ein zufälliges 128-Bit-`randomblob`, hex-kodiert.
 pub(crate) const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 
-/// Preflight + ID-Minting in einem: prüft über `probe_sql`, ob der Store erreichbar ist (Schema
-/// vorhanden — ein fehlendes Schema failt **hier** terminal, nicht erst als Commit-Retry), und mintet
-/// dann die neue Zeilen-ID an der DB ([`MINT_ID`]). `probe_sql` ist stets das slice-eigene
-/// `INSERT`-Statement; nur seine Präparierbarkeit wird geprüft, es wird nicht ausgeführt.
-pub(crate) fn mint_id(conn: &Connection, probe_sql: &str) -> rusqlite::Result<String> {
-    conn.prepare(probe_sql).map(drop)?;
-    conn.query_row(MINT_ID, [], |row| row.get(0))
-}
-
-/// Erzeugt für einen `SqliteUnit`-Newtype (`Foo(SqliteUnit)`) die beiden Outbox-Impls, die nur an
-/// `self.0` durchreichen: [`OutboxPublisher`] und [`UnitOfWork`] (mit [`SqliteCommitError`]). Die
-/// generische [`SqliteUnit`] implementiert beide bereits — der Newtype erbt sie hier wortgleich,
-/// statt jeden Store die Durchreichung von Hand wiederholen zu lassen.
-macro_rules! sqlite_backed_unit {
-    ($ty:ty) => {
-        impl OutboxPublisher for $ty {
-            fn publish<T: OutboxCommand>(&self, command: T) {
-                self.0.publish(command);
-            }
-        }
-
-        impl UnitOfWork for $ty {
-            type Error = SqliteCommitError;
-
-            fn commit(self) -> Result<(), SqliteCommitError> {
-                self.0.commit()
-            }
-        }
-    };
-}
-
-pub(crate) use sqlite_backed_unit;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,16 +521,16 @@ mod tests {
             }
             let note = self.ablage_note.clone();
             run_in_unit(self.outbox.begin(ack), move |unit, _publishing| {
-                unit.stage(move |tx| {
+                unit.stage_row(Box::new(move |tx| {
                     tx.execute("INSERT INTO results (note) VALUES (?1);", (note.as_str(),))
                         .map(|_| ())
-                });
+                }));
                 unit.publish(NextCommand);
                 if poisoned {
-                    unit.stage(|tx| {
+                    unit.stage_row(Box::new(|tx| {
                         tx.execute("INSERT INTO does_not_exist (x) VALUES (1);", ())
                             .map(|_| ())
-                    });
+                    }));
                 }
                 Ok::<(), TestError>(())
             })
@@ -934,10 +892,10 @@ mod tests {
         // Eine zweite Einheit, die dieselbe Nachricht erneut ackt, darf ihre Seiteneffekte **nicht**
         // committen — der idempotente Ack trifft keine offene Zeile.
         let unit = outbox.begin(MessageId(&root));
-        unit.stage(|tx| {
+        unit.stage_row(Box::new(|tx| {
             tx.execute("INSERT INTO results (note) VALUES ('doppelt');", ())
                 .map(|_| ())
-        });
+        }));
         unit.publish(NextCommand);
         let ergebnis = unit.commit();
 

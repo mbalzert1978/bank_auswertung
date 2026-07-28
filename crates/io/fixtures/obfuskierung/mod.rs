@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use io::Dispatcher;
-use io::obfuskierung::UnitFactory;
+use io::UnitFactory;
 use io::outbox::{OutboxCommand, OutboxMessage, OutboxPublisher, UnitOfWork};
 use obfuskierung_adapter::{
     IngestedRow, IngestedSourceSeam, ObfuscatedBooking, ObfuscatedStoreSeam, ObfuscatorSeam,

@@ -8,9 +8,10 @@
 //! (ADR-0011): er bindet keinen Outbox-Typ, die Consumer-Rolle lebt allein hier.
 //!
 //! **Was in die Transaktion gehört und was nicht:** die Unit erfüllt genau die **committenden**
-//! Ports ([`EvaluationStoreSeam`] + [`OutboxPublisher`] + [`UnitOfWork`]). Die **Lese**-Seams
-//! ([`AnalysisWindowSeam`]/[`OccurrenceSeam`]) und das Orakel sind **message-unabhängig** und
-//! werden vom Aufrufer separat hereingereicht — das direkte Gegenstück zu `fenstern`s Lese-Quelle;
+//! Ports ([`EvaluationStoreSeam`] + [`OutboxPublisher`](crate::outbox::OutboxPublisher) +
+//! [`UnitOfWork`](crate::outbox::UnitOfWork)). Die **Lese**-Seams
+//! ([`AnalysisWindowSeam`]/[`OccurrenceSeam`]) und das Orakel sind **message-unabhängig** und werden
+//! vom Aufrufer separat hereingereicht — das direkte Gegenstück zu `fenstern`s Lese-Quelle;
 //! idempotentes Lesen bleibt **außerhalb** der Transaktion und weitet sie nicht.
 //!
 //! **Dieser Slice publiziert nichts.** Er ist das **Ende** der Pipeline (bis der `report` gebaut
@@ -33,14 +34,15 @@ use auswerten_adapter::{
     OwnAccountsConfig, WindowEvaluationHandler,
 };
 
-use crate::outbox::{OutboxPublisher, UnitOfWork};
-use crate::{MessageId, OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
+use crate::{
+    MessageId, OutboxConsumer, TransactionError, TransactionalHandler, UnitFactory, run_in_unit,
+};
 
 mod source;
 mod store;
 
 pub use source::AuswertungsfensterSource;
-pub use store::{AuswertenSqliteStore, AuswertenUnit};
+pub use store::{AuswertenEvaluations, AuswertenSqliteStore, AuswertenUnit};
 
 /// Der `message_type`, unter dem der Dispatcher die **pro-Fenster**-Reichweite auflöst
 /// (`FensterGeschlossen`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
@@ -54,24 +56,6 @@ pub const CONSUMED_MESSAGE_TYPE: &str = auswerten_adapter::CONSUMED_MESSAGE_TYPE
 /// je Fenster.
 pub const CONSUMED_HISTORY_MESSAGE_TYPE: &str = auswerten_adapter::CONSUMED_HISTORY_MESSAGE_TYPE;
 
-/// Die **Unit-Quelle** von `auswerten`: `begin` öffnet je Nachricht **eine** Arbeitseinheit, die
-/// **zugleich** die gestagete Ergebnis-Ablage ([`EvaluationStoreSeam`]) **und** die Outbox
-/// ([`OutboxPublisher`]) ist und beides atomar committet ([`UnitOfWork`]). Spiegel von `fenstern`s
-/// `UnitFactory`; der echte io backt eine Unit mit **einer** `rusqlite`-Transaktion.
-///
-/// **Eine** Unit-Quelle für **beide** Reichweiten: es gibt eine Ablage und eine Outbox, also auch
-/// eine Transaktions-Quelle. Dass die fenster-übergreifende Reichweite nichts ablegt, ändert daran
-/// nichts — ihre Arbeitseinheit umspannt dann eben nur den Ack.
-pub trait UnitFactory {
-    /// Die Arbeitseinheit: gestagete Ergebnis-Ablage + Outbox in einem, atomar committbar.
-    type Unit: UnitOfWork + EvaluationStoreSeam + OutboxPublisher;
-
-    /// Öffnet die Arbeitseinheit für die Nachricht `ack`, die sie beim Commit als verarbeitet
-    /// markiert. Die Ack-ID kommt **explizit** als Argument (nicht aus ambient Zustand) — bei der
-    /// fenster-übergreifenden Reichweite, die nichts ablegt, umspannt die Einheit genau diesen Ack.
-    fn begin(&self, ack: MessageId<'_>) -> Self::Unit;
-}
-
 /// Der **Abnehmer** der fenster-übergreifenden Reichweite — die io-Seite der einen Stelle, an der
 /// dieser Slice aus dem `Result<(), _>`-Muster ausbricht.
 ///
@@ -84,7 +68,8 @@ pub trait UnitFactory {
 /// Abnehmer ist der Wiederkehr-Analyzer
 /// ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)).
 ///
-/// **Unfehlbar, wie [`OutboxPublisher::publish`]:** ein fehlbarer Abnehmer bräuchte eine Abbildung
+/// **Unfehlbar, wie [`OutboxPublisher::publish`](crate::outbox::OutboxPublisher::publish):** ein
+/// fehlbarer Abnehmer bräuchte eine Abbildung
 /// seines Fehlers auf den **Domänen**-Fehler des Slice, und den besitzt allein der Slice — io kann
 /// ihn nicht konstruieren, ohne sich den Meldungssatz anzueignen.
 ///
@@ -102,6 +87,11 @@ pub trait OccurrenceSink {
 /// `handle` öffnet er eine Unit, baut den `WindowEvaluationHandler` **aus ihr** (Ablage = die Unit)
 /// und committet atomar, wenn der Handler gelingt. Der nackte [`EvaluationError`] ist **terminal** →
 /// [`TransactionError::Handler`].
+///
+/// Dass die Unit **zusätzlich** die gestagete Ergebnis-Ablage ist, verlangt das `impl` unten als
+/// `where F::Unit: EvaluationStoreSeam` — dort, wo der Seam benutzt wird, statt in der uniformen
+/// [`UnitFactory`] (ADR-0015, Issue 0077). Die fenster-übergreifende Reichweite daneben legt nichts
+/// ab und verlangt darum auch nichts; ihre Arbeitseinheit umspannt genau den Ack.
 pub struct WindowEvaluationTransactionalHandler<'a, F: UnitFactory> {
     source: &'a dyn AnalysisWindowSeam,
     registry: &'a dyn CategoryRegistrySeam,
@@ -110,7 +100,10 @@ pub struct WindowEvaluationTransactionalHandler<'a, F: UnitFactory> {
     units: F,
 }
 
-impl<F: UnitFactory> TransactionalHandler for WindowEvaluationTransactionalHandler<'_, F> {
+impl<F: UnitFactory> TransactionalHandler for WindowEvaluationTransactionalHandler<'_, F>
+where
+    F::Unit: EvaluationStoreSeam,
+{
     type Command = EvaluateWindowCommand;
     type Decoder = EvaluateWindowCommandDecoder;
     type Error = EvaluationError;
@@ -174,7 +167,10 @@ pub fn consumer<'a, F: UnitFactory>(
     categorizer: &'a dyn CategorizerSeam,
     own_accounts: OwnAccountsConfig,
     units: F,
-) -> OutboxConsumer<WindowEvaluationTransactionalHandler<'a, F>> {
+) -> OutboxConsumer<WindowEvaluationTransactionalHandler<'a, F>>
+where
+    F::Unit: EvaluationStoreSeam,
+{
     OutboxConsumer::new(WindowEvaluationTransactionalHandler {
         source,
         registry,
@@ -186,6 +182,13 @@ pub fn consumer<'a, F: UnitFactory>(
 
 /// Steckt die **fenster-übergreifende** Reichweite zu einem [`OutboxConsumer`] zusammen
 /// (registrieren unter [`CONSUMED_HISTORY_MESSAGE_TYPE`]).
+///
+/// **Bewusst ohne Seam-Bound auf `F::Unit`:** anders als [`consumer`] daneben verlangt diese
+/// Reichweite **keinen** [`EvaluationStoreSeam`] — sie legt nichts ab, ihre Arbeitseinheit umspannt
+/// genau den Ack. Seit dem Trait-Kollaps (ADR-0015, Issue 0077) type-checkt hier darum auch die Unit
+/// eines fremden Slice-Stores; das ist der Preis dafür, den Bound dort zu verlangen, wo er benutzt
+/// wird, statt ihn jeder Unit-Quelle aufzuzwingen. Er kostet keine Garantie: die Einheit wird allein
+/// zum Committen des Acks geöffnet, und der Ack-Pfad ist slice-unabhängig.
 pub fn history_consumer<'a, F: UnitFactory, S: OccurrenceSink>(
     source: &'a dyn OccurrenceSeam,
     sink: S,
