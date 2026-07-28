@@ -45,7 +45,7 @@ mod source;
 mod store;
 
 pub use source::ObfuskiertWindowSource;
-pub use store::{FensternSqliteStore, FensternUnit};
+pub use store::{FensternSqliteStore, FensternUnit, FensternWindows};
 
 /// Der `message_type`, unter dem der Dispatcher den **Fenster-Schritt** auflöst (`AdvanceWindow`).
 /// Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am Slice-Eingang.

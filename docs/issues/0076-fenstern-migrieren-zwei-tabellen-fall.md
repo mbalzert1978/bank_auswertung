@@ -1,7 +1,7 @@
 ---
 id: "0076"
 title: fenstern migrieren (Zwei-Tabellen-Fall)
-status: blocked
+status: closed
 ---
 
 # fenstern migrieren (Zwei-Tabellen-Fall)
@@ -24,14 +24,14 @@ Den `fenstern`-Store auf die generische `StoreSpec`-Abstraktion umstellen — de
 
 ## Acceptance criteria
 
-- [ ] `fenstern` ist auf die Abstraktion migriert; beide Tabellen laufen über **ein**
+- [x] `fenstern` ist auf die Abstraktion migriert; beide Tabellen laufen über **ein**
       `StoreSpec`-`impl`.
-- [ ] Der Preflight probt **beide** Insert-Statements (Kopf + Detail) — ein fehlendes
+- [x] Der Preflight probt **beide** Insert-Statements (Kopf + Detail) — ein fehlendes
       Detail-Schema failt terminal beim `save`, nicht erst als Commit-Retry.
-- [ ] Kopf- und Detail-Zeilen werden positionsgetreu in **einer** committenden Transaktion
+- [x] Kopf- und Detail-Zeilen werden positionsgetreu in **einer** committenden Transaktion
       geschrieben (Atomarität unverändert).
-- [ ] Die bestehenden `fenstern`-Store-Tests bleiben unverändert grün.
-- [ ] Alle sechs Gates grün (`/cargo-six-gates`).
+- [x] Die bestehenden `fenstern`-Store-Tests bleiben unverändert grün.
+- [x] Alle sechs Gates grün (`/cargo-six-gates`).
 
 ## Blocked by
 
