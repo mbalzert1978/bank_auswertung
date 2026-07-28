@@ -86,11 +86,18 @@ impl StoreSeam for EinlesenUnit {
     }
 }
 
+/// Das Präfix, das dieser Store **jeder** eigenen Diagnose voranstellt — die eine Quelle für den
+/// Text, den [`store_unavailable`] setzt und den der Leak-Test **positiv** festnagelt
+/// ([Issue 0079](../../../../docs/issues/0079-leak-tests-auf-das-diagnose-praefix-festnageln.md)):
+/// fiele die durchgereichte Diagnose weg oder käme sie aus einer anderen Quelle, verschwände es aus
+/// der Meldung und der Test würde rot.
+const UNAVAILABLE_PREFIX: &str = "einlesen store unavailable";
+
 /// Eine redigierte [`StoreUnavailable`] aus io-eigener Diagnose (Zugriffs-Mechanik, nie ein
 /// Zell-/Feldwert — der Seam-Vertrag verlangt die Redaktion).
 fn store_unavailable(message: &str) -> StoreUnavailable {
     StoreUnavailable {
-        message: format!("einlesen store unavailable: {message}"),
+        message: format!("{UNAVAILABLE_PREFIX}: {message}"),
     }
 }
 
@@ -324,14 +331,18 @@ mod tests {
         CONSUMED_MESSAGE_TYPE, GermanCalendar, GermanMoney, IsoCurrencies, consumer,
     };
     use crate::outbox::OutboxError;
-    use crate::pipeline_test_support::{csv_source, register_fresh};
+    use crate::pipeline_test_support::{assert_redacted_diagnosis, csv_source, register_fresh};
     use crate::sqlite::SqliteOutbox;
+
+    /// Die rohe Auftraggeber-IBAN der `gueltig.csv`-Fixture — sie darf in **keinem** Fehlergrund
+    /// auftauchen (Datenschutz-Redaktion).
+    const ROH_IBAN: &str = "DE89370400440532013000";
 
     /// Die erwartete `Line`-Projektion der einzigen Zeile aus `gueltig.csv` (EDEKA, `-50,00 EUR`) —
     /// unabhängige Wahrheit für den Feld-Treue-Vergleich der committeten Zeile.
     fn erwartete_gueltige_zeile() -> Line {
         Line {
-            ordering_account: "DE89370400440532013000".to_string(),
+            ordering_account: ROH_IBAN.to_string(),
             counter_account: Some("DE11520513735120710131".to_string()),
             amount_minor_units: 5000,
             currency: "EUR".to_string(),
@@ -430,19 +441,13 @@ mod tests {
         // die Ablage failt synchron und terminal, bevor irgendetwas committet.
         let outbox = SqliteOutbox::open_in_memory()?;
         let store = EinlesenSqliteStore::without_schema(outbox.clone());
-        let leck = "DE89370400440532013000";
 
         let outcomes = deliver(&outbox, store, "gueltig.csv")?;
 
-        // Terminal (Warning), redigiert: der Grund benennt die Store-Mechanik, nie eine Roh-IBAN …
-        assert!(
-            matches!(
-                outcomes.as_slice(),
-                [(_, Err(OutboxError::Warning { reason }))]
-                    if reason.contains("store") && !reason.contains(leck)
-            ),
-            "unerreichbarer Store muss terminal + redigiert failen: {outcomes:?}"
-        );
+        // Terminal (Warning), redigiert — beidseitig festgenagelt (Issue 0079): der Grund trägt das
+        // Präfix **dieses** Stores (positiv, also ist die durchgereichte Diagnose wirklich da) und
+        // nie eine Roh-IBAN (negativ) …
+        assert_redacted_diagnosis(&outcomes, UNAVAILABLE_PREFIX, ROH_IBAN);
         // … und **nichts** ist publiziert (kein Dead-Letter/Retry, keine halbe Kette).
         assert!(
             ingested_partition_keys(&outbox)?.is_empty(),
