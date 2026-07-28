@@ -4,6 +4,8 @@ Stand: 2026-07-28
 
 ## Erledigt
 
+- [x] **[0080-claude-md-baustand-auf-adr-0015-und-die-realen-stores-nachziehen.md](0080-claude-md-baustand-auf-adr-0015-und-die-realen-stores-nachziehen.md)** (2026-07-28)
+  CLAUDE.md-Baustand nachgezogen: fünfzehn ADRs inkl. 0015, alle vier Ergebnis-Stores und alle Lese-Quellen als real ausgewiesen, Status- und Build-order-Abschnitt in Deckung
 - [x] **[0078-obfuskierung-lese-seam-fehlbar-machen.md](0078-obfuskierung-lese-seam-fehlbar-machen.md)** (2026-07-28)
   obfuskierung-Lese-Seam fehlbar gemacht: dreiwertige Form (Err = Beschaffung gescheitert, Ok(None) = nichts vorhanden), io verschluckt keinen Datenbank-Fehler mehr
 - [x] **[0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md](0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)** (2026-07-28)

@@ -58,7 +58,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (deliberately free of architecture/crate detail so it cannot go stale); the architecture
   is owned by [docs/adr/](docs/adr/) and this file.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — fourteen ADRs (0008/0009 governing the pipeline/kernel — refined
+- [docs/adr/](docs/adr/) — fifteen ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011** (built): each slice decoupled from the Outbox mechanics, kernel cut flipped and
   merged into `application_kernel`; and by **0012**, which fixes the pipeline to
   **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
@@ -67,8 +67,10 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   `auswerten` split — two analysis reaches, per-window and window-spanning; **0014**
   (*accepted*) pins the real `io` persistence to **rusqlite** and keeps the Outbox spine
   **synchronous** (`sqlx` rejected — async ripple through `application_kernel`/all slices vs.
-  ADR-0003); 0010 governing seed-based pseudonym stability; 0001–0007 each carry a superseded
-  banner pointing at the canonical successor).
+  ADR-0003); **0015** (*accepted*, **built** — issues 0074–0077) collapses the four `io`
+  result-store hulls into **one** generic `SliceStore<S>` over a `StoreSpec` trait — purely
+  `io`-internal mechanics, **no** slice↔`io` seam changed; 0010 governing seed-based pseudonym
+  stability; 0001–0007 each carry a superseded banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
 
@@ -89,12 +91,16 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (`OutboxMessage`/`OutboxCommand`/`OutboxError`/`OutboxHandler`/`OutboxPublisher`/
   `UnitOfWork` — here since [Issue 0032](docs/issues/0032-shared-kernel-io-privat-machen-und-crate-in-io-aufl-sen-adr-0011.md)
   dissolved the former `shared_kernel` crate), the generic transactional consumer +
-  dispatcher, and the per-slice wiring — **`einlesen` now runs end-to-end against real
-  `rusqlite`/`csv` adapters** (SQLite Outbox broker + `UnitOfWork`, the `einlesen` store, the
-  CSV-CAMT-v8 source), plus a `toml` loader for the `fenstern` window-size config; the
-  remaining three slices (`obfuskierung`/`fenstern`/`auswerten`) still wire against in-memory
-  doubles (io-Persistenz = **rusqlite**, die Outbox-Spine bleibt **synchron** —
-  [ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md));
+  dispatcher, and the per-slice wiring — plus the **real** adapters: the SQLite Outbox broker
+  + `UnitOfWork`, **all four** slice result stores and **every** read seam of the chain, the
+  CSV-CAMT-v8 source, the `Calendar`/`Money`/`Currency` decoding, the seed-keyed obfuscator and
+  the `toml` loaders for the window-size and the seed config (io-Persistenz = **rusqlite**, die
+  Outbox-Spine bleibt **synchron** —
+  [ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)). Since
+  [ADR-0015](docs/adr/0015-generischer-slice-store-ueber-storespec.md) the four result stores
+  each stand as a `StoreSpec` `impl` on **one** generic `SliceStore` in
+  [`sqlite/slice_store.rs`](crates/io/src/sqlite/slice_store.rs). Still **without** a real
+  adapter: the Eigene-Konten loader, `Kategorisierer`/category register and the `report`;
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
   (outside `crates/`) asserting dependency direction over `cargo_metadata`.
 
@@ -120,8 +126,9 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   `SourceError::MissingMandatoryField` (static field name only, never a raw value) and
   fails the whole batch terminally, before the handler interprets a single line. The domain does not
   validate format either: the `Calendar`/`Money` ports (behind the adapter's
-  `CalendarSeam`/`MoneySeam`, `io`-fulfilled later) decode German date/number, and an
-  *undecodable* present value returns `None`, which the aggregate maps to a terminal
+  `CalendarSeam`/`MoneySeam`, `io`-fulfilled by `GermanCalendar`/`GermanMoney`/`IsoCurrencies`)
+  decode German date/number, and an *undecodable* present value returns `None`, which the
+  aggregate maps to a terminal
   `LineError` (now only `AmountInvalid`/`CurrencyUnknown`/`BookingDayInvalid`/
   `ValueDateInvalid`; `CalendarDay::from_parts` is infallible — the seam owns calendar
   validity). `recipient_name` is genuinely **optional** (a fee/charge row has no
@@ -137,8 +144,8 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   a **pure trigger** (empty `RunConfiguration`, field-less payload; the source lives in
   the envelope `partition_key`): the handler **fetches** the batch through the
   domain-required data-source port (`RawLineSource`, fallible + terminal), which the
-  `SourceBridge` binds to the `SourceSeam` (fake now, `io` later). Fans out **one
-  `Ingested` message per valid line**; read, store and publish are each **fallible +
+  `SourceBridge` binds to the `SourceSeam` (`io`-fulfilled by the real `CsvCamtV8Source`).
+  Fans out **one `Ingested` message per valid line**; read, store and publish are each **fallible +
   terminal**, and a terminal error (fetch/presence/decode, or a failing store/publish)
   surfaces as the slice's **naked, redacted terminal domain error** — the pipeline is
   **durchweg terminal** (no dead-letter/retry in the slice; how `io` surfaces a terminal
@@ -208,26 +215,44 @@ takes the **token-oriented** own-accounts config as a value (`io` wires it, the 
 file), and the config loader that turns raw IBANs into tokens is issue 0002, still deferred.)
 
 **Status.** Green: `cargo build`/`test`/`clippy --all-targets`/`fmt --check` +
-`cargo test -p architecture`. Built: `application_kernel` + the `io`-private Outbox seams,
-the generic transactional consumer/dispatcher in `io`, and **all four slices end-to-end against
-fakes, each wired through `io`**: `einlesen`, the `obfuskieren` slice (seed-based), the `fenstern`
-slice (the paginating analysis head — two consumers: kick-off + window step), and the `auswerten`
-split (**both reaches** built — per-window and window-spanning; the `Fingerabdruck` domain function,
-token-based `Gegenkonto` resolution, and the `Kategorisierer` port for unknown fingerprints)
-— the whole `ADR-0013` chain (issues 0036–0045) is done. The real `io` adapters have started
-landing (issues 0050–0054, io-Persistenz = **rusqlite**, Outbox-Spine bleibt **synchron**,
-`sqlx` verworfen —
-[ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)): the SQLite Outbox
-broker + `UnitOfWork`, the real `Calendar`/`Money` seams, the CSV-CAMT-v8 source and the
-`einlesen` store — so **`einlesen` now runs end-to-end without a single fake** — plus a `toml`
-loader for the `fenstern` window-size config. Deferred: the `obfuskierung`/`fenstern`/
-`auswerten` result stores (still in-memory doubles), the remaining config loaders (seed,
-Eigene-Konten) and their `fs` adapters, `Speicher` for DTOs/category register, the `report`
-presenter, the remaining egress-DTO `Serialize` guards, `ObfuskierterText` scrubbing (only
-trims/rejects-empty today), and persistent seed management
-([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)). **Next: the remaining
-slice-specific `io` adapters (stores + config loaders) fulfilling the seams, then the `report`
-HTML presenter.** No binary yet.
+`cargo test -p architecture` + `cargo doc --no-deps --workspace`. Built: `application_kernel` +
+the `io`-private Outbox seams, the generic transactional consumer/dispatcher in `io`, and **all
+four slices, each wired through `io`**: `einlesen`, the `obfuskieren` slice (seed-based), the
+`fenstern` slice (the paginating analysis head — two consumers: kick-off + window step), and the
+`auswerten` split (**both reaches** built — per-window and window-spanning; the `Fingerabdruck`
+domain function, token-based `Gegenkonto` resolution, and the `Kategorisierer` port for unknown
+fingerprints) — the whole `ADR-0013` chain (issues 0036–0045) is done.
+
+**Real `io` adapters** (io-Persistenz = **rusqlite**, Outbox-Spine bleibt **synchron**, `sqlx`
+verworfen — [ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)):
+
+- **Spine + decoding:** the SQLite Outbox broker + `UnitOfWork` (0052), the
+  `Calendar`/`Money`/`Currency` decoding (0050/0055), the CSV-CAMT-v8 source (0051) and the
+  seed-keyed obfuscator (0056).
+- **Result store per slice — all four real:** `einlesen` (0053), `obfuskierung` (0056),
+  `fenstern` (0057), `auswerten` (0058); since
+  [ADR-0015](docs/adr/0015-generischer-slice-store-ueber-storespec.md) each stands as a
+  `StoreSpec` `impl` on **one** generic `SliceStore` (issues 0074–0077).
+- **Read source per slice — all real:** `EinlesenRowSource` (obfuskierung, 0056),
+  `ObfuskiertWindowSource` (fenstern, 0057) and `AuswertungsfensterSource` (auswerten, 0058).
+- **Config loaders:** window size (0054) and seed (0059), both `toml`, both living centrally in
+  [`io::config`](crates/io/src/config/mod.rs).
+
+So **no** slice is missing its store or its read source any more. `einlesen` runs its integration
+test without a single fake; the three downstream wiring tests still drive fakes for the unit of
+work (their real building blocks are covered by the crate-internal store/source tests against
+real SQLite).
+
+**Still open (no real `io` adapter yet):** the Eigene-Konten config loader
+([Issue 0002](docs/issues/0002-eigene-konten-config-schema-und-loader.md)) — today the caller
+passes the config in as a value —, `Speicher` for DTOs/category register plus the
+`Kategorisierer` oracle (both still fakes in the tests), and the `report` presenter with its
+egress-DTO `Serialize` guard. Also deferred: `ObfuskierterText` scrubbing (only
+trims/rejects-empty today) and persistent seed management
+([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
+[Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
+writing the seed **alongside each aggregate** is not). **Next: the Eigene-Konten loader and the
+`Kategorisierer`/`Speicher` adapters, then the `report` HTML presenter.** No binary yet.
 
 ## Commands
 
@@ -284,38 +309,44 @@ each step runnable/valuable against fakes, real `io` last:
    since issues 0050–0053, real end-to-end (`Calendar`/`Money`, the CSV-CAMT-v8 source, the
    SQLite Outbox broker and the `einlesen` store), no fakes left in this slice.
 3. **`obfuskieren` slice** — consume `Ingested`, assign seed-based `KONTO_x`/`PERSON_x`, scrub
-   free text; the privacy boundary. **done** (fakes); still needs the `ObfuskierterText`
-   scrubbing rules + persistent seed management
+   free text; the privacy boundary. **done** — real end-to-end since issues 0056/0059 (the
+   `einlesen` read seam, the seed-keyed obfuscator, the `obfuskiert` store and the seed config
+   loader); still needs the `ObfuskierterText` scrubbing rules + persistent seed management
    ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)).
 4. **`fenstern` slice** — consume `StartAnalysis`/`AdvanceWindow`, paginate the obfuscated
    history newest→oldest (`max(booking_day < from)`) and **materialise one
    `Auswertungsfenster` aggregate per page**; publish `FensterGeschlossen` per page and
    `HistorieVollständig` on exhaustion
    ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).
-   **done** (fakes) — issues 0036–0039.
-5. **`auswerten` slice** — **two single-purpose handlers**, **both built** (fakes): per-window
+   **done** — issues 0036–0039, real store + read seam since 0054/0057.
+5. **`auswerten` slice** — **two single-purpose handlers**, **both built**: per-window
    (today the **month cashflow** *within* one `Auswertungsfenster`, carrying the window's distinct
    fingerprints) and window-spanning (recurrence *reach* as a **read-port query over all windows of
    the run**, triggered by `HistorieVollständig` — no fold-log). Owns the `Fingerabdruck` domain
    function and token-based `Gegenkonto::Eigen|Fremd` resolution (counter `KONTO_x` vs. the
    seed-tokenised own-accounts config, IBAN + role). Calls `Kategorisierer` only for unknown
-   fingerprints. Issues 0040–0045 **done**; the fee/Pareto/`Umbuchung`-netting/recurrence analyzers
-   (building blocks 0004–0007) build *on top* of these reaches and are still to come.
+   fingerprints. Issues 0040–0045 **done**, real store + both read seams since 0058; the
+   fee/Pareto/`Umbuchung`-netting/recurrence analyzers (building blocks 0004–0007) build *on top*
+   of these reaches and are still to come. Own-accounts config and `Kategorisierer` still come in
+   from the caller as fakes.
 6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
-   fulfilling the seams — **in progress**: the SQLite Outbox broker/`UnitOfWork`, the
-   `Calendar`/`Money` seams, the CSV-CAMT-v8 source and the `einlesen` store are real
-   (issues 0050–0053), plus a `toml` loader for the `fenstern` window-size config
-   (issue 0054); the `obfuskierung`/`fenstern`/`auswerten` stores, the remaining config
-   loaders (seed, Eigene-Konten) and `Speicher` itself are still open.
+   fulfilling the seams — **largely built**: the SQLite Outbox broker/`UnitOfWork`, the
+   `Calendar`/`Money`/`Currency` seams, the CSV-CAMT-v8 source, **all four** slice result stores
+   (on **one** generic `SliceStore`,
+   [ADR-0015](docs/adr/0015-generischer-slice-store-ueber-storespec.md)), **every** read source
+   of the chain and the `toml` loaders for window size and seed are real (issues 0050–0059,
+   0074–0077). **Open:** the Eigene-Konten loader (issue 0002), `Speicher` for DTOs + category
+   register, and the `Kategorisierer` oracle.
 7. **`report`** HTML output.
 8. **Iteration** — review together, learn corrections, name savings.
 
-Prerequisites before their step (see README "Offen" / PRD): a real CSV-CAMT-v8 sample file
-for a real `einlesen` run; a **stable config seed** + **scrubbing rules** for
-`ObfuskierterText` before a real `obfuskieren` run
+Prerequisites before their step (see README "Offen" / PRD) — **data**, no longer adapters: a
+real CSV-CAMT-v8 sample file for a real `einlesen` run; a **stable config seed** (its `toml`
+loader is real since issue 0059, the *value* is still the user's to supply) + **scrubbing rules**
+for `ObfuskierterText` before a real `obfuskieren` run
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)); the **Eigene-Konten-Config**
 (per own account: IBAN + role Giro/Haushalt/Spar/Vorlauf — single source for
-`Gegenkonto::Eigen|Fremd`) before the `auswerten` run.
+`Gegenkonto::Eigen|Fremd`) **plus its loader** (issue 0002) before the `auswerten` run.
 
 ## Regeln & Konventionen
 
