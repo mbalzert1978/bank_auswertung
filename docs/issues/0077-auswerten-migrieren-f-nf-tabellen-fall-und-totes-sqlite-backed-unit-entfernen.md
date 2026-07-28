@@ -1,7 +1,7 @@
 ---
 id: "0077"
 title: auswerten migrieren (Fünf-Tabellen-Fall) und totes sqlite_backed_unit entfernen
-status: blocked
+status: closed
 ---
 
 # auswerten migrieren (Fünf-Tabellen-Fall) und totes sqlite_backed_unit entfernen
