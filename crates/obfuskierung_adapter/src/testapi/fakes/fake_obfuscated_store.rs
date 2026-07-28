@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 
+use super::ArrangedFailure;
 use crate::abstractions::{ObfuscatedStoreSeam, StoreUnavailable};
 use crate::models::ObfuscatedBooking;
 
@@ -17,7 +18,7 @@ use crate::models::ObfuscatedBooking;
 #[derive(Default)]
 pub(crate) struct FakeObfuscatedStore {
     bookings: RefCell<Vec<ObfuscatedBooking>>,
-    failure: Option<String>,
+    failure: ArrangedFailure,
 }
 
 impl FakeObfuscatedStore {
@@ -28,20 +29,13 @@ impl FakeObfuscatedStore {
 
     /// Lässt jede Ablage terminal mit der gegebenen io-Diagnose scheitern.
     pub(crate) fn fail_with(&mut self, message: &str) {
-        self.failure = Some(message.to_string());
-    }
-
-    /// Das arrangierte Scheitern als Vorbedingung — `Ok(())`, solange keines gesetzt ist.
-    fn arranged_failure(&self) -> Result<(), StoreUnavailable> {
-        self.failure
-            .clone()
-            .map_or(Ok(()), |message| Err(StoreUnavailable { message }))
+        self.failure.arm(message);
     }
 }
 
 impl ObfuscatedStoreSeam for FakeObfuscatedStore {
     fn save(&self, booking: &ObfuscatedBooking) -> Result<String, StoreUnavailable> {
-        self.arranged_failure()?;
+        self.failure.check(|message| StoreUnavailable { message })?;
         let mut bookings = self.bookings.borrow_mut();
         let id = format!("obfuskiert-{}", bookings.len() + 1);
         bookings.push(booking.clone());

@@ -6,12 +6,18 @@ use crate::value_objects::BookingId;
 /// eine Variante trägt die opake [`BookingId`], einen **statischen Feldnamen** oder die
 /// durchgereichte io-Diagnose, nie einen Rohwert. Die ersten beiden sind redigiert **per
 /// Konstruktion**; die durchgereichte Diagnose ist es **per Vertrag** — die Redaktions-Pflicht liegt
-/// beim erfüllenden Seam (`StoreUnavailable`), wie bei `fenstern`/`auswerten`. Die Domäne ist
-/// dependency-frei: `Display`/`Error` sind von Hand geschrieben, kein `thiserror`.
+/// beim erfüllenden Seam (`SourceUnavailable`/`StoreUnavailable`), wie bei `fenstern`/`auswerten`.
+/// Die Domäne ist dependency-frei: `Display`/`Error` sind von Hand geschrieben, kein `thiserror`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceError {
     /// Zur ID liegt keine Zeile im einlesen-Speicher vor. Trägt die opake [`BookingId`] (kein Rohwert).
     NotFound(BookingId),
+    /// Die **Beschaffung** der Zeile ist gescheitert (unerreichbarer Lese-Speicher, kaputtes Schema) —
+    /// etwas kategorisch anderes als [`NotFound`](Self::NotFound), wo der Speicher antwortete und
+    /// nichts vorlag. Trägt **nur** die durchgereichte io-Diagnose (`reason` — Beschaffungs-Mechanik,
+    /// nie ein Rohwert) und ist damit formgleich mit `fenstern`/`auswerten`: ein unerreichbarer
+    /// Lese-Speicher bleibt diagnostizierbar, statt als „nicht gefunden" zu verschwinden.
+    SourceUnavailable { reason: String },
     /// Eine vorhandene Zeile hat ein leeres/fehlendes Pflichtfeld — trägt nur den statischen Feldnamen.
     MissingMandatoryField { field: &'static str },
     /// Die Ablage der obfuskierten Buchung ist gescheitert. Trägt **nur** die durchgereichte
@@ -28,6 +34,9 @@ impl fmt::Display for SourceError {
         match self {
             SourceError::NotFound(id) => {
                 write!(f, "referenced booking not found in source: {}", id.as_str())
+            }
+            SourceError::SourceUnavailable { reason } => {
+                write!(f, "could not read source booking: {reason}")
             }
             SourceError::MissingMandatoryField { field } => {
                 write!(f, "mandatory field missing in source booking: {field}")

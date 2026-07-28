@@ -1,7 +1,7 @@
 ---
 id: "0078"
 title: obfuskierung-Lese-Seam fehlbar machen
-status: open
+status: closed
 ---
 
 # obfuskierung-Lese-Seam fehlbar machen

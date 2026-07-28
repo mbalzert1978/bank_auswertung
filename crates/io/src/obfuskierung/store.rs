@@ -585,7 +585,11 @@ mod tests {
     #[test]
     fn eine_fehlende_quell_zeile_failt_terminal_und_redigiert() -> rusqlite::Result<()> {
         // Der obfuskierung-Store steht, aber es gibt **keine** einlesen-Zeile: die `Ingested`-Nachricht
-        // zeigt ins Leere. Der Lese-Seam liefert `None` → terminaler, redigierter NotFound.
+        // zeigt ins Leere. Die Tabelle **antwortet** hier, sie hat nur nichts zu dieser ID — der
+        // Lese-Seam liefert also `Ok(None)` → terminaler, redigierter NotFound. Das ist der Kontrast
+        // zum `Err`-Ausgang (Beschaffung misslungen), den `source.rs`
+        // (`read_ohne_einlesen_tabelle_failt_terminal`) festnagelt: eine kaputte Datenbank meldet
+        // seit Issue 0078 nicht mehr „nicht gefunden".
         let outbox = SqliteOutbox::open_in_memory()?;
         let store = ObfuskierungSqliteStore::new(outbox.clone())?;
         // Die einlesen-Tabelle existiert (für den Lese-Seam), ist aber leer.

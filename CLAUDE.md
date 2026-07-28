@@ -156,9 +156,12 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   by ID, obfuscates, writes the `obfuskiert` table — **the store assigns the new ID** — and
   publishes **that new ID** (the `Obfuscated` message) as the pointer to `auswerten`; the obfuscated aggregate
   references the source booking **by ID only** (foreign key), never as an embedded raw
-  object. A missing mandatory field or an unreadable/absent source row is a **terminal,
-  redacted** failure (static field name / opaque ID, never a raw value) — **no retry in the
-  slice** ([ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
+  object. A missing mandatory field, an absent source row or an **unreachable** read store is a
+  **terminal, redacted** failure — and the three stay **distinguishable** on the domain error
+  (static field name / opaque ID / passed-through io diagnosis, never a raw value): since issue
+  0078 the read seam carries the same three-valued shape as `auswerten`'s (`Err` = fetch failed,
+  `Ok(None)` = nothing there), so a broken database no longer reports as "not found". **No retry
+  in the slice** ([ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
   Persistent seed management deferred.
 - **`fenstern`** — third pipeline step and the **paginating analysis head**
   ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)); the first

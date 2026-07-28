@@ -1,9 +1,11 @@
 # Issue Progress
 
-Stand: 2026-07-27
+Stand: 2026-07-28
 
 ## Erledigt
 
+- [x] **[0078-obfuskierung-lese-seam-fehlbar-machen.md](0078-obfuskierung-lese-seam-fehlbar-machen.md)** (2026-07-28)
+  obfuskierung-Lese-Seam fehlbar gemacht: dreiwertige Form (Err = Beschaffung gescheitert, Ok(None) = nichts vorhanden), io verschluckt keinen Datenbank-Fehler mehr
 - [x] **[0076-fenstern-migrieren-zwei-tabellen-fall.md](0076-fenstern-migrieren-zwei-tabellen-fall.md)** (2026-07-27)
   fenstern migrieren (Zwei-Tabellen-Fall)
 - [x] **[0075-obfuskierung-migrieren-und-storeunavailable-vereinheitlichen.md](0075-obfuskierung-migrieren-und-storeunavailable-vereinheitlichen.md)** (2026-07-27)

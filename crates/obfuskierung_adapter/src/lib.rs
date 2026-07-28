@@ -26,7 +26,8 @@
 //! **Öffentliche Fläche:** die Fluent-[`ObfuscationTestApi`], die rohe Speicher-Zeile [`IngestedRow`]
 //! (die der Lese-Seam liefert) und die obfuskierten Ausgangs-DTOs ([`ObfuscatedBooking`] +
 //! [`AccountId`]/[`Pseudonym`]/[`ObfuscatedText`]/[`Recipient`]), die von `io` erfüllten Seams
-//! ([`IngestedSourceSeam`]/[`ObfuscatedStoreSeam`]/[`ObfuscatorSeam`]) und der von `io` verdrahtete
+//! **samt ihrem Fehlertyp** ([`IngestedSourceSeam`] + [`SourceUnavailable`],
+//! [`ObfuscatedStoreSeam`] + [`StoreUnavailable`], [`ObfuscatorSeam`]) und der von `io` verdrahtete
 //! Slice-Vertrag ([`ObfuscatingHandler`], [`ObfuscateCommand`]/[`ObfuscateCommandDecoder`], das opake
 //! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`SourceError`]). Alles andere
 //! ist crate-privat. Die eingehende Nachricht trägt **nur die ID** — kein Wire-DTO, **kein serde** im
@@ -43,7 +44,9 @@ mod handler;
 mod models;
 mod testapi;
 
-pub use abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, StoreUnavailable};
+pub use abstractions::{
+    IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, SourceUnavailable, StoreUnavailable,
+};
 pub use handler::ObfuscatingHandler;
 pub use models::{
     AccountId, CONSUMED_MESSAGE_TYPE, IngestedRow, ObfuscateCommand, ObfuscateCommandDecoder,
