@@ -114,3 +114,53 @@ SELECT ordering_account, counter_account, amount_minor_units, currency, directio
        purpose, booking_text
 FROM einlesen_lines
 WHERE id = ?1;";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::einlesen::EinlesenSqliteStore;
+
+    /// Eine fehlende `einlesen_lines`-Tabelle failt die Lese **terminal + redigiert**: der Bestand
+    /// ist nicht beschaffbar — ausdrücklich **kein** „nichts gefunden". Genau diesen Fehlschlag
+    /// verschluckte die frühere `.ok().flatten()`-Form zu `Ok(None)`.
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! ist die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn read_ohne_einlesen_tabelle_failt_terminal() -> rusqlite::Result<()> {
+        let outbox = SqliteOutbox::open_in_memory()?;
+        // Bewusst **keine** einlesen-Tabelle angelegt.
+        let source = EinlesenRowSource::new(outbox);
+
+        let fehler = source
+            .read("egal")
+            .expect_err("ohne einlesen-Tabelle muss die Lese terminal failen");
+        assert!(
+            !format!("{fehler}").is_empty(),
+            "der terminale Fehler trägt eine (redigierte) Diagnose"
+        );
+        Ok(())
+    }
+
+    /// Ein Zeiger, der ins Leere zeigt (Tabelle da, aber ohne diese ID), ist **kein**
+    /// Beschaffungs-Fehler, sondern die gültige Auskunft `Ok(None)` — die die `SourceBridge` dann
+    /// terminal als `NotFound` deutet. Der Kontrast zum Test darüber ist der Punkt des Seams.
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! ist die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn read_einer_unbekannten_id_ist_ok_none() -> rusqlite::Result<()> {
+        let outbox = SqliteOutbox::open_in_memory()?;
+        // Legt die (leere) einlesen_lines-Tabelle an.
+        EinlesenSqliteStore::new(outbox.clone())?;
+        let source = EinlesenRowSource::new(outbox);
+
+        assert!(
+            matches!(source.read("gibt-es-nicht"), Ok(None)),
+            "eine unbekannte ID ist Ok(None), kein Fehler"
+        );
+        Ok(())
+    }
+}
