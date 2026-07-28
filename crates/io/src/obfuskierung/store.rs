@@ -36,7 +36,7 @@
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
 //! **Fehlbar + terminal (redigiert):** ein unerreichbarer Store (Schema fehlt) failt **synchron** in
-//! `save` als [`StoreUnavailable`] (→ Domänen-`SourceError::StorageUnavailable` mit durchgereichtem
+//! `save` als [`StoreUnavailable`] (→ Domänen-`ObfuscationError::StorageUnavailable` mit durchgereichtem
 //! `reason`), terminal und redigiert — die Diagnose trägt seit Issue 0075 **denselben** redigierten
 //! `message` wie die drei anderen Slices: nur io-Zugriffs-Mechanik, nie ein
 //! Zell-/Feldwert. Dass sie hier keinen Zellwert tragen **kann**, ist strukturell: [`unavailable`](StoreSpec::unavailable)

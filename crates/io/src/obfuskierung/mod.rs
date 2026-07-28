@@ -35,7 +35,7 @@ pub use store::{ObfuskiertBookings, ObfuskierungSqliteStore, ObfuskierungUnit};
 use application_kernel::Handler;
 use obfuskierung_adapter::{
     IngestedSourceSeam, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedStoreSeam,
-    ObfuscatingHandler, ObfuscatorSeam, SourceError,
+    ObfuscatingHandler, ObfuscationError, ObfuscatorSeam,
 };
 
 use crate::{
@@ -51,7 +51,7 @@ pub const CONSUMED_MESSAGE_TYPE: &str = obfuskierung_adapter::CONSUMED_MESSAGE_T
 /// und Obfuskator) und den Seed sowie die [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den
 /// `ObfuscatingHandler` **aus ihr** (Store = die Unit, Publish über die Unit) und committet atomar,
 /// wenn der Handler gelingt. Weil beide committenden Ports dieselbe Unit sind, kann eine gestagete
-/// Schreibung die Transaktion nicht überleben. Der nackte [`SourceError`] ist **terminal** →
+/// Schreibung die Transaktion nicht überleben. Der nackte [`ObfuscationError`] ist **terminal** →
 /// [`TransactionError::Handler`].
 ///
 /// Dass die Unit **zusätzlich** die gestagete `obfuskiert`-Ablage ist, verlangt das `impl` unten als
@@ -70,13 +70,13 @@ where
 {
     type Command = ObfuscateCommand;
     type Decoder = ObfuscateCommandDecoder;
-    type Error = SourceError;
+    type Error = ObfuscationError;
 
     fn handle(
         &self,
         ack: MessageId<'_>,
         command: ObfuscateCommand,
-    ) -> Result<(), TransactionError<SourceError>> {
+    ) -> Result<(), TransactionError<ObfuscationError>> {
         // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
         // Unit; Quelle/Obfuskator liegen außerhalb (idempotentes Lesen).

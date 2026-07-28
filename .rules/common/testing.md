@@ -66,7 +66,7 @@ des Slice). Keine Outbox-Typen, keine DTO-Konstruktor-Tests.
 Do:
 
 ```rust
-use obfuskierung_adapter::{ObfuscateTestApi, IngestedRow, ObfuscationError}; // öffentliche Fläche
+use obfuskierung_adapter::{ObfuscationTestApi, IngestedRow, ObfuscationError}; // öffentliche Fläche
 ```
 
 Don't:

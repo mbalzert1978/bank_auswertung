@@ -1,5 +1,5 @@
 use obfuskierung_domain::{
-    BookingId, ObfuscatedBooking as DomainBooking, ObfuscatedRepository, SourceError,
+    BookingId, ObfuscatedBooking as DomainBooking, ObfuscatedRepository, ObfuscationError,
 };
 
 use crate::abstractions::{ObfuscatedStoreSeam, StoreUnavailable};
@@ -10,7 +10,7 @@ use crate::models::ObfuscatedBooking;
 /// sie in den öffentlichen [`ObfuscatedStoreSeam`] staged (den io — rusqlite — erfüllt). Die vom Seam
 /// **neu vergebene** ID hüllt sie „außen → innen" in die [`BookingId`] und reicht sie an den Handler
 /// zurück, der genau sie als Zeiger publiziert; ein [`StoreUnavailable`] des Seams wird auf den
-/// redigierten terminalen [`SourceError::StorageUnavailable`] gemappt und reicht dessen io-Diagnose
+/// redigierten terminalen [`ObfuscationError::StorageUnavailable`] gemappt und reicht dessen io-Diagnose
 /// (`reason`) durch, damit ein unerreichbarer Store diagnostizierbar bleibt statt an dieser Grenze zu
 /// verfallen. Kein Rohwert: die Redaktion der Diagnose schuldet der Seam.
 pub(crate) struct RepositoryBridge<'a> {
@@ -18,12 +18,14 @@ pub(crate) struct RepositoryBridge<'a> {
 }
 
 impl ObfuscatedRepository for RepositoryBridge<'_> {
-    fn save(&self, booking: &DomainBooking) -> Result<BookingId, SourceError> {
+    fn save(&self, booking: &DomainBooking) -> Result<BookingId, ObfuscationError> {
         self.seam
             .save(&ObfuscatedBooking::from(booking))
             .map(BookingId::new)
             .map_err(
-                |StoreUnavailable { message }| SourceError::StorageUnavailable { reason: message },
+                |StoreUnavailable { message }| ObfuscationError::StorageUnavailable {
+                    reason: message,
+                },
             )
     }
 }
