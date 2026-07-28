@@ -123,8 +123,7 @@ fn store_unavailable(message: &str) -> StoreUnavailable {
 ///
 /// `pub` aus Sichtbarkeits-Zwang (sie steht als `Prepared` in der Signatur eines öffentlichen
 /// Trait-`impl`, `private_interfaces`), **nicht** als API: das Modul `store` ist privat, also bleibt
-/// sie außerhalb von `io` nicht konstruierbar und nicht lesbar (benennbar ist sie als
-/// `<ObfuskiertBookings as StoreSpec>::Prepared` schon — nur eben inert).
+/// sie außerhalb von `io` unerreichbar.
 pub struct BookingFields {
     source_id: String,
     ordering_account: String,
