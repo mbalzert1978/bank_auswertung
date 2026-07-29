@@ -4,12 +4,6 @@
 __pycache__/
 examples/
 
-# .claude/ ist lokal (u. a. worktrees/) — außer den geteilten Team-Configs:
-# der eingecheckte Architektur-Hook (Dependency-Richtung) samt settings.json.
-.claude/*
-!.claude/settings.json
-!.claude/hooks/
-
 ### macOS ###
 # General
 .DS_Store
