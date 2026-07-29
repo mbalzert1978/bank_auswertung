@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "description": "Anthropic structured output rejects oneOf at the TOP level, so the sum type lives under `outcome`.",
+  "properties": {
+    "lens": { "type": "string" },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Nothing real survived for this lens — every candidate was rejected. No finding fields exist in this case.",
+          "properties": {
+            "found": { "const": false },
+            "rejected": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": { "type": "string" },
+                  "reason": { "type": "string" }
+                },
+                "required": ["title", "reason"]
+              }
+            }
+          },
+          "required": ["found"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Exactly one winning finding survived for this lens.",
+          "properties": {
+            "found": { "const": true },
+            "befund": { "type": "string", "description": "German, EXACTLY one line: was und wo, include file:line" },
+            "verbesserung": { "type": "string", "description": "German, 1-3 lines: konkret was anders gemacht werden sollte" },
+            "prioritaet": { "type": "string", "enum": ["hoch", "mittel", "niedrig"] },
+            "file": { "type": "string" },
+            "line": { "type": "integer" },
+            "confidence": { "type": "string", "enum": ["confirmed", "plausible"] },
+            "why_this_one": { "type": "string", "description": "why this beats the other candidates on impact (English, brief)" },
+            "rejected": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": { "type": "string" },
+                  "reason": { "type": "string" }
+                },
+                "required": ["title", "reason"]
+              }
+            }
+          },
+          "required": ["found", "befund", "verbesserung", "prioritaet", "file", "line", "confidence", "why_this_one"]
+        }
+      ]
+    }
+  },
+  "required": ["lens", "outcome"]
+}

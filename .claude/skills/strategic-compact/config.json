@@ -1,0 +1,8 @@
+{
+  "compact_threshold": 50,
+  "compact_context_threshold_200k": 160000,
+  "compact_context_threshold_1m": 250000,
+  "compact_context_interval": 60000,
+  "compact_state_ttl_days": 14,
+  "compact_tool_repeat_interval": 25
+}

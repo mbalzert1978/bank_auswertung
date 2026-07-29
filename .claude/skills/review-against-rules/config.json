@@ -1,0 +1,16 @@
+{
+  "rules_dirs": [
+    ".rules/common",
+    ".rules/crates",
+    ".rules/rust",
+    ".rules/sql"
+  ],
+  "reference_implementation": {
+    "paths": [
+      "crates\\einlesen_adapter",
+      "crates\\einlesen_domain",
+      "crates\\einlesen_domain"
+    ],
+    "note": "Diese crates sind ein feature slice. Specs greift auf die im adapter layer definierte test api zu und verwendet nur öffentliche items der api"
+  }
+}

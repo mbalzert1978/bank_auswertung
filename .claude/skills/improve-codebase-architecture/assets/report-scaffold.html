@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Architecture review — {{repo_name}}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      /* small custom layer for things Tailwind doesn't cover cleanly:
+         dashed seam lines, hand-drawn-feeling arrow heads, etc. */
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+      <!-- Repo name, date, and a compact legend: solid box = module,
+           dashed line = seam, red arrow = leakage, thick dark box = deep
+           module. No introduction paragraph — straight into the candidates. -->
+      <header>
+        <h1 class="font-serif text-3xl">Architecture review — {{repo_name}}</h1>
+        <p class="text-sm text-slate-500">{{date}}</p>
+        <!-- {{legend}} -->
+      </header>
+      <!-- One <article> per candidate (see "Candidate card" in HTML-REPORT.md). -->
+      <section id="candidates" class="space-y-10">
+        {{candidates}}
+      </section>
+      <!-- One larger card: candidate name, one sentence on why, anchor link. -->
+      <section id="top-recommendation">
+        {{top_recommendation}}
+      </section>
+    </main>
+  </body>
+</html>

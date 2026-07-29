@@ -1,0 +1,10 @@
+{
+  "test_command": { "command": "cargo", "args": ["test"] },
+  "selectors": {
+    "package": ["--package", "{}"],
+    "test": ["--test", "{}"]
+  },
+  "name_filter": ["{}"],
+  "exact_args": ["--", "--exact"],
+  "ignore_exit_codes_when_filtered": []
+}

@@ -1,0 +1,5 @@
+{
+  "issue_dir":         "docs/issues",
+  "progress_file":     "PROGRESS.md",
+  "max_gate_attempts": 3
+}

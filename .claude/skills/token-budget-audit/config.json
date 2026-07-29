@@ -1,0 +1,6 @@
+{
+  "chars_per_token": 4,
+  "claude_md_token_guideline": 1500,
+  "skill_size_outlier_multiplier": 4,
+  "large_dir_names": ["node_modules", "graphify-out", "dist", "build", "bin", "obj", ".venv", "target"]
+}
