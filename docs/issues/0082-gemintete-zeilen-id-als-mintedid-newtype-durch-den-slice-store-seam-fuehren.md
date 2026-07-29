@@ -1,7 +1,7 @@
 ---
 id: "0082"
 title: Gemintete Zeilen-ID als MintedId-Newtype durch den Slice-Store-Seam führen
-status: blocked
+status: closed
 ---
 
 # Gemintete Zeilen-ID als MintedId-Newtype durch den Slice-Store-Seam führen

@@ -1,7 +1,7 @@
 ---
 id: "0081"
 title: obfuskierung-Domaenenfehler in ObfuscationError umbenennen
-status: blocked
+status: closed
 ---
 
 # obfuskierung-Domaenenfehler in ObfuscationError umbenennen
