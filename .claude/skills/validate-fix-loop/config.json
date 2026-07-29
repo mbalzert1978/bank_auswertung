@@ -1,10 +1,13 @@
 {
-  "max_iterations": 3,
+  "max_iterations": 2,
   "agent_model": "sonnet",
   "test_gate": {
     "enabled": true,
     "command": "uv",
-    "args": ["run", ".claude/skills/run-tests/scripts/run-tests.py"]
+    "args": [
+      "run",
+      ".claude/skills/run-tests/scripts/run-tests.py"
+    ]
   },
   "validators": [
     "verifier-long-method",
