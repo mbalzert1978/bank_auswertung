@@ -14,7 +14,7 @@
 //! einlesen-Speicher, obfuskiert seed-basiert, **legt die obfuskierte Buchung in der
 //! `obfuskiert`-Tabelle ab** (die Persistenz vergibt die neue ID) und **publiziert genau diese neue
 //! ID** als Zeiger (Tabelle = Wahrheit, Message = Pointer). Ein terminaler Fehler ist der **nackte
-//! Domänen-[`SourceError`]** (hier re-exportiert), dessen **redigierte** `Display` `io` spiegelt.
+//! Domänen-[`ObfuscationError`]** (hier re-exportiert), dessen **redigierte** `Display` `io` spiegelt.
 //!
 //! **Schichtung:** der domänen-interne [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler)
 //! hängt **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
@@ -29,7 +29,7 @@
 //! **samt ihrem Fehlertyp** ([`IngestedSourceSeam`] + [`SourceUnavailable`],
 //! [`ObfuscatedStoreSeam`] + [`StoreUnavailable`], [`ObfuscatorSeam`]) und der von `io` verdrahtete
 //! Slice-Vertrag ([`ObfuscatingHandler`], [`ObfuscateCommand`]/[`ObfuscateCommandDecoder`], das opake
-//! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`SourceError`]). Alles andere
+//! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`ObfuscationError`]). Alles andere
 //! ist crate-privat. Die eingehende Nachricht trägt **nur die ID** — kein Wire-DTO, **kein serde** im
 //! Slice.
 //!
@@ -59,7 +59,7 @@ pub use testapi::ObfuscationTestApi;
 /// re-deklariert — anders als die projizierten DTO-Typen ist der Fehler kein Datenwert, sondern der
 /// Redaktions-Vertrag selbst: seine `Display` ist der **alleinige** Eigentümer des Meldungssatzes, ein
 /// Re-Deklarat wäre ein Satz-Duplikat über Crates.
-pub use obfuskierung_domain::SourceError;
+pub use obfuskierung_domain::ObfuscationError;
 
 #[cfg(test)]
 mod datenschutz {

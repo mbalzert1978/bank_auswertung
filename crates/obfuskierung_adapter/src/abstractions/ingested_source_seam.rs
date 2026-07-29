@@ -19,7 +19,7 @@ pub trait IngestedSourceSeam {
 
 /// Die Beschaffung ist **misslungen** — terminaler Seam-Fehler, der die **io-Diagnose** trägt
 /// (Beschaffungs-Mechanik: Query-/DB-/Schema-Fehler). Die `SourceBridge` reicht sie als `reason` in
-/// den redigierten Domänen-Fehler `SourceError::SourceUnavailable` weiter, damit ein unerreichbarer
+/// den redigierten Domänen-Fehler `ObfuscationError::SourceUnavailable` weiter, damit ein unerreichbarer
 /// Lese-Speicher diagnostizierbar bleibt — lokal, **kein Egress**: in ein ausgehendes DTO fließt sie
 /// nie.
 ///
@@ -36,7 +36,7 @@ pub struct SourceUnavailable {
 impl std::fmt::Display for SourceUnavailable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Nur die Diagnose selbst — den terminalen Meldungssatz besitzt allein die Domänen-`Display`
-        // von `SourceError::SourceUnavailable` (kein Satz-Duplikat über Crates).
+        // von `ObfuscationError::SourceUnavailable` (kein Satz-Duplikat über Crates).
         write!(f, "{}", self.message)
     }
 }

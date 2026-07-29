@@ -27,7 +27,7 @@ impl IngestedRow {
     /// **Hier erzwingt der Adapter die Präsenz** der Pflichtfelder (Auftraggeberkonto, Währung,
     /// Richtung, Datum): fehlt/ist eines leer, wird es zu `Err(MissingMandatoryField)` mit **nur**
     /// dem Feldnamen — den die [`SourceBridge`](crate::adapter::SourceBridge) auf den terminalen
-    /// `SourceError::MissingMandatoryField` mappt (redigiert, statischer Feldname).
+    /// `ObfuscationError::MissingMandatoryField` mappt (redigiert, statischer Feldname).
     pub(crate) fn to_booking(
         &self,
         id: &BookingId,
@@ -57,7 +57,7 @@ impl IngestedRow {
 
 /// Ein Pflichtfeld fehlt (leer/nicht vorhanden) in der Roh-Zeile — **terminaler** Ausgang der
 /// „außen → innen"-Abbildung (die [`SourceBridge`](crate::adapter::SourceBridge) mappt ihn auf den
-/// terminalen `SourceError::MissingMandatoryField`). **Datenschutz (Redaktions-Invariante):** trägt
+/// terminalen `ObfuscationError::MissingMandatoryField`). **Datenschutz (Redaktions-Invariante):** trägt
 /// **nur** den statischen Feldnamen, nie den Rohwert — auch `Debug` spiegelt so keinen Identifikator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MissingMandatoryField {

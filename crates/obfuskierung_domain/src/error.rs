@@ -9,7 +9,7 @@ use crate::value_objects::BookingId;
 /// beim erfüllenden Seam (`SourceUnavailable`/`StoreUnavailable`), wie bei `fenstern`/`auswerten`.
 /// Die Domäne ist dependency-frei: `Display`/`Error` sind von Hand geschrieben, kein `thiserror`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SourceError {
+pub enum ObfuscationError {
     /// Zur ID liegt keine Zeile im einlesen-Speicher vor. Trägt die opake [`BookingId`] (kein Rohwert).
     NotFound(BookingId),
     /// Die **Beschaffung** der Zeile ist gescheitert (unerreichbarer Lese-Speicher, kaputtes Schema) —
@@ -29,23 +29,23 @@ pub enum SourceError {
     StorageUnavailable { reason: String },
 }
 
-impl fmt::Display for SourceError {
+impl fmt::Display for ObfuscationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SourceError::NotFound(id) => {
+            ObfuscationError::NotFound(id) => {
                 write!(f, "referenced booking not found in source: {}", id.as_str())
             }
-            SourceError::SourceUnavailable { reason } => {
+            ObfuscationError::SourceUnavailable { reason } => {
                 write!(f, "could not read source booking: {reason}")
             }
-            SourceError::MissingMandatoryField { field } => {
+            ObfuscationError::MissingMandatoryField { field } => {
                 write!(f, "mandatory field missing in source booking: {field}")
             }
-            SourceError::StorageUnavailable { reason } => {
+            ObfuscationError::StorageUnavailable { reason } => {
                 write!(f, "could not store obfuscated booking: {reason}")
             }
         }
     }
 }
 
-impl std::error::Error for SourceError {}
+impl std::error::Error for ObfuscationError {}

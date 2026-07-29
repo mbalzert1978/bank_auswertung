@@ -1,21 +1,21 @@
 //! Black-Box-Spezifikation des Obfuskierungs-Slice — ausschließlich über die public API des
-//! Adapters (Fluent-`ObfuscationTestApi` + DTOs + der re-exportierte Domänen-`SourceError`), nie über
+//! Adapters (Fluent-`ObfuscationTestApi` + DTOs + der re-exportierte Domänen-`ObfuscationError`), nie über
 //! Interna. Seit dem Kernel-Flip ([ADR-0011](../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md))
 //! spezifiziert der Spec auf **Handler-Ebene** über den `application_kernel`-Vertrag: `run` fährt die
 //! **echte** Kette (`ObfuscateCommandDecoder` → `ObfuscatingHandler`) gegen öffentliche Fakes und gibt
-//! den **nackten Domänen-`SourceError`** zurück — **keine** `OutboxError`-Asserts mehr (die
+//! den **nackten Domänen-`ObfuscationError`** zurück — **keine** `OutboxError`-Asserts mehr (die
 //! Outbox-Mechanik prüft der io-Integrationstest).
 //!
 //! Der Slice konsumiert einen `Ingested`-**Zeiger** (nur die ID), **liest** das rohe Aggregat per ID
 //! aus dem einlesen-Speicher, obfuskiert seed-basiert, legt die **ganze** obfuskierte Buchung in der
 //! `obfuskiert`-Tabelle ab (die Persistenz vergibt die neue ID) und publiziert **genau diese neue ID**
 //! als Zeiger. Ein terminaler Fehler (fehlende Zeile oder fehlendes Pflichtfeld) lässt den Handler mit
-//! dem `SourceError` aussteigen; nichts wird abgelegt/publiziert.
+//! dem `ObfuscationError` aussteigen; nichts wird abgelegt/publiziert.
 //!
 //! Erwartete Ergebnisse formuliert die Spec als **DTO** (Token-Felder über die `expected_*`-Helfer
 //! der TestApi) und lässt sie die **TestApi validieren** (`assert_stored`/`assert_published`).
 
-use obfuskierung_adapter::{ObfuscationTestApi, Recipient, SourceError};
+use obfuskierung_adapter::{ObfuscationError, ObfuscationTestApi, Recipient};
 
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
@@ -138,7 +138,7 @@ fn absente_id_scheitert_terminal_ohne_etwas_zu_emittieren() {
     // Grund trägt nur die opake ID redigiert (kein Rohwert).
     let fehler = ergebnis.expect_err("erwartet terminalen Fehler");
     assert!(
-        matches!(fehler, SourceError::NotFound(_)),
+        matches!(fehler, ObfuscationError::NotFound(_)),
         "erwartet terminalen NotFound: {fehler:?}"
     );
     assert_eq!(
@@ -163,7 +163,7 @@ fn ein_fehlschlag_beim_lesen_scheitert_terminal_mit_durchgereichter_diagnose() {
 
     assert_eq!(
         ergebnis,
-        Err(SourceError::SourceUnavailable {
+        Err(ObfuscationError::SourceUnavailable {
             reason: "Roh-Tabelle nicht vorhanden".to_string()
         })
     );
@@ -186,7 +186,7 @@ fn vorhandene_zeile_mit_leerem_pflichtfeld_scheitert_terminal() {
     // Name); nichts wird abgelegt oder publiziert.
     assert_eq!(
         ergebnis,
-        Err(SourceError::MissingMandatoryField { field: "currency" })
+        Err(ObfuscationError::MissingMandatoryField { field: "currency" })
     );
     api.assert_nothing_emitted();
 }
@@ -206,7 +206,7 @@ fn ein_fehlschlag_beim_ablegen_scheitert_terminal_mit_durchgereichter_diagnose()
     // einer Zusicherung fest und beweist zugleich, dass der Fehler nichts weiter trägt.
     assert_eq!(
         ergebnis,
-        Err(SourceError::StorageUnavailable {
+        Err(ObfuscationError::StorageUnavailable {
             reason: "Tabelle gesperrt".to_string()
         })
     );

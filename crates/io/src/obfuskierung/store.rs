@@ -36,7 +36,7 @@
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
 //! **Fehlbar + terminal (redigiert):** ein unerreichbarer Store (Schema fehlt) failt **synchron** in
-//! `save` als [`StoreUnavailable`] (→ Domänen-`SourceError::StorageUnavailable` mit durchgereichtem
+//! `save` als [`StoreUnavailable`] (→ Domänen-`ObfuscationError::StorageUnavailable` mit durchgereichtem
 //! `reason`), terminal und redigiert — die Diagnose trägt seit Issue 0075 **denselben** redigierten
 //! `message` wie die drei anderen Slices: nur io-Zugriffs-Mechanik, nie ein
 //! Zell-/Feldwert. Dass sie hier keinen Zellwert tragen **kann**, ist strukturell: [`unavailable`](StoreSpec::unavailable)
@@ -46,7 +46,7 @@
 use obfuskierung_adapter::{ObfuscatedBooking, ObfuscatedStoreSeam, Recipient, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
-use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
+use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `obfuskierung`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als
 /// fehlbare Umdeutung nur die u64→i64-Deutung der Betrags-Magnitude. Der Marker-Typ parametrisiert
@@ -68,7 +68,7 @@ impl StoreSpec for ObfuskiertBookings {
         BookingFields::try_from(booking)
     }
 
-    fn stage(fields: BookingFields, id: String) -> StagedRow {
+    fn stage(fields: BookingFields, id: MintedId) -> StagedRow {
         let row = BookingRow::new(id, fields);
         Box::new(move |tx| row.insert(tx))
     }
@@ -210,16 +210,16 @@ impl TryFrom<&ObfuscatedBooking> for BookingFields {
 
 /// Die SQL-fertige Zeile: die abgeflachten Felder **unter** ihrer DB-vergebenen ID (zugleich der
 /// publizierte Zeiger). Sie reist in die gestagete Ablage-Closure und wird erst am Commit-Rand
-/// geschrieben. Die ID ist erster Parameter von [`new`](BookingRow::new); dass es die eben gemintete
-/// ist, trägt der einzige Aufrufer (`ObfuskiertBookings::stage`) — Konvention in diesem Modul, keine
-/// Typ-Garantie.
+/// geschrieben. Die ID ist erster Parameter von [`new`](BookingRow::new); dass es die eben an der DB
+/// gemintete ist, trägt ihr Typ [`MintedId`] — eine von Hand gebaute Schein-ID ist hier ein
+/// Compile-Fehler.
 struct BookingRow {
-    id: String,
+    id: MintedId,
     fields: BookingFields,
 }
 
 impl BookingRow {
-    const fn new(id: String, fields: BookingFields) -> Self {
+    const fn new(id: MintedId, fields: BookingFields) -> Self {
         Self { id, fields }
     }
 

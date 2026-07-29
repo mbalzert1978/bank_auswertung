@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "lens": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string" },
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "severity": { "type": "string", "enum": ["high", "medium", "low"] },
+          "what": { "type": "string", "description": "was und wo — one line" },
+          "improvement": { "type": "string", "description": "konkret was anders, 1-3 lines" },
+          "rationale": { "type": "string", "description": "why it matters / impact / cost-benefit" }
+        },
+        "required": ["title", "file", "line", "severity", "what", "improvement", "rationale"]
+      }
+    }
+  },
+  "required": ["lens", "findings"]
+}

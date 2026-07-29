@@ -14,8 +14,8 @@
 //! **Fehlbar → terminal, redigiert:** der Seam liefert `Result<Option<IngestedRow>, SourceUnavailable>`
 //! und hält damit die beiden Ausgänge auseinander, die ADR-0012 verlangt — `Ok(None)` = zur ID liegt
 //! **nichts** vor (die adapter-seitige `SourceBridge` mappt es auf den terminalen
-//! `SourceError::NotFound`, nur die opake ID), `Err` = die **Beschaffung** misslang (fehlendes
-//! Schema, unerreichbare Datenbank, korrupter Bestand → `SourceError::SourceUnavailable` mit der
+//! `ObfuscationError::NotFound`, nur die opake ID), `Err` = die **Beschaffung** misslang (fehlendes
+//! Schema, unerreichbare Datenbank, korrupter Bestand → `ObfuscationError::SourceUnavailable` mit der
 //! durchgereichten Diagnose). Beides ist terminal, kein Dead-Letter, kein Retry. Die Diagnose nennt
 //! nur die **Beschaffungs-Mechanik**, nie einen Zellwert (Redaktions-Pflicht am erfüllenden Seam).
 //!
@@ -48,9 +48,9 @@ impl EinlesenRowSource {
 
 impl IngestedSourceSeam for EinlesenRowSource {
     /// Liest die rohe `einlesen`-Zeile zur ID. `Ok(None)` = die Tabelle antwortete und hat zu dieser
-    /// ID **keine** Zeile (→ terminaler `SourceError::NotFound`); `Err` = die Beschaffung selbst
+    /// ID **keine** Zeile (→ terminaler `ObfuscationError::NotFound`); `Err` = die Beschaffung selbst
     /// misslang — fehlendes Schema, unerreichbare Datenbank oder ein korrupter Bestand (→ terminaler
-    /// `SourceError::SourceUnavailable` mit der durchgereichten, redigierten Diagnose).
+    /// `ObfuscationError::SourceUnavailable` mit der durchgereichten, redigierten Diagnose).
     fn read(&self, id: &str) -> Result<Option<IngestedRow>, SourceUnavailable> {
         self.outbox
             .with_connection(|conn| {

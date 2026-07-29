@@ -6,9 +6,9 @@ examples/
 
 # .claude/ ist lokal (u. a. worktrees/) — außer den geteilten Team-Configs:
 # der eingecheckte Architektur-Hook (Dependency-Richtung) samt settings.json.
-.claude/*
-!.claude/settings.json
-!.claude/hooks/
+.claude/worktrees
+.claude/projects
+.claude/settings.local.json
 
 ### macOS ###
 # General

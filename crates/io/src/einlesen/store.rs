@@ -33,7 +33,7 @@
 use einlesen_adapter::{CalendarDay, Direction, Line, StoreSeam, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
-use crate::sqlite::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
+use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `einlesen`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als fehlbare
 /// Umdeutung nur die u64→i64-Deutung des Betrags. Der Marker-Typ parametrisiert
@@ -55,7 +55,7 @@ impl StoreSpec for EinlesenLines {
         LineFields::try_from(line)
     }
 
-    fn stage(fields: LineFields, id: String) -> StagedRow {
+    fn stage(fields: LineFields, id: MintedId) -> StagedRow {
         let row = LineRow::new(id, fields);
         Box::new(move |tx| row.insert(tx))
     }
@@ -149,15 +149,15 @@ impl TryFrom<&Line> for LineFields {
 
 /// Die SQL-fertige Zeile: die abgeflachten Felder **unter** ihrer DB-vergebenen ID. Sie reist in die
 /// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster Parameter von
-/// [`new`](LineRow::new); dass es die eben gemintete ist, trägt der einzige Aufrufer
-/// (`EinlesenLines::stage`) — Konvention in diesem Modul, keine Typ-Garantie.
+/// [`new`](LineRow::new); dass es die eben an der DB gemintete ist, trägt ihr Typ
+/// [`MintedId`] — eine von Hand gebaute Schein-ID ist hier ein Compile-Fehler.
 struct LineRow {
-    id: String,
+    id: MintedId,
     fields: LineFields,
 }
 
 impl LineRow {
-    const fn new(id: String, fields: LineFields) -> Self {
+    const fn new(id: MintedId, fields: LineFields) -> Self {
         Self { id, fields }
     }
 

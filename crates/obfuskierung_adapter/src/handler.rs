@@ -1,5 +1,7 @@
 use application_kernel::{Handler, Publisher};
-use obfuskierung_domain::{BookingId, ObfuscateBooking, ObfuscationHandler, Seed, SourceError};
+use obfuskierung_domain::{
+    BookingId, ObfuscateBooking, ObfuscationError, ObfuscationHandler, Seed,
+};
 
 use crate::abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam};
 use crate::adapter::{ObfuscatorBridge, PublisherBridge, RepositoryBridge, SourceBridge};
@@ -13,7 +15,7 @@ use crate::models::{ObfuscateCommand, ObfuscatedMessage};
 /// Einlese-Slice.
 ///
 /// **Transaktions-blind:** `save`/`publish` *stagen* nur; die eine `UnitOfWork` (Ablage + Nachricht
-/// atomar) besitzt `io`. Der Handler gibt seinen **nackten Domänen-Fehler** [`SourceError`] zurück —
+/// atomar) besitzt `io`. Der Handler gibt seinen **nackten Domänen-Fehler** [`ObfuscationError`] zurück —
 /// jeder Fehler ist terminal; `io` spiegelt dessen **redigierte** `Display`. Kein `OutboxError`, keine
 /// Outbox-Mechanik.
 ///
@@ -53,9 +55,9 @@ impl<'a> ObfuscatingHandler<'a> {
 impl Handler for ObfuscatingHandler<'_> {
     type Command = ObfuscateCommand;
     type Response = ();
-    type Error = SourceError;
+    type Error = ObfuscationError;
 
-    fn handle(&self, command: ObfuscateCommand) -> Result<(), SourceError> {
+    fn handle(&self, command: ObfuscateCommand) -> Result<(), ObfuscationError> {
         ObfuscationHandler::new(
             self.seed,
             &self.source,

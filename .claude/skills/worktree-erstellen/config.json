@@ -1,0 +1,6 @@
+{
+  "worktree_base": ".claude/worktrees",
+  "targets": ["CLAUDE.md", "CONTEXT.md"],
+  "expand_dirs": [".claude"],
+  "expand_skip": ["worktrees"]
+}

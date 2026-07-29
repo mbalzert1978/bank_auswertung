@@ -31,7 +31,7 @@
 
 mod slice_store;
 
-pub use slice_store::{SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
+pub use slice_store::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 use std::cell::RefCell;
 use std::rc::Rc;

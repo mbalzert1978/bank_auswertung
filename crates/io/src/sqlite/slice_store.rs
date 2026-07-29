@@ -24,11 +24,14 @@
 //! **Ablauf der Ablage-Primitive** ([ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)):
 //! fehlbares [`flatten`](StoreSpec::flatten) → Preflight **aller** [`TableSpec::insert`] → ID an der
 //! DB minten → [`stage`](StoreSpec::stage) baut die id-**tragende** Row in einem Zug mit der frisch
-//! geminteten ID. Die ID ist **stets** DB-vergeben und wird **stets** zurückgegeben; ob ein Slice sie
-//! als Zeiger publiziert, ist Slice-Sache (das Pipeline-Ende verwirft sie per `map(drop)`).
+//! geminteten ID. Dass sie DB-vergeben ist, trägt seit
+//! [Issue 0082](../../../../docs/issues/0082-gemintete-zeilen-id-als-mintedid-newtype-durch-den-slice-store-seam-fuehren.md)
+//! der Typ [`MintedId`] statt einer Konvention; zurückgegeben wird sie **stets** als `String`, und ob
+//! ein Slice sie als Zeiger publiziert, ist Slice-Sache (das Pipeline-Ende verwirft sie per `map(drop)`).
 
 use std::marker::PhantomData;
 
+use rusqlite::types::{ToSql, ToSqlOutput};
 use rusqlite::{Connection, Transaction};
 
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
@@ -57,6 +60,35 @@ pub struct TableSpec {
     /// Das Ablage-`INSERT` dieser Tabelle — der Preflight probt es, sodass eine fehlende Tabelle
     /// **in der Ablage** terminal failt statt erst als Commit-Retry.
     pub insert: &'static str,
+}
+
+/// Die **an der DB gemintete** Zeilen-ID — der Beweis, dass diese ID aus dem Mint-Zweig stammt und
+/// nicht von Hand erfunden wurde ([Issue 0082](../../../../docs/issues/0082-gemintete-zeilen-id-als-mintedid-newtype-durch-den-slice-store-seam-fuehren.md),
+/// [ADR-0005](../../../../docs/adr/0005-domaenenmodell-value-objects-und-summentypen.md)).
+///
+/// Ihr Feld ist privat und sie trägt **keinen** Konstruktor: gebaut wird sie einzig in
+/// `preflight_and_mint`, dem einen Ort, an dem `MINT_ID` läuft. Eine leere oder frei erfundene ID —
+/// die unter einem Schein-Primärschlüssel schriebe und als publizierter Zeiger stromabwärts reiste —
+/// ist damit außerhalb dieses Moduls ein **Compile-Fehler**, keine Review-Frage.
+///
+/// Geschrieben wird sie über ihr [`ToSql`], nicht über einen Getter: die Stores reichen sie
+/// unverändert in ihre `params!` durch, ohne sie je in einen `String` zurückzuverwandeln.
+/// **Der Seam-Vertrag Richtung Slice bleibt unberührt** ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):
+/// die Ablage-Primitive gibt weiterhin die `String`-ID zurück, die der Slice als Zeiger publiziert.
+pub struct MintedId(String);
+
+impl MintedId {
+    /// Die gemintete ID als Zeichenkette — für die Rückgabe an den Seam, **nicht** als Umweg zu einem
+    /// neuen `MintedId` (der Weg zurück fehlt bewusst).
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl ToSql for MintedId {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
 }
 
 /// Die **ganze Persistenz eines Slice** in vier Bausteinen: seine Tabellen (je mit DDL und `INSERT`,
@@ -90,9 +122,9 @@ pub trait StoreSpec {
 
     /// Baut die SQL-fertige, **id-tragende** Row in einem Zug mit der frisch geminteten `id` und
     /// liefert **eine** Schreibung, die Kopf- und alle Detail-Inserts fährt. Die ID ist stets erster
-    /// Konstruktor-Parameter der Row; dass sie die **eben gemintete** ist, trägt der einzige
-    /// Aufrufer (`SliceUnit::store_dto`) — Konvention an einer Stelle, keine Typ-Garantie.
-    fn stage(prepared: Self::Prepared, id: String) -> StagedRow;
+    /// Konstruktor-Parameter der Row; dass sie die **eben gemintete** ist, trägt der Typ
+    /// [`MintedId`] — eine von Hand gebaute Schein-ID ist hier gar nicht erst übergebbar.
+    fn stage(prepared: Self::Prepared, id: MintedId) -> StagedRow;
 
     /// Der **redigierte** Konstruktor des Slice-Fehlers aus einer `rusqlite`-Diagnose: reine
     /// Zugriffs-Mechanik, nie ein DTO-Feld- oder Zellwert.
@@ -189,21 +221,23 @@ impl<S: StoreSpec> SliceUnit<S> {
     /// DB-Fehler) failt **hier** terminal als redigierter `StoreSpec::Error`.
     pub(crate) fn store_dto(&self, dto: &S::Dto) -> Result<String, S::Error> {
         let prepared = S::flatten(dto)?;
-        let id: String = self
+        let minted = self
             .0
             .with_connection(Self::preflight_and_mint)
             .map_err(S::unavailable)?;
-        self.0.stage_row(S::stage(prepared, id.clone()));
+        let id = minted.as_str().to_owned();
+        self.0.stage_row(S::stage(prepared, minted));
         Ok(id)
     }
 
     /// Probt **jedes** Ablage-Statement auf Präparierbarkeit (Store erreichbar?) und mintet dann die
-    /// neue Zeilen-ID synchron an der DB. Geprobt, nicht ausgeführt.
-    fn preflight_and_mint(conn: &Connection) -> rusqlite::Result<String> {
+    /// neue Zeilen-ID synchron an der DB. Geprobt, nicht ausgeführt. **Der einzige Ort, an dem eine
+    /// [`MintedId`] entsteht** — sie kann darum nichts anderes sein als das, was `MINT_ID` geliefert hat.
+    fn preflight_and_mint(conn: &Connection) -> rusqlite::Result<MintedId> {
         S::tables()
             .iter()
             .try_for_each(|table| conn.prepare(table.insert).map(drop))?;
-        conn.query_row(MINT_ID, [], |row| row.get(0))
+        conn.query_row(MINT_ID, [], |row| row.get(0)).map(MintedId)
     }
 }
 

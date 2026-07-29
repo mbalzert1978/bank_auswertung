@@ -1,7 +1,7 @@
 use application_kernel::{CommandDecoder, Handler};
 use obfuskierung_domain::{
-    AccountToken, NonEmptyString, ObfuscatedText as DomainText, Obfuscator,
-    Pseudonym as DomainPseudonym, Replacement, Seed, SourceError,
+    AccountToken, NonEmptyString, ObfuscatedText as DomainText, ObfuscationError, Obfuscator,
+    Pseudonym as DomainPseudonym, Replacement, Seed,
 };
 
 use super::fakes::{FakeIngestedSource, FakeObfuscatedStore, FakeObfuscator, FakePublisher};
@@ -20,7 +20,7 @@ use crate::models::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, P
 /// Fakes. **Keine Outbox-Mechanik mehr:** der Slice ist eine reine Pipeline; die
 /// `OutboxConsumer`/`UnitOfWork`/Dead-Letter-Taktik prüft der io-Integrationstest, nicht dieser Spec.
 ///
-/// `run` gibt den **nackten Domänen-[`SourceError`]** zurück (kein `OutboxError`): eine misslungene
+/// `run` gibt den **nackten Domänen-[`ObfuscationError`]** zurück (kein `OutboxError`): eine misslungene
 /// Beschaffung, eine absente Zeile oder ein fehlendes Pflichtfeld lässt ihn **terminal** scheitern;
 /// nichts wird abgelegt/publiziert.
 ///
@@ -83,8 +83,8 @@ impl ObfuscationTestApi {
 
     /// Fährt die echte Kette (Decoder → Handler) für einen `Ingested`-**Zeiger** (die ID reist als
     /// `partition_key` der Envelope, kein Inhalt) und gibt das Handler-Ergebnis zurück (`Ok(())` =
-    /// verarbeitet, `Err` = terminaler [`SourceError`]).
-    pub fn run(&self, id: &str) -> Result<(), SourceError> {
+    /// verarbeitet, `Err` = terminaler [`ObfuscationError`]).
+    pub fn run(&self, id: &str) -> Result<(), ObfuscationError> {
         // Der Zeiger ist der `partition_key`; der `content` ist leer (reiner Zeiger). Ein blanker
         // Zeiger (→ Decoder `None`) ist eine io-Envelope-Sorge (`Critical`), nicht Handler-Eingabe —
         // die Specs reichen stets einen echten Zeiger herein.

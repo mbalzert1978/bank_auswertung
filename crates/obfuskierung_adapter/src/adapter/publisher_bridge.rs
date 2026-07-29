@@ -1,5 +1,5 @@
 use application_kernel::Publisher;
-use obfuskierung_domain::{BookingId, BookingPublisher, SourceError};
+use obfuskierung_domain::{BookingId, BookingPublisher, ObfuscationError};
 
 use crate::models::ObfuscatedMessage;
 
@@ -14,7 +14,7 @@ pub(crate) struct PublisherBridge<'a> {
 }
 
 impl BookingPublisher for PublisherBridge<'_> {
-    fn publish(&self, id: &BookingId) -> Result<(), SourceError> {
+    fn publish(&self, id: &BookingId) -> Result<(), ObfuscationError> {
         self.publisher
             .publish(ObfuscatedMessage::from_id(id.as_str()));
         Ok(())

@@ -1,0 +1,5 @@
+{
+  "doc_globs": ["README*.md", "README*.rst", "CONTEXT*.md", "CHANGELOG*.md"],
+  "doc_dirs": ["docs"],
+  "severity_default": "medium"
+}

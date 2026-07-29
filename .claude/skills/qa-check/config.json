@@ -1,0 +1,19 @@
+{
+  "projects_root": "crates",
+  "specs_suffix": "_specs",
+  "production_suffixes": [
+    "_domain",
+    "_adapter"
+  ],
+  "feature_project_prefix": "",
+  "feature_project_suffixes": [
+    "_adapter"
+  ],
+  "reference_feature_project": "crates/einlesen_adapter",
+  "test_facade_glob": "src/testapi/*_test_api.rs",
+  "adr_reference": "ADR-0002",
+  "checks": {
+    "coverage_gap": true,
+    "test_api_shape": true
+  }
+}

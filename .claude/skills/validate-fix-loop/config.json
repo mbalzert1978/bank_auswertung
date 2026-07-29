@@ -1,0 +1,62 @@
+{
+  "max_iterations": 2,
+  "agent_model": "sonnet",
+  "test_gate": {
+    "enabled": true,
+    "command": "uv",
+    "args": [
+      "run",
+      ".claude/skills/run-tests/scripts/run-tests.py"
+    ]
+  },
+  "validators": [
+    "verifier-long-method",
+    "verifier-large-class",
+    "verifier-primitive-obsession",
+    "verifier-long-parameter-list",
+    "verifier-data-clumps",
+    "verifier-alternative-classes-with-different-interfaces",
+    "verifier-refused-bequest",
+    "verifier-switch-statements",
+    "verifier-temporary-field",
+    "verifier-divergent-change",
+    "verifier-parallel-inheritance-hierarchies",
+    "verifier-shotgun-surgery",
+    "verifier-comments",
+    "verifier-duplicate-code",
+    "verifier-data-class",
+    "verifier-dead-code",
+    "verifier-lazy-class",
+    "verifier-speculative-generality",
+    "verifier-feature-envy",
+    "verifier-inappropriate-intimacy",
+    "verifier-incomplete-library-class",
+    "verifier-message-chains",
+    "verifier-middle-man"
+  ],
+  "fixer_map": {
+    "verifier-long-method": "fixer-long-method",
+    "verifier-large-class": "fixer-large-class",
+    "verifier-primitive-obsession": "fixer-primitive-obsession",
+    "verifier-long-parameter-list": "fixer-long-parameter-list",
+    "verifier-data-clumps": "fixer-data-clumps",
+    "verifier-alternative-classes-with-different-interfaces": "fixer-alternative-classes-with-different-interfaces",
+    "verifier-refused-bequest": "fixer-refused-bequest",
+    "verifier-switch-statements": "fixer-switch-statements",
+    "verifier-temporary-field": "fixer-temporary-field",
+    "verifier-divergent-change": "fixer-divergent-change",
+    "verifier-parallel-inheritance-hierarchies": "fixer-parallel-inheritance-hierarchies",
+    "verifier-shotgun-surgery": "fixer-shotgun-surgery",
+    "verifier-comments": "fixer-comments",
+    "verifier-duplicate-code": "fixer-duplicate-code",
+    "verifier-data-class": "fixer-data-class",
+    "verifier-dead-code": "fixer-dead-code",
+    "verifier-lazy-class": "fixer-lazy-class",
+    "verifier-speculative-generality": "fixer-speculative-generality",
+    "verifier-feature-envy": "fixer-feature-envy",
+    "verifier-inappropriate-intimacy": "fixer-inappropriate-intimacy",
+    "verifier-incomplete-library-class": "fixer-incomplete-library-class",
+    "verifier-message-chains": "fixer-message-chains",
+    "verifier-middle-man": "fixer-middle-man"
+  }
+}

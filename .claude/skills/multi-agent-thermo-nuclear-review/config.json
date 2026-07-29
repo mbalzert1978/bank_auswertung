@@ -1,0 +1,71 @@
+{
+  "finder_count": 3,
+  "lenses": [
+    {
+      "name": "Security / Privacy",
+      "angles": [
+        "Input Validation & Sanitization",
+        "Authentication & Authorization",
+        "Data Encryption & Storage"
+      ]
+    },
+    {
+      "name": "Declerative / Functional",
+      "angles": [
+        "Pure Functions",
+        "Immutability",
+        "Higher-Order Functions",
+        "Invalid state unrepresentable"
+      ]
+    },
+    {
+      "name": "Design Patterns",
+      "angles": [
+        "GoF-Passung / Misfit",
+        "Über-/Unter-Engineering",
+        "Kopplung & Kohäsion"
+      ]
+    },
+    {
+      "name": "Clean Code",
+      "angles": [
+        "Naming & Lesbarkeit",
+        "Methodenlänge & Kohäsion",
+        "Code Smells & Refactoring"
+      ]
+    },
+    {
+      "name": "Performance / Complexity",
+      "angles": [
+        "Big-O / Algorithmische Komplexität",
+        "Speicherverbrauch / Garbage Collection",
+        "Parallelisierung / Concurrency"
+      ]
+    },
+    {
+      "name": "Testing / QA",
+      "angles": [
+        "Unit Tests & Coverage",
+        "Integration Tests & Mocks",
+        "Test-Driven Development (TDD)"
+      ]
+    },
+    {
+      "name": "SOLID",
+      "angles": [
+        "SRP",
+        "OCP/DIP",
+        "ISP/LSP"
+      ]
+    }
+  ],
+  "guardrails": [
+    "Lens anordung spiegelt Priorität wider: kein Flag",
+    "DU statt Enum (SyncAction-Muster): kein Enum-Flag vorschlagen",
+    "UnreachableException bei exhaustiven DU-Switches: kein Pragma-Workaround",
+    "ADR-0013-Slice-Duplikate: bewusst, kein DRY-Flag",
+    "Cross-Slice via public Seams (Option C/ADR-0019): kein Coupling-Flag",
+    "ISP-Composition als Hausmuster: kein Interface-Proliferation-Flag",
+    "Verbose XML-Doku = Hausstil: kein Kommentar-Nit"
+  ]
+}

@@ -7,7 +7,7 @@ use crate::models::ObfuscatedBooking;
 ///
 /// **Fehlbar und terminal:** ein Scheitern ist ein seam-lokaler [`StoreUnavailable`] (roh-typisiert,
 /// ohne Domänen-Kenntnis); die `RepositoryBridge` mappt ihn „außen
-/// → innen" auf den terminalen Domänen-`SourceError` (ACL).
+/// → innen" auf den terminalen Domänen-`ObfuscationError` (ACL).
 pub trait ObfuscatedStoreSeam {
     /// Reiht die obfuskierte Buchung ein (Staging) und gibt die neu vergebene ID zurück, oder
     /// scheitert terminal mit [`StoreUnavailable`].
@@ -16,7 +16,7 @@ pub trait ObfuscatedStoreSeam {
 
 /// Die Ablage ist **misslungen** — terminaler Seam-Fehler, der die **io-Diagnose** trägt
 /// (Zugriffs-Mechanik: DB-/Transaktions-Fehler). Die `RepositoryBridge` reicht sie als `reason` in den
-/// redigierten Domänen-Fehler `SourceError::StorageUnavailable` weiter (neben der opaken Quell-ID),
+/// redigierten Domänen-Fehler `ObfuscationError::StorageUnavailable` weiter (neben der opaken Quell-ID),
 /// damit ein unerreichbarer Store diagnostizierbar bleibt — lokal, **kein Egress**: in ein
 /// ausgehendes DTO fließt sie nie.
 ///
@@ -36,7 +36,7 @@ pub struct StoreUnavailable {
 impl std::fmt::Display for StoreUnavailable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Nur die Diagnose selbst — den terminalen Meldungssatz besitzt allein die Domänen-`Display`
-        // von `SourceError::StorageUnavailable` (kein Satz-Duplikat über Crates).
+        // von `ObfuscationError::StorageUnavailable` (kein Satz-Duplikat über Crates).
         write!(f, "{}", self.message)
     }
 }

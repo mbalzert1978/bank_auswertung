@@ -1,0 +1,23 @@
+{
+  "linter": {
+    "command": "cargo",
+    "args": [
+      "clippy",
+      "--workspace",
+      "--all-targets",
+      "--all-features",
+      "--",
+      "-D",
+      "warnings"
+    ]
+  },
+  "formatter": {
+    "command": "cargo",
+    "args": [
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ]
+  }
+}

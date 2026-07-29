@@ -6,7 +6,7 @@
 //! orchestriert gegen verlangte Ports: er **liest** das rohe Aggregat per ID aus dem einlesen-Speicher
 //! ([`RawBookingSource`]), **obfuskiert** es seed-basiert ([`Obfuscator`]), **legt** es ins Repository
 //! ([`ObfuscatedRepository`], das die neue ID vergibt) und **publiziert** diese neue ID als Zeiger
-//! ([`BookingPublisher`]). Lesen, Ablegen und Publizieren sind je fehlbar und terminal ([`SourceError`]).
+//! ([`BookingPublisher`]). Lesen, Ablegen und Publizieren sind je fehlbar und terminal ([`ObfuscationError`]).
 //!
 //! Fachlicher Kern der Obfuskierung: die **seed-basierte** Ersetzung von Konten (`KONTO_…`) und
 //! Privatpersonen (`PERSON_…`), die **Fail-safe-Deutung** Firma vs. Privatperson ([`Recipient`]) und
@@ -25,7 +25,7 @@ mod ports;
 mod value_objects;
 
 pub use entities::{IngestedBooking, ObfuscatedBooking};
-pub use error::SourceError;
+pub use error::ObfuscationError;
 pub use handler::ObfuscationHandler;
 pub use models::ObfuscateBooking;
 pub use ports::{BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource};
