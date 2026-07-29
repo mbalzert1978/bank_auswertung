@@ -1,7 +1,7 @@
 ---
 id: "0008"
 title: "Persistente Pseudonym-Zuordnung"
-status: blocked
+status: open
 ---
 
 # Persistente Pseudonym-Zuordnung

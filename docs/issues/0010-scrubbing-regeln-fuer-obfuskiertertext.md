@@ -1,7 +1,7 @@
 ---
 id: "0010"
 title: "Scrubbing-Regeln für ObfuskierterText"
-status: blocked
+status: open
 ---
 
 # Scrubbing-Regeln für ObfuskierterText

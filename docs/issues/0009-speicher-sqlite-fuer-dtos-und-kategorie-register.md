@@ -1,7 +1,7 @@
 ---
 id: "0009"
 title: "Speicher (SQLite) für DTOs und Kategorie-Register"
-status: blocked
+status: open
 ---
 
 # Speicher (SQLite) für DTOs und Kategorie-Register

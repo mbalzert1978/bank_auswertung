@@ -1,7 +1,7 @@
 ---
 id: "0004"
 title: "Umbuchung-Netting"
-status: blocked
+status: open
 ---
 
 # Umbuchung-Netting

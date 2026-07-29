@@ -1,7 +1,7 @@
 ---
 id: "0002"
 title: "Eigene-Konten-Config: Schema und Loader"
-status: blocked
+status: open
 ---
 
 # Eigene-Konten-Config: Schema und Loader

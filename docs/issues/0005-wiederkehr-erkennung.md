@@ -1,7 +1,7 @@
 ---
 id: "0005"
 title: "Wiederkehr-Erkennung"
-status: blocked
+status: open
 ---
 
 # Wiederkehr-Erkennung

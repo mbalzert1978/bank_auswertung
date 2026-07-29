@@ -1,7 +1,7 @@
 ---
 id: "0007"
 title: "Aderlass, Pareto-Ranking und Spar-Kandidaten"
-status: blocked
+status: open
 ---
 
 # Aderlass, Pareto-Ranking und Spar-Kandidaten

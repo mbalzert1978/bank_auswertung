@@ -1,7 +1,7 @@
 ---
 id: "0006"
 title: "Gebühren-Klassifikation"
-status: blocked
+status: open
 ---
 
 # Gebühren-Klassifikation
