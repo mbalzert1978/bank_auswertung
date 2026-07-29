@@ -251,8 +251,30 @@ egress-DTO `Serialize` guard. Also deferred: `ObfuskierterText` scrubbing (only
 trims/rejects-empty today) and persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
 [Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
-writing the seed **alongside each aggregate** is not). **Next: the Eigene-Konten loader and the
-`Kategorisierer`/`Speicher` adapters, then the `report` HTML presenter.** No binary yet.
+writing the seed **alongside each aggregate** is not).
+
+**Still open beyond the adapters** (issues filed 2026-07-29):
+
+- **No program at all** — the pipeline runs only in tests. There is no binary that enqueues the
+  `ReadTransactions` trigger and turns the broker loop
+  ([0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md),
+  incl. the redacted run log; the bin crate binds `io` only).
+- **No schema owner, no version stamp** — every result store creates its own schema on
+  construction, so any file found on disk is indistinguishable at version 0 and a later migration
+  (e.g. the day-stamp axis) has nothing to hook onto
+  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)).
+- **No dead-letter** — a terminally failing message stays **open** in the outbox and is
+  redelivered by every later run; nothing counts attempts. This is the question
+  [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) explicitly
+  deferred (*how* `io` surfaces a terminal failure)
+  ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)).
+- Cosmetic: the `toml` dependency carries semver build metadata, so every workspace command
+  prints a warning ([0086](docs/issues/0086-toml-abhaengigkeit-ohne-semver-metadaten.md)).
+
+**Next: the Eigene-Konten loader ([0002](docs/issues/0002-eigene-konten-config-schema-und-loader.md)),
+then the binary/run kick-off ([0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md))
+— the shortest path to pushing real data through the chain. `Kategorisierer`/`Speicher` and the
+`report` HTML presenter follow.**
 
 ## Commands
 
@@ -271,7 +293,8 @@ Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate),
 kanonisch über den Skill **`/cargo-six-gates`** — er führt alle sechs aus und meldet
 PASS/FAIL je Gate. Definition und Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
 
-No binary yet (library crate, no `src/main.rs`), so `cargo run` does nothing useful.
+No binary yet (library crates only, no `main.rs` anywhere), so `cargo run` does nothing useful —
+that is [Issue 0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md).
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 
 ## Architecture — the big picture
@@ -337,8 +360,12 @@ each step runnable/valuable against fakes, real `io` last:
    of the chain and the `toml` loaders for window size and seed are real (issues 0050–0059,
    0074–0077). **Open:** the Eigene-Konten loader (issue 0002), `Speicher` for DTOs + category
    register, and the `Kategorisierer` oracle.
-7. **`report`** HTML output.
-8. **Iteration** — review together, learn corrections, name savings.
+7. **The run itself** — a binary that enqueues the trigger and turns the broker loop
+   (issue 0083), the one schema owner + version stamp (0084) and the dead-letter that keeps a
+   poisoned message from being redelivered forever (0085). Until this step exists, the pipeline
+   only ever runs inside tests.
+8. **`report`** HTML output.
+9. **Iteration** — review together, learn corrections, name savings.
 
 Prerequisites before their step (see README "Offen" / PRD) — **data**, no longer adapters: a
 real CSV-CAMT-v8 sample file for a real `einlesen` run; a **stable config seed** (its `toml`
