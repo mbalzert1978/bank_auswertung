@@ -11,10 +11,13 @@
 //!
 //! **Die Config-Loader leben zentral hier**, nicht mehr an den einzelnen Slices: [`FensterConfig`]
 //! liest die Paging-Seitengröße des `fenstern`-Slice aus toml
-//! ([Issue 0054](../../../docs/issues/0054-config-loader-toml-fenster-config.md)) und
+//! ([Issue 0054](../../../docs/issues/0054-config-loader-toml-fenster-config.md)),
 //! [`SeedConfig`] den Obfuskierungs-Seed des `obfuskierung`-Slice
-//! ([Issue 0059](../../../docs/issues/0059-config-loader-toml-seed.md)); die weiteren io-seitigen
-//! Einstellungen (Eigene-Konten-Pfad …) folgen demselben Muster. **Beide Loader teilen sich einen
+//! ([Issue 0059](../../../docs/issues/0059-config-loader-toml-seed.md)) und
+//! [`EigeneKontenConfig`] die eigenen Konten des `auswerten`-Slice
+//! ([Issue 0002](../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)) — Letztere als
+//! einzige mit einem eigenen Zwischenschritt: sie liest **IBANs** und gibt **Token** heraus.
+//! **Alle drei Loader teilen sich einen
 //! einzigen** [`ConfigError`] — die redigierte, statische Fehler-Ursache jedes fehlgeschlagenen
 //! Ladens; `io` reicht den geladenen Wert dann als rohen Wert in den jeweiligen Consumer (die
 //! Domäne liest **keine** Datei). Der zugehörige [`ConfigKind`] ist **bewusst Teil der öffentlichen
@@ -23,9 +26,11 @@
 //! statt eines stringly-typed Labels (ADR-0005) — und muss öffentlich sein, sobald der öffentliche
 //! [`ConfigError`] ihn trägt.
 
+mod eigene_konten;
 mod fenster;
 mod seed;
 
+pub use eigene_konten::EigeneKontenConfig;
 pub use fenster::FensterConfig;
 pub use seed::SeedConfig;
 
@@ -63,6 +68,8 @@ pub enum ConfigKind {
     Seed,
     /// Der Fenster-Config-Loader ([`FensterConfig`]).
     Fenster,
+    /// Der Eigene-Konten-Loader ([`EigeneKontenConfig`]).
+    EigeneKonten,
 }
 
 impl ConfigKind {
@@ -71,6 +78,7 @@ impl ConfigKind {
         match self {
             Self::Seed => "Seed-Konfiguration",
             Self::Fenster => "Fenster-Konfiguration",
+            Self::EigeneKonten => "Eigene-Konten-Konfiguration",
         }
     }
 }
@@ -95,6 +103,22 @@ pub enum ConfigError {
     WindowDaysMissing,
     /// `window_days` ist keine positive Ganzzahl (kein Integer, negativ, zu groß oder null).
     WindowDaysInvalid,
+    /// Die Eigene-Konten-Config führt kein einziges `[[konto]]` — sie wäre die stille Zusage, dass es
+    /// kein eigenes Konto gibt, und jede Umbuchung liefe als *fremd* durch.
+    OwnAccountsMissing,
+    /// Ein `[[konto]]` ohne `iban`.
+    OwnAccountIbanMissing,
+    /// Die `iban` ist strukturell oder per mod-97-Prüfsumme ungültig. Die abgelehnte IBAN erscheint
+    /// **nicht** in der Meldung — sie ist genau der Rohwert, den dieses Projekt nie zitiert.
+    OwnAccountIbanInvalid,
+    /// Ein `[[konto]]` ohne `rolle`.
+    OwnAccountRoleMissing,
+    /// Die `rolle` ist keine der vier bekannten (`Giro`/`Haushalt`/`Spar`/`Vorlauf`). Auch hier
+    /// **kein** Zitat: eine verrutschte Zelle könnte beliebigen Inhalt führen.
+    OwnAccountRoleUnknown,
+    /// Dieselbe IBAN steht zweimal in der Config — welche Rolle gälte, entschiede sonst die
+    /// Reihenfolge in der Datei.
+    OwnAccountDuplicate,
 }
 
 impl std::fmt::Display for ConfigError {
@@ -109,6 +133,24 @@ impl std::fmt::Display for ConfigError {
             Self::WindowDaysMissing => f.write_str("Fenster-Konfiguration: window_days fehlt"),
             Self::WindowDaysInvalid => {
                 f.write_str("Fenster-Konfiguration: window_days muss eine positive Ganzzahl sein")
+            }
+            Self::OwnAccountsMissing => {
+                f.write_str("Eigene-Konten-Konfiguration: kein einziges [[konto]]")
+            }
+            Self::OwnAccountIbanMissing => {
+                f.write_str("Eigene-Konten-Konfiguration: ein [[konto]] ohne iban")
+            }
+            Self::OwnAccountIbanInvalid => f.write_str(
+                "Eigene-Konten-Konfiguration: eine iban ist ungültig (Form oder Prüfsumme)",
+            ),
+            Self::OwnAccountRoleMissing => {
+                f.write_str("Eigene-Konten-Konfiguration: ein [[konto]] ohne rolle")
+            }
+            Self::OwnAccountRoleUnknown => f.write_str(
+                "Eigene-Konten-Konfiguration: rolle muss Giro, Haushalt, Spar oder Vorlauf sein",
+            ),
+            Self::OwnAccountDuplicate => {
+                f.write_str("Eigene-Konten-Konfiguration: dieselbe iban steht zweimal")
             }
         }
     }

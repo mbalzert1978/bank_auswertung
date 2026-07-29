@@ -266,7 +266,7 @@ mod tests {
         consumer as fenstern_consumer, start_consumer,
     };
     use crate::obfuskierung::ObfuskierungSqliteStore;
-    use crate::outbox::OutboxError;
+    use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{
         CapturingAck, Stage, drain, register_fresh, seed_through, stamp,
     };
@@ -356,7 +356,7 @@ mod tests {
         store: FensternSqliteStore,
         window_days: NonZeroU32,
         ack: &CapturingAck,
-    ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
         let source = ObfuskiertWindowSource::new(outbox.clone());
         let mut dispatcher = Dispatcher::new();
         register_fresh(

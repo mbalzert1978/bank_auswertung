@@ -30,6 +30,7 @@ mod occurrence_row;
 mod own_accounts_config;
 mod window_evaluation_row;
 
+pub use account_role_vocabulary::account_role_label;
 pub use analysis_window_row::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, WindowBookingRow,
 };

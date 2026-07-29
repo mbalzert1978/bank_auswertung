@@ -1,0 +1,17 @@
+[package]
+name = "lauf"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+# Die **einzige** interne Kante dieser Crate — und keine externe. Sie ist reine Kommandozeile:
+# Argumente lesen, `io::run` rufen, Exit-Code setzen. Alles Fachliche (Slices, Adapter, Outbox)
+# erreicht sie ausschließlich durch `io`; der `architecture`-Test nagelt das fest.
+[dependencies]
+io = { path = "../io" }
+
+[[bin]]
+name = "bank-auswertung"
+path = "src/main.rs"
