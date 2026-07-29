@@ -36,8 +36,10 @@
 
 use std::collections::BTreeMap;
 use std::io::Write;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
+use auswerten_adapter::OwnAccountsConfig;
 use obfuskierung_adapter::ObfuscatedMessage;
 
 use crate::Dispatcher;
@@ -200,81 +202,15 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
         EigeneKontenConfig::load(&paths.own_accounts_config)?.to_own_accounts_config(seed);
 
     let outbox = SqliteOutbox::open(&AppConfig::new(&paths.database)).map_err(backbone)?;
-
-    // Die realen Seams und Ergebnis-Stores — je einer pro Slice, alle auf **einem** Rückgrat.
-    let transactions = CsvCamtV8Source::new(&paths.transactions);
-    let einlesen_store = EinlesenSqliteStore::new(outbox.clone()).map_err(backbone)?;
-    let ingested_rows = EinlesenRowSource::new(outbox.clone());
-    let obfuskierung_store = ObfuskierungSqliteStore::new(outbox.clone()).map_err(backbone)?;
-    let obfuskiert_windows = ObfuskiertWindowSource::new(outbox.clone());
-    let fenstern_store = FensternSqliteStore::new(outbox.clone()).map_err(backbone)?;
-    let analysis_windows = AuswertungsfensterSource::new(outbox.clone());
-    let auswerten_store = AuswertenSqliteStore::new(outbox.clone()).map_err(backbone)?;
-    let registry = EmptyCategoryRegistry;
-    let categorizer = UnansweredCategorizer;
+    let adapters = Adapters::new(&outbox, paths);
+    let stores = Stores::open(&outbox)?;
     let occurrences = CountingOccurrenceSink::default();
-
-    let mut dispatcher = Dispatcher::new();
-    register(
-        &mut dispatcher,
-        EINLESEN_CONSUMED,
-        Box::new(einlesen_consumer(
-            &transactions,
-            &GermanCalendar,
-            &GermanMoney,
-            &IsoCurrencies,
-            einlesen_store,
-        )),
-    )?;
-    register(
-        &mut dispatcher,
-        OBFUSKIERUNG_CONSUMED,
-        Box::new(obfuskierung_consumer(
-            &ingested_rows,
-            &SeededObfuscator,
-            seed,
-            obfuskierung_store,
-        )),
-    )?;
-    register(
-        &mut dispatcher,
-        OBFUSCATED_MESSAGE_TYPE,
-        Box::new(AckSink::new(outbox.clone())),
-    )?;
-    register(
-        &mut dispatcher,
-        START_MESSAGE_TYPE,
-        Box::new(start_consumer(&obfuskiert_windows, fenstern_store.clone())),
-    )?;
-    register(
-        &mut dispatcher,
-        FENSTERN_CONSUMED,
-        Box::new(fenstern_consumer(
-            window_days,
-            &obfuskiert_windows,
-            fenstern_store,
-        )),
-    )?;
-    register(
-        &mut dispatcher,
-        AUSWERTEN_CONSUMED,
-        Box::new(auswerten_consumer(
-            &analysis_windows,
-            &registry,
-            &categorizer,
-            own_accounts,
-            auswerten_store.clone(),
-        )),
-    )?;
-    register(
-        &mut dispatcher,
-        CONSUMED_HISTORY_MESSAGE_TYPE,
-        Box::new(history_consumer(
-            &analysis_windows,
-            occurrences.clone(),
-            auswerten_store,
-        )),
-    )?;
+    let dispatcher = DispatcherBuilder::new(&outbox, &adapters, stores)
+        .window_days(window_days)
+        .seed(seed)
+        .own_accounts(own_accounts)
+        .occurrences(&occurrences)
+        .build()?;
 
     let mut report = RunReport::default();
 
@@ -293,6 +229,263 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     report.occurrences = occurrences.count();
     write_summary(protocol, &report)?;
     Ok(report)
+}
+
+/// Die realen Seams, die die Consumer nur **borrowen**, nicht besitzen — eigens gehalten, weil der
+/// [`Dispatcher`] sie über die ganze Laufzeit der Broker-Schleife referenziert und sie darum nicht im
+/// [`DispatcherBuilder`] selbst entstehen dürfen (der Wert würde beim Verlassen der Funktion fallen,
+/// während der Dispatcher ihn noch bräuchte). [`run`] hält diesen Wert darum in seinem eigenen
+/// Stack-Frame.
+struct Adapters {
+    transactions: CsvCamtV8Source,
+    ingested_rows: EinlesenRowSource,
+    obfuskiert_windows: ObfuskiertWindowSource,
+    analysis_windows: AuswertungsfensterSource,
+    registry: EmptyCategoryRegistry,
+    categorizer: UnansweredCategorizer,
+}
+
+impl Adapters {
+    fn new(outbox: &SqliteOutbox, paths: &RunPaths) -> Self {
+        Self {
+            transactions: CsvCamtV8Source::new(&paths.transactions),
+            ingested_rows: EinlesenRowSource::new(outbox.clone()),
+            obfuskiert_windows: ObfuskiertWindowSource::new(outbox.clone()),
+            analysis_windows: AuswertungsfensterSource::new(outbox.clone()),
+            registry: EmptyCategoryRegistry,
+            categorizer: UnansweredCategorizer,
+        }
+    }
+}
+
+/// Die vier Ergebnis-Stores — je einer pro Slice, alle auf **demselben** Rückgrat. Anders als
+/// [`Adapters`] werden sie **besessen** in die Consumer verschoben, tragen also keine eigene
+/// Lebenszeit und dürfen im [`DispatcherBuilder`] selbst geöffnet werden.
+struct Stores {
+    einlesen: EinlesenSqliteStore,
+    obfuskierung: ObfuskierungSqliteStore,
+    fenstern: FensternSqliteStore,
+    auswerten: AuswertenSqliteStore,
+}
+
+impl Stores {
+    fn open(outbox: &SqliteOutbox) -> Result<Self, RunError> {
+        Ok(Self {
+            einlesen: EinlesenSqliteStore::new(outbox.clone()).map_err(backbone)?,
+            obfuskierung: ObfuskierungSqliteStore::new(outbox.clone()).map_err(backbone)?,
+            fenstern: FensternSqliteStore::new(outbox.clone()).map_err(backbone)?,
+            auswerten: AuswertenSqliteStore::new(outbox.clone()).map_err(backbone)?,
+        })
+    }
+}
+
+/// Baut den [`Dispatcher`] mit allen sieben Consumern — die eine Stelle, an der die Seams
+/// ([`Adapters`]), die Ergebnis-Stores ([`Stores`]) und die geladenen Config-Werte zu den realen
+/// Consumern der Kette zusammenlaufen. [`run`] selbst bleibt dadurch die Zusammenfassung: Configs
+/// laden, Rückgrat öffnen, Dispatcher bauen, beide Phasen fahren, Bilanz schreiben.
+///
+/// Die drei strukturellen Bündel — Rückgrat, Seams, Stores — verlangt `new`: ohne sie lässt sich kein
+/// einziger Consumer verdrahten, und `adapters` bindet ohnehin die Lebenszeit `'a`, die der fertige
+/// [`Dispatcher`] trägt. Die vier geladenen Config-Werte kommen je über eine verkettete, `self`
+/// konsumierende Methode dazu — dieselbe Reihenfolge, in der [`run`] sie lädt.
+///
+/// Der Typparameter `C` ist der **Typestate**: er trägt die bereits gesetzten Config-Werte und wächst
+/// mit jedem Schritt ([`Empty`] → [`WithWindowDays`] → [`WithSeed`] → [`WithOwnAccounts`] →
+/// [`Complete`]). Jede Methode existiert nur auf ihrem Zustand, und `build` nur auf [`Complete`] —
+/// einen unvollständigen Builder abzuschließen ist damit ein **Compile-Fehler** statt einer
+/// Laufzeitprüfung (ADR-0005: illegale Zustände unkonstruierbar, nicht „geprüft"). Deshalb trägt
+/// keines der Config-Felder ein `Option`.
+struct DispatcherBuilder<'a, C> {
+    outbox: &'a SqliteOutbox,
+    adapters: &'a Adapters,
+    stores: Stores,
+    config: C,
+}
+
+/// Typestate: noch kein Config-Wert gesetzt.
+struct Empty;
+
+/// Typestate: die Fenstergröße steht.
+struct WithWindowDays {
+    window_days: NonZeroU32,
+}
+
+/// Typestate: Fenstergröße und Seed stehen.
+struct WithSeed {
+    window_days: NonZeroU32,
+    seed: u64,
+}
+
+/// Typestate: dazu die tokenisierte Eigene-Konten-Config.
+struct WithOwnAccounts {
+    window_days: NonZeroU32,
+    seed: u64,
+    own_accounts: OwnAccountsConfig,
+}
+
+/// Typestate: alle vier Werte stehen — allein auf diesem Zustand gibt es `build`.
+struct Complete<'a> {
+    window_days: NonZeroU32,
+    seed: u64,
+    own_accounts: OwnAccountsConfig,
+    occurrences: &'a CountingOccurrenceSink,
+}
+
+impl<'a, C> DispatcherBuilder<'a, C> {
+    /// Trägt die drei strukturellen Bündel in den nächsten Zustand, während `next` den bisherigen
+    /// Config-Stand um den neuen Wert erweitert — die eine Stelle, die den Zustandsübergang vollzieht,
+    /// damit die vier Setter je eine Zeile bleiben.
+    fn advance<N>(self, next: impl FnOnce(C) -> N) -> DispatcherBuilder<'a, N> {
+        DispatcherBuilder {
+            outbox: self.outbox,
+            adapters: self.adapters,
+            stores: self.stores,
+            config: next(self.config),
+        }
+    }
+}
+
+impl<'a> DispatcherBuilder<'a, Empty> {
+    /// Öffnet den Builder mit den drei strukturellen Bündeln — Rückgrat, Seams, Stores —, ohne die kein
+    /// Consumer entsteht.
+    fn new(outbox: &'a SqliteOutbox, adapters: &'a Adapters, stores: Stores) -> Self {
+        Self {
+            outbox,
+            adapters,
+            stores,
+            config: Empty,
+        }
+    }
+
+    /// Die Fenstergröße für `fenstern`.
+    fn window_days(self, window_days: NonZeroU32) -> DispatcherBuilder<'a, WithWindowDays> {
+        self.advance(|Empty| WithWindowDays { window_days })
+    }
+}
+
+impl<'a> DispatcherBuilder<'a, WithWindowDays> {
+    /// Der Seed, mit dem `obfuskieren` seine Tokens ableitet.
+    fn seed(self, seed: u64) -> DispatcherBuilder<'a, WithSeed> {
+        self.advance(|WithWindowDays { window_days }| WithSeed { window_days, seed })
+    }
+}
+
+impl<'a> DispatcherBuilder<'a, WithSeed> {
+    /// Die tokenisierte Eigene-Konten-Config für `auswerten`.
+    fn own_accounts(
+        self,
+        own_accounts: OwnAccountsConfig,
+    ) -> DispatcherBuilder<'a, WithOwnAccounts> {
+        self.advance(|WithSeed { window_days, seed }| WithOwnAccounts {
+            window_days,
+            seed,
+            own_accounts,
+        })
+    }
+}
+
+impl<'a> DispatcherBuilder<'a, WithOwnAccounts> {
+    /// Die Senke, die die fenster-übergreifenden Vorkommen zählt.
+    fn occurrences(
+        self,
+        occurrences: &'a CountingOccurrenceSink,
+    ) -> DispatcherBuilder<'a, Complete<'a>> {
+        self.advance(
+            |WithOwnAccounts {
+                 window_days,
+                 seed,
+                 own_accounts,
+             }| Complete {
+                window_days,
+                seed,
+                own_accounts,
+                occurrences,
+            },
+        )
+    }
+}
+
+impl<'a> DispatcherBuilder<'a, Complete<'a>> {
+    /// Registriert alle sieben Consumer und schließt den Builder ab. Scheitern kann hier nur noch die
+    /// Registrierung selbst ([`RunError::DuplicateConsumer`]) — dass alle vier Config-Werte vorliegen,
+    /// hat der Typ bereits bewiesen.
+    fn build(self) -> Result<Dispatcher<'a>, RunError> {
+        let Complete {
+            window_days,
+            seed,
+            own_accounts,
+            occurrences,
+        } = self.config;
+        let outbox = self.outbox;
+        let adapters = self.adapters;
+        let stores = self.stores;
+
+        let mut dispatcher = Dispatcher::new();
+        register(
+            &mut dispatcher,
+            EINLESEN_CONSUMED,
+            Box::new(einlesen_consumer(
+                &adapters.transactions,
+                &GermanCalendar,
+                &GermanMoney,
+                &IsoCurrencies,
+                stores.einlesen,
+            )),
+        )?;
+        register(
+            &mut dispatcher,
+            OBFUSKIERUNG_CONSUMED,
+            Box::new(obfuskierung_consumer(
+                &adapters.ingested_rows,
+                &SeededObfuscator,
+                seed,
+                stores.obfuskierung,
+            )),
+        )?;
+        register(
+            &mut dispatcher,
+            OBFUSCATED_MESSAGE_TYPE,
+            Box::new(AckSink::new(outbox.clone())),
+        )?;
+        register(
+            &mut dispatcher,
+            START_MESSAGE_TYPE,
+            Box::new(start_consumer(
+                &adapters.obfuskiert_windows,
+                stores.fenstern.clone(),
+            )),
+        )?;
+        register(
+            &mut dispatcher,
+            FENSTERN_CONSUMED,
+            Box::new(fenstern_consumer(
+                window_days,
+                &adapters.obfuskiert_windows,
+                stores.fenstern,
+            )),
+        )?;
+        register(
+            &mut dispatcher,
+            AUSWERTEN_CONSUMED,
+            Box::new(auswerten_consumer(
+                &adapters.analysis_windows,
+                &adapters.registry,
+                &adapters.categorizer,
+                own_accounts,
+                stores.auswerten.clone(),
+            )),
+        )?;
+        register(
+            &mut dispatcher,
+            CONSUMED_HISTORY_MESSAGE_TYPE,
+            Box::new(history_consumer(
+                &adapters.analysis_windows,
+                occurrences.clone(),
+                stores.auswerten,
+            )),
+        )?;
+        Ok(dispatcher)
+    }
 }
 
 /// Dreht die Broker-Schleife, bis keine offene Nachricht mehr übrig ist — nötig, weil ein Consumer
@@ -425,23 +618,24 @@ mod tests {
         }
     }
 
-    /// Die Zahl noch **offener** Nachrichten — nach einem gelungenen Lauf muss sie null sein.
-    fn offene_nachrichten(paths: &RunPaths) -> rusqlite::Result<i64> {
-        SqliteOutbox::open(&AppConfig::new(&paths.database))?.with_connection(|conn| {
-            conn.query_row(
-                "SELECT count(*) FROM outbox WHERE processed_on_utc IS NULL;",
-                [],
-                |row| row.get(0),
-            )
-        })
+    /// Zählt über eine **eigene** Verbindung auf die Lauf-Datenbank — der Lauf ist da längst beendet,
+    /// die Zählung sieht also nur committete Zeilen.
+    fn zaehle(paths: &RunPaths, sql: &str) -> rusqlite::Result<i64> {
+        SqliteOutbox::open(&AppConfig::new(&paths.database))?
+            .with_connection(|conn| conn.query_row(sql, [], |row| row.get(0)))
     }
 
+    /// Die Zahl noch **offener** Nachrichten — nach einem gelungenen Lauf muss sie null sein.
+    fn offene_nachrichten(paths: &RunPaths) -> rusqlite::Result<i64> {
+        zaehle(
+            paths,
+            "SELECT count(*) FROM outbox WHERE processed_on_utc IS NULL;",
+        )
+    }
+
+    /// Die Zahl der Zeilen einer Ergebnis-Tabelle.
     fn zeilen(paths: &RunPaths, table: &str) -> rusqlite::Result<i64> {
-        SqliteOutbox::open(&AppConfig::new(&paths.database))?.with_connection(|conn| {
-            conn.query_row(&format!("SELECT count(*) FROM {table};"), [], |row| {
-                row.get(0)
-            })
-        })
+        zaehle(paths, &format!("SELECT count(*) FROM {table};"))
     }
 
     #[expect(
