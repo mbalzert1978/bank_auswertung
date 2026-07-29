@@ -1,7 +1,7 @@
 ---
 id: "0028"
 title: "obfuskierung: terminal-fehlbares read/save/publish und ID-Handoff"
-status: open
+status: closed
 ---
 
 # obfuskierung: terminal-fehlbares read/save/publish und ID-Handoff

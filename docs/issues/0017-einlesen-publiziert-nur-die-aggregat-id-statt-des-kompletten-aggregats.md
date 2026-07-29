@@ -1,7 +1,7 @@
 ---
 id: "0017"
 title: einlesen publiziert nur die Aggregat-ID statt des kompletten Aggregats
-status: open
+status: closed
 ---
 
 # einlesen publiziert nur die Aggregat-ID statt des kompletten Aggregats

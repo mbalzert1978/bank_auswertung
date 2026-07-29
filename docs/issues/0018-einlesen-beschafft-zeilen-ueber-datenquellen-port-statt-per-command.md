@@ -1,7 +1,7 @@
 ---
 id: "0018"
 title: einlesen beschafft Zeilen über Datenquellen-Port statt per Command
-status: open
+status: closed
 ---
 
 # einlesen beschafft Zeilen über Datenquellen-Port statt per Command

@@ -1,7 +1,7 @@
 ---
 id: "0016"
 title: "obfuskieren-Slice als Pipeline-Consumer"
-status: done
+status: closed
 ---
 
 # obfuskieren-Slice als Pipeline-Consumer

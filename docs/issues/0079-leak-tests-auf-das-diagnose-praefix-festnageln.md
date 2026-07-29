@@ -1,7 +1,7 @@
 ---
 id: "0079"
 title: Leak-Tests auf das Diagnose-Praefix festnageln
-status: open
+status: closed
 ---
 
 # Leak-Tests auf das Diagnose-Praefix festnageln

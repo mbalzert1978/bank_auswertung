@@ -1,7 +1,7 @@
 ---
 id: "0022"
 title: "architecture-Regel: application_kernel ist interface-only (schließt die shared_kernel-Lücke)"
-status: open
+status: closed
 ---
 
 # architecture-Regel: application_kernel ist interface-only (schließt die shared_kernel-Lücke)

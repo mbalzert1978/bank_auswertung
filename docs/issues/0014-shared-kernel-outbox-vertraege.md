@@ -1,7 +1,7 @@
 ---
 id: "0014"
 title: "shared_kernel: Outbox-Verträge (interface-only)"
-status: done
+status: closed
 ---
 
 # shared_kernel: Outbox-Verträge (interface-only)

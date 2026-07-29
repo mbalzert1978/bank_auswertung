@@ -1,7 +1,7 @@
 ---
 id: "0030"
 title: "ADR-0012: durchweg-terminale Pipeline und uniformes ID-Handoff"
-status: open
+status: closed
 ---
 
 # ADR-0012: durchweg-terminale Pipeline und uniformes ID-Handoff

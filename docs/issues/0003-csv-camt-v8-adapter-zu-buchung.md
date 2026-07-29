@@ -1,7 +1,7 @@
 ---
 id: "0003"
 title: "CSV-CAMT-v8-Adapter zu Buchung"
-status: done
+status: closed
 ---
 
 # CSV-CAMT-v8-Adapter zu Buchung

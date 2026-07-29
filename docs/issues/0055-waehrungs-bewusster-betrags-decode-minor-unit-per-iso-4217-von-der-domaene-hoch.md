@@ -1,7 +1,7 @@
 ---
 id: "0055"
 title: "Währungs-bewusster Betrags-Decode: Minor Unit per ISO 4217 von der Domäne hoch"
-status: blocked
+status: closed
 ---
 
 # Währungs-bewusster Betrags-Decode: Minor Unit per ISO 4217 von der Domäne hoch

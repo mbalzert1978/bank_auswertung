@@ -1,7 +1,7 @@
 ---
 id: "0046"
 title: Doku-Drift nach den Merges 0036-0045 auf den realen Stand ziehen
-status: open
+status: closed
 ---
 
 # Doku-Drift nach den Merges 0036-0045 auf den realen Stand ziehen

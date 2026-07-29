@@ -1,7 +1,7 @@
 ---
 id: "0015"
 title: "einlesen-Slice als Pipeline-Consumer (Umbau von csv_camt_v8)"
-status: blocked
+status: closed
 ---
 
 # einlesen-Slice als Pipeline-Consumer (Umbau von csv_camt_v8)

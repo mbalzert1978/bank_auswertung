@@ -1,7 +1,7 @@
 ---
 id: "0019"
 title: einlesen-Consume-Bridge an obfuskieren angleichen (Command direkt statt leerem serde-Roundtrip)
-status: open
+status: closed
 ---
 
 # einlesen-Consume-Bridge an obfuskieren angleichen (Command direkt statt leerem serde-Roundtrip)

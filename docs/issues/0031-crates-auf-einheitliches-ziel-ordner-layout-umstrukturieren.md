@@ -1,7 +1,7 @@
 ---
 id: "0031"
 title: Crates auf einheitliches Ziel-Ordner-Layout umstrukturieren
-status: open
+status: closed
 ---
 
 # Crates auf einheitliches Ziel-Ordner-Layout umstrukturieren

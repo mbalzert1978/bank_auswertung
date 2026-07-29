@@ -1,7 +1,7 @@
 ---
 id: "0057"
 title: "fenstern-Store real + Lese-Seams + fenstern end-to-end real (Tracer-Bullet)"
-status: open
+status: closed
 ---
 
 # fenstern-Store real + Lese-Seams + fenstern end-to-end real (Tracer-Bullet)

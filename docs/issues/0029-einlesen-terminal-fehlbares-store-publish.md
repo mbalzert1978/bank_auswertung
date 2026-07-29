@@ -1,7 +1,7 @@
 ---
 id: "0029"
 title: "einlesen: terminal-fehlbares store/publish"
-status: open
+status: closed
 ---
 
 # einlesen: terminal-fehlbares store/publish
