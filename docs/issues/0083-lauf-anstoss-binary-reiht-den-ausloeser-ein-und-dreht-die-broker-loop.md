@@ -31,10 +31,18 @@ Der Prozess endet mit Exit-Code 0, wenn die Outbox leer läuft, und mit einem Co
 sobald eine Nachricht terminal scheitert. Der Dependency-Richtungs-Test bekommt die Regel für
 die neue Bin-Crate dazu, damit ihre eine erlaubte Kante festgenagelt ist.
 
+**Testdaten sind und bleiben erfunden.** Kein Test — auch dieser nicht — läuft je gegen einen
+echten Kontoauszug: die Eingabe ist eine **frei erfundene** CSV mit erfundenen Konten,
+Empfängern und Beträgen (`lauf.csv` im `einlesen`-CSV-Fixture-Bestand). Nur so ist
+strukturell ausgeschlossen, dass echte Kontodaten je in Repository, Testlauf oder
+Fehlerausgabe geraten. Zu unterscheiden davon ist der **Adapter**-Begriff: der Lauf benutzt
+die **realen** `io`-Adapter (echte SQLite-Datei, echte CSV-Quelle, echte Loader), keinen
+Fake-Seam — real ist die Mechanik, erfunden sind die Daten.
+
 ## Acceptance criteria
 
-- [ ] Ein Lauf gegen eine Beispiel-CSV füllt alle vier Ergebnis-Tabellen und endet mit leerer Outbox und Exit-Code 0.
-- [ ] Ein Integrationstest fährt diesen Lauf end-to-end ohne einen einzigen Fake.
+- [ ] Ein Lauf gegen die erfundene Lauf-CSV füllt alle vier Ergebnis-Tabellen und endet mit leerer Outbox und Exit-Code 0.
+- [ ] Ein Integrationstest fährt diesen Lauf end-to-end über die realen `io`-Adapter, ohne einen einzigen Fake-Seam — auf erfundenen Daten.
 - [ ] Ein Test nagelt fest, dass das Lauf-Protokoll weder Rohwert, Freitext, IBAN noch Seed enthält.
 - [ ] Ein terminal gescheiterter Lauf endet mit Exit-Code ungleich 0 und nennt den redigierten Fehler.
 - [ ] Der `architecture`-Test hält fest, dass die Bin-Crate `io` als einzige interne Abhängigkeit bindet.
