@@ -83,6 +83,21 @@ impl ConfigKind {
     }
 }
 
+/// Liest eine Config-Datei ein — der gemeinsame erste Lade-Schritt aller drei Loader
+/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`]). **Redigiert**: die io-Fehlermeldung
+/// wird bewusst **verworfen** (nicht als `source` gehängt) — sie könnte den Pfad tragen, und
+/// redigiert heißt kein Rohwert im Fehler-Chain.
+fn read_config_file(path: &Path, kind: ConfigKind) -> Result<String, ConfigError> {
+    std::fs::read_to_string(path).map_err(|_err| ConfigError::Unreadable(kind))
+}
+
+/// Parst toml-Text als Tabelle — der gemeinsame Parse-Schritt aller drei Loader. **Redigiert**: der
+/// toml-Parsefehler wird verworfen — er kann Zeilen-/Feldinhalt (bis hin zur IBAN oder zum Seed)
+/// zitieren; redigiert heißt, nur die statische Ursache reist weiter.
+fn parse_toml_table(raw: &str, kind: ConfigKind) -> Result<toml::Table, ConfigError> {
+    raw.parse().map_err(|_err| ConfigError::Malformed(kind))
+}
+
 /// Warum das Laden einer Config misslang — **der eine, geteilte** Fehler beider Loader
 /// ([`SeedConfig`] und [`FensterConfig`]). **Redigiert**: jede Variante trägt eine **statische**
 /// Ursache und **nie** einen Rohwert (Dateiinhalt, Pfad, gelesener Seed/Wert). Die beiden geteilten

@@ -71,10 +71,7 @@ impl EigeneKontenConfig {
     /// Lädt die Config aus einer Datei. Ein unlesbarer/fehlender Pfad ist ein **redigierter**
     /// [`ConfigError::Unreadable`](super::ConfigError::Unreadable) — der Pfad selbst bleibt draußen.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        // Die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt): sie könnte den
-        // Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
-        let raw = std::fs::read_to_string(path)
-            .map_err(|_err| ConfigError::Unreadable(ConfigKind::EigeneKonten))?;
+        let raw = super::read_config_file(path, ConfigKind::EigeneKonten)?;
         Self::from_toml_str(&raw)
     }
 
@@ -84,11 +81,7 @@ impl EigeneKontenConfig {
     /// Eine Config **ohne** ein einziges Konto wird abgelehnt: sie wäre keine Konfiguration, sondern
     /// die stille Zusage, dass es kein eigenes Konto gibt — und jede Umbuchung liefe als fremd durch.
     pub fn from_toml_str(raw: &str) -> Result<Self, ConfigError> {
-        // Der toml-Parsefehler wird verworfen — er kann Zeilen-/Feldinhalt (bis hin zur IBAN)
-        // zitieren; redigiert heißt, nur die statische Ursache reist weiter.
-        let table: toml::Table = raw
-            .parse()
-            .map_err(|_err| ConfigError::Malformed(ConfigKind::EigeneKonten))?;
+        let table = super::parse_toml_table(raw, ConfigKind::EigeneKonten)?;
 
         let entries = table
             .get("konto")
