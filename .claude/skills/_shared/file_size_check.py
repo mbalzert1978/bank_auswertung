@@ -1,9 +1,10 @@
 """Shared file-size measurement/classification logic.
 
-Used by thermo-nuclear-code-quality-review's changed_files.py and
-solid-principles-check's file_size_check.py — both are thin argparse CLI
-wrappers around this module, so the one deterministic rule ("don't let a
-file cross the line threshold") has one source of truth.
+Used by verifier-large-class's, verifier-long-method's,
+solid-principles-check's and thermo-nuclear-code-quality-review's own
+file-size pre-checks — all four are thin argparse CLI wrappers around this
+module (via `run_cli`), so the one deterministic rule ("don't let a file
+cross the line threshold") has one source of truth.
 
 Two modes, chosen automatically by the caller:
   * git mode (default)  — the files changed on the current branch vs a base ref.
@@ -14,11 +15,15 @@ Two modes, chosen automatically by the caller:
                           measures those directly (NEW count only).
 """
 
-from dataclasses import dataclass
+import argparse
+import json
+import sys
+from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
 from typing import NamedTuple
 
+from skill_config import load_config
 from skill_git import GitError, changed_paths, git, resolve_merge_base
 
 
@@ -90,3 +95,53 @@ def classify(m: Measurement, threshold: int) -> FileRow:
     crossed = m.old is not None and m.old <= threshold < (m.new or 0)
     flag = SizeFlag.CROSSED if crossed else SizeFlag.OVER if exceeds else SizeFlag.NONE
     return FileRow(m.path, m.old, m.new, flag)
+
+
+def run_cli(config_path: Path, default_threshold: int, description: str) -> int:
+    """Shared CLI entry point for every file-size-check wrapper.
+
+    `config_path` is the caller's own sibling `config.json` (resolved by the
+    caller, relative to *its* `__file__` — this module has no opinion on
+    where a wrapper lives) and `default_threshold` is the fallback used when
+    that config is missing/unreadable or lacks `file_size_warn_lines`.
+    `description` is the wrapper's own argparse description string.
+    """
+    ap = argparse.ArgumentParser(description=description)
+    ap.add_argument("targets", nargs="*", help="base ref (git mode) or file/dir paths (paths mode)")
+    ap.add_argument("--threshold", type=int, help="override the configured line threshold")
+    ap.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    args = ap.parse_args()
+
+    threshold = args.threshold if args.threshold is not None else int(
+        load_config(config_path).get("file_size_warn_lines", default_threshold)
+    )
+
+    if args.targets and all(Path(t).exists() for t in args.targets):
+        measurements = measure_paths(args.targets)
+    else:
+        match changed_via_git(args.targets[0] if args.targets else None):
+            case GitError(message):
+                suffix = " (pass file paths to measure them directly)" if message == "not inside a git work tree" else ""
+                print(f"error: {message}{suffix}", file=sys.stderr)
+                return 1
+            case measurements:
+                pass
+
+    rows = [classify(m, threshold) for m in measurements]
+    if args.json:
+        files = [{**asdict(r), "flag": r.flag.value} for r in rows]
+        print(json.dumps({"threshold": threshold, "files": files}, indent=2))
+        return 0
+
+    if not rows:
+        print(f"(no files under review; threshold {threshold} lines)")
+        return 0
+    width = max(len(r.path) for r in rows)
+    print(f"threshold: {threshold} lines\n")
+    print(f"{'file':<{width}}  {'old':>6}  {'new':>6}  flag")
+    for r in sorted(rows, key=lambda r: r.new or 0, reverse=True):
+        flag = r.flag.value
+        old = "-" if r.old is None else r.old
+        new = "-" if r.new is None else r.new
+        print(f"{r.path:<{width}}  {old:>6}  {new:>6}  {flag}")
+    return 0
