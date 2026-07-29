@@ -32,7 +32,8 @@
     "verifier-inappropriate-intimacy",
     "verifier-incomplete-library-class",
     "verifier-message-chains",
-    "verifier-middle-man"
+    "verifier-middle-man",
+    "design-pattern-fit-check"
   ],
   "fixer_map": {
     "verifier-long-method": "fixer-long-method",
@@ -57,6 +58,7 @@
     "verifier-inappropriate-intimacy": "fixer-inappropriate-intimacy",
     "verifier-incomplete-library-class": "fixer-incomplete-library-class",
     "verifier-message-chains": "fixer-message-chains",
-    "verifier-middle-man": "fixer-middle-man"
+    "verifier-middle-man": "fixer-middle-man",
+    "design-pattern-fit-check": "apply-validator-findings"
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: validate-fix-loop
-description: Dispatch the 23 `verifier-<smell>` code-smell checks listed in config.json's `validators` array in parallel, each as its own subagent — then, once every one has returned, dispatch each verifier's findings to its own paired `fixer-<smell>` skill, also as a subagent, in waves whose file sets are disjoint so no two fixers race on the same file. The orchestrator gathers every fixer's input for it (exact locations plus the current source excerpts) and runs the test gate itself once per iteration, so a fixer only edits. Repeat until every verifier comes back with zero findings, total findings stop dropping between iterations (plateau), or config.json's max_iterations is hit. Use when the user wants a "review-fix loop", "validate and fix until clean", "Qualitaets-Loop ueber den aktuellen Diff", "run all verifiers and fix findings until clean", or "lauf die Validatoren bis alles clean ist".
+description: Dispatch every check listed in config.json's `validators` array in parallel — the 23 `verifier-<smell>` code-smell checks plus `design-pattern-fit-check` — each as its own subagent, then, once every one has returned, dispatch each check's findings to its own paired fixer skill, also as a subagent, in waves whose file sets are disjoint so no two fixers race on the same file. The orchestrator gathers every fixer's input for it (exact locations plus the current source excerpts) and runs the test gate itself once per iteration, so a fixer only edits. Repeat until every check comes back with zero findings, total findings stop dropping between iterations (plateau), or config.json's max_iterations rounds of validate-plus-fix are done. Use when the user wants a "review-fix loop", "validate and fix until clean", "Qualitaets-Loop ueber den aktuellen Diff", "run all verifiers and fix findings until clean", or "lauf die Validatoren bis alles clean ist".
 arguments: Optional. Scope to validate — a diff/branch/PR (default: current branch vs merge-base with the default branch).
 ---
 
@@ -18,7 +18,7 @@ language, stack, or conventions. The only repo-specific value is the test comman
 that lives in the `run-tests` skill's own `config.json`, reached through `test_gate`.
 
 ```
- ┌─► every verifier in config.json's `validators` (23 subagents, all parallel) ─┐
+ ┌─► every verifier in config.json's `validators` (24 subagents, all parallel) ─┐
  │                                                                              │
  └──────────────────────────────────► all returned ─────────────────────────────┘
                                             │
@@ -134,11 +134,13 @@ plateau/cap comparison, the fixer routing or the wave packing by hand.
   got worse). Loop ends **without** dispatching any fixer again. Report **plateau** with
   this iteration's leftover findings, stop.
 - `stop == "cap"` → loop ends. Report **cap reached** with the leftover findings, stop.
-  `max_iterations` counts validation passes, not fixer rounds: the final permitted
-  iteration always validates (so the report reflects the true current state) but never
-  triggers another round of fixers — there'd be no next iteration left to confirm it
-  helped. A `max_iterations` of `1` therefore runs one diagnostic-only pass with no fix
-  attempt at all; the default of `3` allows up to two fixer rounds.
+  `max_iterations` counts **full rounds**, a round being one validation pass **plus its
+  fixer waves**: `2` means two validations and two fixer rounds, not one and a half.
+  Iterations `1..max_iterations` each dispatch fixers; the cap then fires on the
+  **closing validation pass** that follows the last fixer round, whose only job is to
+  report the true final state — it never dispatches. So `max_iterations: 1` is one real
+  fix attempt (plus the pass confirming it), and the run's total validation passes are
+  `max_iterations + 1` unless it went clean or plateaued earlier.
 - `stop == null` → set `previous_total = current_total` and continue to step d with
   `waves`.
 
@@ -179,7 +181,7 @@ and nothing handed it this failure.
 ## Report format
 
 One row per iteration, one column per verifier in `config.json`'s `validators` order
-that reported a nonzero `Findings` count in at least one iteration of this run — with 23
+that reported a nonzero `Findings` count in at least one iteration of this run — with 24
 configured verifiers, omit any column that stayed at `0` for the whole run rather than
 padding the table; name which verifiers were clean throughout in one line instead.
 
