@@ -61,7 +61,7 @@ impl<'a> HistoryEvaluationHandler<'a> {
     /// ein Platzhalter-Schlüssel verklumpte alle Entgeltzeilen zu einer scheinbar wiederkehrenden
     /// Art — genau die Sorte stiller Falschaussage, die dieser Slice vermeidet.
     fn occurrence_of(booking: &WindowedBooking) -> Option<Occurrence> {
-        Fingerprint::of(booking.recipient(), booking.purpose()).map(|fingerprint| {
+        Fingerprint::of(booking.counterparty()).map(|fingerprint| {
             Occurrence::new(
                 booking.day(),
                 fingerprint,

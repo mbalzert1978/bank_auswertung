@@ -88,7 +88,7 @@ pub use ports::{
 };
 pub use value_objects::{
     AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer, CategoryRequest,
-    CounterAccount, Currency, DayStamp, Direction, Fee, Fingerprint, InternalTransfer, Month,
-    MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts, Recipient, RunSpan, SeedMarker,
-    WindowId, WindowedBooking,
+    CounterAccount, Counterparty, Currency, DayStamp, Direction, Fee, Fingerprint,
+    InternalTransfer, Month, MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts, Recipient,
+    RunSpan, SeedMarker, WindowId, WindowedBooking,
 };

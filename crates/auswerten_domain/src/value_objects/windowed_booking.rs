@@ -1,11 +1,11 @@
 use crate::value_objects::{
-    AccountToken, Amount, BookingKind, DayStamp, Direction, NonEmptyString, Recipient,
+    AccountToken, Amount, BookingKind, Counterparty, DayStamp, Direction, NonEmptyString,
 };
 
 /// Eine **Buchung des eingefrorenen Fensters**, wie der Lese-Port
 /// [`AnalysisWindowSource`](crate::AnalysisWindowSource) sie liefert — genau das, was dieser Slice
 /// von ihr braucht: ihren Buchungstag (der den Monats-Bucket bestimmt), ihren vorzeichenlosen
-/// Betrag und ihre Richtung für den Cashflow, ihre [`Recipient`]-Gegenpartei für den
+/// Betrag und ihre Richtung für den Cashflow, ihre [`Counterparty`] für den
 /// [`Fingerprint`](crate::Fingerprint) und ihren Buchungstext für die
 /// [`BookingKind`](crate::BookingKind).
 ///
@@ -17,8 +17,9 @@ pub struct WindowedBooking {
     day: DayStamp,
     amount: Amount,
     direction: Direction,
-    recipient: Recipient,
-    purpose: Option<NonEmptyString>,
+    /// Wer auf der anderen Seite stand und wofür — die beiden reisen als **ein** Wert, weil sie nur
+    /// gemeinsam etwas aussagen (siehe [`Counterparty`]).
+    counterparty: Counterparty,
     /// Das Gegenkonto als **Token** — echt optional: eine Entgeltzeile hat keine Gegenseite, und
     /// „kein Gegenkonto" ist etwas anderes als „ein fremdes Gegenkonto".
     counter_account: Option<AccountToken>,
@@ -34,21 +35,12 @@ pub struct WindowedBooking {
 impl WindowedBooking {
     /// **Hydratisiert** die Buchung aus ihren bereits geprüften Teilen — keine frische Identität,
     /// sondern Rekonstitution einer stromaufwärts schon eingefrorenen Zeile.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Rekonstitution einer gespeicherten Zeile: die Arität spiegelt die Zellen, die \
-                  der Lese-Seam liefert. Ein Parameter-Objekt daneben verdoppelte nur die Form, \
-                  die das Adapter-DTO WindowBookingRow schon trägt — die echte Verkleinerung wäre \
-                  ein Gegenpartei-VO (recipient + purpose), das der Fingerabdruck ohnehin als Paar \
-                  liest; das ist ein eigener Schnitt, nicht Teil von Issue 0006."
-    )]
     #[must_use]
     pub fn hydrate(
         day: DayStamp,
         amount: Amount,
         direction: Direction,
-        recipient: Recipient,
-        purpose: Option<NonEmptyString>,
+        counterparty: Counterparty,
         counter_account: Option<AccountToken>,
         ordering_account: AccountToken,
         booking_text: Option<NonEmptyString>,
@@ -57,8 +49,7 @@ impl WindowedBooking {
             day,
             amount,
             direction,
-            recipient,
-            purpose,
+            counterparty,
             counter_account,
             ordering_account,
             booking_text,
@@ -79,12 +70,8 @@ impl WindowedBooking {
         BookingKind::of(self.booking_text.as_ref())
     }
 
-    pub(crate) fn recipient(&self) -> &Recipient {
-        &self.recipient
-    }
-
-    pub(crate) fn purpose(&self) -> Option<&NonEmptyString> {
-        self.purpose.as_ref()
+    pub(crate) fn counterparty(&self) -> &Counterparty {
+        &self.counterparty
     }
 
     pub(crate) fn day(&self) -> DayStamp {

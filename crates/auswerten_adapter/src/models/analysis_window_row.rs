@@ -1,6 +1,6 @@
 use auswerten_domain::{
-    AccountToken, Amount, AnalysisWindow, Currency, DayStamp, Direction, NonEmptyString, Recipient,
-    SeedMarker, WindowedBooking,
+    AccountToken, Amount, AnalysisWindow, Counterparty, Currency, DayStamp, Direction,
+    NonEmptyString, Recipient, SeedMarker, WindowedBooking,
 };
 
 /// Das **eingefrorene Auswertungsfenster**, wie der Lese-Seam es zu einer ID liefert: die eine
@@ -109,9 +109,15 @@ impl WindowBookingRow {
                 BookingDirection::Incoming => Direction::Incoming,
                 BookingDirection::Outgoing => Direction::Outgoing,
             },
-            self.recipient.to_recipient()?,
-            // Echt optional: ein leerer Zweck ist ein fehlender Zweck, kein Fehler.
-            self.purpose.as_deref().and_then(NonEmptyString::new),
+            // Gegenpartei **und** Zweck als ein Wert: die Domäne liest sie nie einzeln (der
+            // Fingerabdruck braucht bei einem Durchleiter beide, der Kategorie-Text ebenso). Das DTO
+            // führt sie trotzdem als zwei flache Zellen — es hat die Form der Ablage, nicht die der
+            // Domäne, und die Gruppierung ist deren Aussage.
+            Counterparty::new(
+                self.recipient.to_recipient()?,
+                // Echt optional: ein leerer Zweck ist ein fehlender Zweck, kein Fehler.
+                self.purpose.as_deref().and_then(NonEmptyString::new),
+            ),
             // Ebenso echt optional — und **kein** Präsenz-Pflichtfeld: „keine Gegenseite" ist eine
             // gültige Aussage über eine Entgeltzeile, nicht eine fehlende Angabe.
             self.counter_account

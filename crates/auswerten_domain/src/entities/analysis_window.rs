@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::value_objects::{
-    CategoryRequest, Currency, Fingerprint, NonEmptyString, SeedMarker, WindowedBooking,
-};
+use crate::value_objects::{CategoryRequest, Currency, Fingerprint, SeedMarker, WindowedBooking};
 
 /// Das **eingefrorene Auswertungsfenster**, wie dieser Slice es **per ID** zurückliest — die
 /// Einheit, über die die periodische Auswertung **innerhalb** rechnet (ADR-0013, Entscheidung E,
@@ -69,8 +67,8 @@ impl AnalysisWindow {
             // (Entgeltzeile) wird der Text gar nicht erst gebaut. `Option::zip` wertet sein Argument
             // eifrig aus und hätte ihn auch dort zusammengesetzt, wo er niemanden interessiert.
             .filter_map(|booking| {
-                let fingerprint = Fingerprint::of(booking.recipient(), booking.purpose())?;
-                Some((fingerprint, category_text(booking)?))
+                let fingerprint = Fingerprint::of(booking.counterparty())?;
+                Some((fingerprint, booking.counterparty().category_text()?))
             })
             // `or_insert` statt Überschreiben: der **erste** Text einer Art gewinnt. Welcher es ist,
             // darf nicht davon abhängen, in welcher Reihenfolge die Ablage die Zeilen liefert.
@@ -82,22 +80,4 @@ impl AnalysisWindow {
             .map(|(fingerprint, text)| CategoryRequest::new(fingerprint, text))
             .collect()
     }
-}
-
-/// Der **obfuskierte Text** einer Buchung, an dem das Orakel die Kategorie erraten soll: Empfänger
-/// **und** Verwendungszweck, so wie CONTEXT.md („Kategorie") sie nennt — der Firmenname als
-/// wichtigstes, der Freitext als zweitwichtigstes Signal.
-///
-/// Beide zusammen in **einem** Feld, nicht als zwei: das Orakel bekommt einen Text zum Deuten, und
-/// welche Bestandteile ihn ergeben, ist eine Aussage der Domäne über das Kategorie-Signal — keine
-/// Struktur, die das DTO nach außen tragen müsste.
-///
-/// Liegt keines von beiden vor, gibt es **nichts zu fragen** (`None`).
-fn category_text(booking: &WindowedBooking) -> Option<NonEmptyString> {
-    let signals = [booking.recipient().category_signal(), booking.purpose()]
-        .into_iter()
-        .flatten()
-        .map(NonEmptyString::as_str)
-        .collect::<Vec<_>>();
-    NonEmptyString::new(&signals.join(" "))
 }

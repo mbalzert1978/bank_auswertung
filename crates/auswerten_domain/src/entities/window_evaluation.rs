@@ -102,7 +102,7 @@ impl WindowEvaluation {
         let fingerprints = snapshot
             .bookings()
             .iter()
-            .filter_map(|booking| Fingerprint::of(booking.recipient(), booking.purpose()))
+            .filter_map(|booking| Fingerprint::of(booking.counterparty()))
             .collect::<BTreeSet<_>>();
         // Die **distinkten** Einordnungen der Gegenkonten dieses Fensters (ADR-0013, Entscheidung
         // F) — gebildet auf **Token**, nie auf einer IBAN. Wie beim Fingerabdruck faltet das

@@ -1,4 +1,4 @@
-use crate::value_objects::{NonEmptyString, Recipient};
+use crate::value_objects::{Counterparty, NonEmptyString, Recipient};
 
 /// Die **Gläubiger-IDs** bekannter Durchleiter — das **verlässliche** Erkennungssignal, denn die
 /// Gläubiger-ID ist an einer Firma **Pflichtfeld** (der Adapter erzwingt ihre Präsenz), während der
@@ -56,7 +56,7 @@ const INTERMEDIARY_NAMES: [&str; 3] = ["PAYPAL", "KLARNA", "AMAZON PAYMENTS"];
 pub struct Fingerprint(String);
 
 impl Fingerprint {
-    /// Die **reine Funktion** `Gegenpartei → Fingerabdruck`. Kein Zustand, kein Port, kein I/O —
+    /// Die **reine Funktion** [`Counterparty`] → Fingerabdruck. Kein Zustand, kein Port, kein I/O —
     /// dieselbe Eingabe ergibt immer dieselbe Ausgabe.
     ///
     /// Eine Firma wird über ihre **Gläubiger-ID** geschlüsselt (der öffentliche, über Importe
@@ -70,8 +70,9 @@ impl Fingerprint {
     /// Art unterscheidbar machte, und ein Platzhalter-Schlüssel wäre ein Sammelbecken, das alle
     /// Entgeltzeilen zu einer Art verklumpte.
     #[must_use]
-    pub(crate) fn of(recipient: &Recipient, purpose: Option<&NonEmptyString>) -> Option<Self> {
-        match recipient {
+    pub(crate) fn of(counterparty: &Counterparty) -> Option<Self> {
+        let purpose = counterparty.purpose();
+        match counterparty.recipient() {
             Recipient::Company { name, creditor_id } => {
                 let company = format!("COMPANY:{}", creditor_id.as_str());
                 // Der Händler-Token tritt **nur** hinzu, wenn die Firma ein Durchleiter ist *und*
