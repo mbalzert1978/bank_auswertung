@@ -46,6 +46,14 @@
 //! endet der Lauf terminal — sonst liefe jede Umbuchung **lautlos** als „fremd" durch und der
 //! Bericht wiese sie als Konsum aus, ohne dass irgendetwas fehlschlüge.
 //!
+//! **Auf dieser Einordnung ruht das Umbuchungs-Netting** (Issue 0004): eine Buchung auf ein eigenes
+//! Konto ist kein Abfluss und kein verlorenes Geld (CONTEXT.md, „Umbuchung"), also fällt sie aus dem
+//! Cashflow heraus. **Heraus, nicht weg** — sie steht daneben als [`InternalTransfer`], je Monat und
+//! Rolle des Gegenkontos: zwei Seiten derselben Sache, deren Summe das Brutto ergibt. Genettet wird
+//! **je Zeile, nicht je Paar**: dass das Gegenkonto meines ist, steht schon an der einen Buchung —
+//! auf ihr Gegenstück zu warten hieße, jede Umbuchung als Ausgabe zu zählen, deren zweites Bein in
+//! einem anderen Fenster, einem anderen Auszug oder gar nicht vorliegt.
+//!
 //! **Die zweite Reichweite ist die fenster-übergreifende:** der [`HistoryEvaluationHandler`]
 //! konsumiert **`HistorieVollständig`** — nicht `FensterGeschlossen`, denn `auswerten` kann die
 //! letzte Seite nicht selbst erkennen (der Pager läuft neu→alt; nur `fenstern` kennt die
@@ -57,10 +65,10 @@
 //! Snapshots antwortet auf erneute Zustellung identisch.
 //!
 //! **Noch nicht hier** (je eigenes Folge-Issue): die **Wiederkehr-Erkennung** selbst (Issue 0005,
-//! die auf den Vorkommen oben aufsetzt), die weiteren Fach-Analyzer (**Umbuchungs-Netting** auf der
-//! Einordnung oben — Issue 0004 —, Gebühren-Klassifikation, Pareto), die gelernten Korrekturen und
-//! das `Kategorisierer`-Orakel. Dieser Stand ist das **Gerüst plus die beiden Reichweiten, zwei
-//! lauffähige Kennzahlen und der Schlüssel** — der Pfad, an dem sie andocken.
+//! die auf den Vorkommen oben aufsetzt), die beiden übrigen Fach-Analyzer (Gebühren-Klassifikation
+//! Issue 0006, Pareto Issue 0007), die gelernten Korrekturen und das `Kategorisierer`-Orakel. Dieser
+//! Stand ist das **Gerüst plus die beiden Reichweiten, der genettete Cashflow und der Schlüssel** —
+//! der Pfad, an dem sie andocken.
 
 mod entities;
 mod error;
@@ -80,6 +88,7 @@ pub use ports::{
 };
 pub use value_objects::{
     AccountRole, AccountToken, Amount, Category, CategoryAnswer, CategoryRequest, CounterAccount,
-    Currency, DayStamp, Direction, Fingerprint, Month, MonthlyCashflow, NonEmptyString, Occurrence,
-    OwnAccounts, Recipient, RunSpan, SeedMarker, WindowId, WindowedBooking,
+    Currency, DayStamp, Direction, Fingerprint, InternalTransfer, Month, MonthlyCashflow,
+    NonEmptyString, Occurrence, OwnAccounts, Recipient, RunSpan, SeedMarker, WindowId,
+    WindowedBooking,
 };

@@ -15,8 +15,13 @@ use crate::models::account_role_vocabulary::role_label;
 pub struct WindowEvaluationRow {
     pub window_id: String,
     pub currency: String,
-    /// Die Monats-Buckets in **chronologischer** Reihenfolge.
+    /// Die Monats-Buckets des **genetteten** Cashflows in **chronologischer** Reihenfolge —
+    /// Umbuchungen zwischen eigenen Konten stehen nicht darin, sondern in
+    /// [`transfers`](Self::transfers).
     pub months: Vec<MonthlyCashflowRow>,
+    /// Die **Umbuchungen** des Fensters, je Monat und Rolle des Gegenkontos — die andere Seite des
+    /// Nettings: was aus den [`months`](Self::months) herausfiel, steht hier, statt verloren zu sein.
+    pub transfers: Vec<InternalTransferRow>,
     /// Die **distinkten** Fingerabdrücke der Buchungsarten des Fensters, in stabiler Reihenfolge —
     /// der Schlüssel, auf dem Wiederkehr-Erkennung, gelernte Korrekturen und die Deduplizierung der
     /// Kategorisierer-Anfrage später aufsetzen.
@@ -74,6 +79,25 @@ pub struct MonthlyCashflowRow {
     pub outgoing_minor_units: u64,
 }
 
+/// Eine **Umbuchung** als Zeile: derselbe Monats-Bucket wie beim Cashflow, zusätzlich mit der
+/// **Rolle des Gegenkontos** (`giro` | `haushalt` | `spar` | `vorlauf`) — dem Vokabular, das auch
+/// die Config hereinreicht.
+///
+/// Dass die Form die des [`MonthlyCashflowRow`] wiederholt, ist Absicht und keine Redundanz: die
+/// Umbuchung ist genau das, was aus einem Cashflow-Bucket herausgenommen wurde, und nur in derselben
+/// Form lässt sich das Brutto wieder zusammenzählen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InternalTransferRow {
+    pub year: i64,
+    /// Der Monat im Jahr, **1..=12** — von der Domäne per Konstruktion garantiert.
+    pub month: i64,
+    /// Die Rolle des **Gegenkontos**: ein Abfluss unter `spar` ging **aufs** Sparkonto, ein Zufluss
+    /// unter `spar` kam **von** dort.
+    pub role: String,
+    pub incoming_minor_units: u64,
+    pub outgoing_minor_units: u64,
+}
+
 /// Projiziert das **Domänen-Aggregat** auf die Zeile — die einzige Stelle, an der es die
 /// Adapter-Grenze überquert (die Repository-Bridge ruft sie vor dem Ablegen).
 impl From<&WindowEvaluation> for WindowEvaluationRow {
@@ -89,6 +113,17 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
                     month: cashflow.month().month_of_year(),
                     incoming_minor_units: cashflow.incoming().minor_units(),
                     outgoing_minor_units: cashflow.outgoing().minor_units(),
+                })
+                .collect(),
+            transfers: evaluation
+                .transfers()
+                .iter()
+                .map(|transfer| InternalTransferRow {
+                    year: transfer.month().year(),
+                    month: transfer.month().month_of_year(),
+                    role: role_label(transfer.role()).to_string(),
+                    incoming_minor_units: transfer.incoming().minor_units(),
+                    outgoing_minor_units: transfer.outgoing().minor_units(),
                 })
                 .collect(),
             fingerprints: evaluation

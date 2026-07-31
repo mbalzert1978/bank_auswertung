@@ -17,8 +17,8 @@
 
 use auswerten_adapter::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRequestRow, CategoryRow,
-    CounterAccountRow, EvaluationTestApi, HistoryTestApi, MonthlyCashflowRow, OccurrenceRow,
-    OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
+    CounterAccountRow, EvaluationTestApi, HistoryTestApi, InternalTransferRow, MonthlyCashflowRow,
+    OccurrenceRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -199,12 +199,49 @@ pub(crate) fn eigen(role: &str) -> CounterAccountRow {
 }
 
 /// Ein erwarteter **Monats-Bucket** des Cashflows: Zu- und Abfluss getrennt und je vorzeichenlos.
+/// **Genettet** — eine Umbuchung zwischen eigenen Konten steht nicht hier, sondern in `umgebucht`.
 pub(crate) fn monat(year: i64, month: i64, incoming: u64, outgoing: u64) -> MonthlyCashflowRow {
     MonthlyCashflowRow {
         year,
         month,
         incoming_minor_units: incoming,
         outgoing_minor_units: outgoing,
+    }
+}
+
+/// Ein erwarteter **Umbuchungs-Bucket**: dieselbe Form wie ein Monats-Bucket, dazu die Rolle des
+/// **Gegenkontos** — ein Abfluss unter `spar` ging aufs Sparkonto, ein Zufluss unter `spar` kam von
+/// dort. Was hier steht, fehlt im `monat` desselben Zeitraums; zusammen ergeben sie das Brutto.
+pub(crate) fn umgebucht(
+    year: i64,
+    month: i64,
+    role: &str,
+    incoming: u64,
+    outgoing: u64,
+) -> InternalTransferRow {
+    InternalTransferRow {
+        year,
+        month,
+        role: role.to_string(),
+        incoming_minor_units: incoming,
+        outgoing_minor_units: outgoing,
+    }
+}
+
+/// Ein **Zufluss von einem Gegenkonto**, das nur als Token vorliegt — die Gegenrichtung zu
+/// `gegenkonto`: Geld, das von dort kam. Erst mit ihr lässt sich prüfen, dass das Netting **beide**
+/// Richtungen erfasst und nicht nur den Abfluss.
+pub(crate) fn gegenkonto_eingang(
+    booking_day: i64,
+    minor_units: u64,
+    token: &str,
+) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_minor_units: minor_units,
+        direction: BookingDirection::Incoming,
+        counter_account: Some(token.to_string()),
+        ..WindowBookingRow::default()
     }
 }
 

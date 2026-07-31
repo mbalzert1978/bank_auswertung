@@ -1,9 +1,15 @@
 # Issue Progress
 
-Stand: 2026-07-29
+Stand: 2026-07-31
 
 ## Erledigt
 
+- [x] **[0004-umbuchung-netting.md](0004-umbuchung-netting.md)** (2026-07-31)
+  Umbuchungen zwischen eigenen Konten fallen aus dem Cashflow heraus und stehen daneben als
+  eigene Geldfluss-Sicht (je Monat und Rolle des Gegenkontos) — genettet wird je Zeile auf
+  `Gegenkonto::Eigen`, nicht je Paar. Am echten Lauf belegt: der Juni-Abfluss sinkt von
+  173060 auf 143060, die fehlenden 30000 stehen als Umbuchung aufs Sparkonto daneben.
+  **Erster gebauter Analyzer** des `auswerten`-Slice.
 - [x] **Status-Backfill: achtzehn längst gemergte Issues auf `closed` gezogen** (2026-07-29)
   Das Frontmatter hing der Realität hinterher — die Umsetzung war in allen Fällen gemerged,
   nur der Status stand noch auf `open`/`blocked`/`done`. Nachgezogen (je per Commit/PR

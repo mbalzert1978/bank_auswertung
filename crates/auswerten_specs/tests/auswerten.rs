@@ -22,7 +22,8 @@ mod fixtures;
 use fixtures::{
     FEB_01, FEB_29, FENSTER, HAENDLER, JAN_15, JAN_31, MAR_05, SEED_MARKER, anfrage, api, ausgang,
     eigen, eigene_konten, eigene_konten_mit_marker, eingang, fenster, fenster_mit_marker,
-    fingerabdruck, firma, firma_ohne_namen, gegenkonto, kategorie, monat, person,
+    fingerabdruck, firma, firma_ohne_namen, gegenkonto, gegenkonto_eingang, kategorie, monat,
+    person, umgebucht,
 };
 
 // --- Kern-Pfad: ID herein → Aggregat gelesen → Pro-Fenster-Ergebnis abgelegt ----
@@ -45,6 +46,7 @@ fn ein_geschlossenes_fenster_wird_per_id_gelesen_und_als_pro_fenster_ergebnis_ab
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 250_000, 4_200)],
+        transfers: vec![],
         // Buchungen ohne Gegenpartei (Entgeltzeilen) tragen keinen Fingerabdruck bei.
         fingerprints: vec![],
         counter_accounts: vec![],
@@ -67,6 +69,7 @@ fn der_handler_wertet_genau_das_fenster_aus_auf_das_der_zeiger_zeigt() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_100)],
+        transfers: vec![],
         fingerprints: vec![],
         counter_accounts: vec![],
         categories: vec![],
@@ -104,6 +107,7 @@ fn der_cashflow_wird_je_monat_innerhalb_des_fensters_gebucketet() {
             monat(2024, 2, 5_000, 2_000),
             monat(2024, 3, 0, 300),
         ],
+        transfers: vec![],
         fingerprints: vec![],
         counter_accounts: vec![],
         categories: vec![],
@@ -125,6 +129,7 @@ fn ein_monat_ohne_buchung_ergibt_keinen_bucket() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 700), monat(2024, 3, 0, 900)],
+        transfers: vec![],
         fingerprints: vec![],
         counter_accounts: vec![],
         categories: vec![],
@@ -167,7 +172,10 @@ fn ein_gegenkonto_aus_der_eigen_menge_wird_als_eigen_samt_rolle_aufgeloest() {
     api.assert_stored(WindowEvaluationRow {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
-        months: vec![monat(2024, 1, 0, 50_000)],
+        // Die Einordnung als eigen hat eine Folge: die Buchung ist aus dem Cashflow **heraus**
+        // (Issue 0004) — der Januar hat sonst nichts, also gibt es gar keinen Bucket mehr.
+        months: vec![],
+        transfers: vec![umgebucht(2024, 1, "spar", 0, 50_000)],
         fingerprints: vec![],
         counter_accounts: vec![eigen("spar")],
         categories: vec![],
@@ -194,6 +202,7 @@ fn jedes_gegenkonto_ausserhalb_der_eigen_menge_wird_als_fremd_aufgeloest() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 7_000)],
+        transfers: vec![],
         fingerprints: vec![],
         // **Ein** Eintrag, nicht zwei: die Einordnung ist eine Art, keine Buchungs-Identität.
         counter_accounts: vec![CounterAccountRow::Foreign],
@@ -216,6 +225,7 @@ fn eine_buchung_ohne_gegenkonto_traegt_keine_einordnung_bei() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 450)],
+        transfers: vec![],
         fingerprints: vec![],
         counter_accounts: vec![],
         categories: vec![],
@@ -234,8 +244,142 @@ fn ohne_eigene_konten_ist_jedes_gegenkonto_fremd() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 3_000)],
+        transfers: vec![],
         fingerprints: vec![],
         counter_accounts: vec![CounterAccountRow::Foreign],
+        categories: vec![],
+    });
+}
+
+// --- Umbuchungs-Netting: aus dem Abfluss heraus, aber nicht weg ----------------
+
+#[test]
+fn eine_umbuchung_faellt_aus_der_abfluss_summe_und_bleibt_daneben_sichtbar() {
+    // Der Kern von Issue 0004. **Zwei** Abflüsse desselben Monats, gleich hoch für beide Seiten
+    // beobachtbar: einer aufs eigene Sparkonto, einer an ein fremdes Konto. Nur der fremde ist
+    // verlorenes Geld — der eigene ist Umparken (CONTEXT.md, „Umbuchung").
+    let api = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_1", "spar")]))
+        .with_window(
+            FENSTER,
+            fenster(&[
+                gegenkonto(JAN_15, 50_000, "KONTO_1"),
+                gegenkonto(JAN_31, 30_000, "KONTO_9"),
+            ]),
+        );
+
+    api.run(FENSTER)
+        .expect("eine Umbuchung und ein echter Abfluss");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        // Die Abfluss-Summe des Januar trägt **nur** den fremden Abfluss — nicht die Summe beider.
+        months: vec![monat(2024, 1, 0, 30_000)],
+        // Und die Umbuchung ist trotzdem nachlesbar: herausgenettet heißt nicht gelöscht. Brutto
+        // (80_000) ist die Summe aus beiden Sichten.
+        transfers: vec![umgebucht(2024, 1, "spar", 0, 50_000)],
+        fingerprints: vec![],
+        counter_accounts: vec![eigen("spar"), CounterAccountRow::Foreign],
+        categories: vec![],
+    });
+}
+
+#[test]
+fn beide_beine_eines_umbuchungspaares_werden_genettet() {
+    // Hin **und** zurück: ein Abgang aufs Sparkonto und ein Zugang von dort. Beide Beine sind
+    // Umbuchungen, also verschwinden **beide** Richtungen aus dem Cashflow — nettete nur der
+    // Abfluss, sähe das Sparkonto wie eine Einnahmequelle aus.
+    //
+    // Genettet wird dabei **je Zeile, nicht je Paar**: dass das Gegenkonto meines ist, steht schon
+    // an der einzelnen Buchung. Auf das Gegenstück zu warten hieße, jede Umbuchung als Ausgabe zu
+    // zählen, deren zweites Bein in einem anderen Fenster oder einem nicht eingelesenen Auszug liegt.
+    let api = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_1", "spar")]))
+        .with_window(
+            FENSTER,
+            fenster(&[
+                gegenkonto(JAN_15, 50_000, "KONTO_1"),
+                gegenkonto_eingang(JAN_31, 20_000, "KONTO_1"),
+            ]),
+        );
+
+    api.run(FENSTER).expect("beide Beine einer Umbuchung");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        // Kein einziger Cashflow-Bucket: der Januar bestand nur aus eigenem Geldverschieben.
+        months: vec![],
+        // **Ein** Bucket mit beiden Spalten — und bewusst kein verrechneter Saldo (30_000): das
+        // Vorzeichen lebt in der Richtung (ADR-0005), und „hin und her" ist etwas anderes als
+        // „einmal netto hin".
+        transfers: vec![umgebucht(2024, 1, "spar", 20_000, 50_000)],
+        fingerprints: vec![],
+        counter_accounts: vec![eigen("spar")],
+        categories: vec![],
+    });
+}
+
+#[test]
+fn die_gebuehr_fuer_eine_umbuchung_bleibt_im_abfluss() {
+    // **Umbuchungskosten** sind der Hauptverdächtige dieses Projekts (CONTEXT.md): die Umbuchung
+    // selbst kostet nichts, die Gebühr dafür schon. Sie hat **kein** Gegenkonto — die Bank zieht sie
+    // selbst ein —, wird also nicht mitgenettet und bleibt voll im Abfluss stehen. Andernfalls
+    // verschwände genau die Zahl, wegen der das Mehrkontenmodell zusammengestrichen wurde.
+    let api = api()
+        .with_own_accounts(eigene_konten(&[("KONTO_1", "haushalt")]))
+        .with_window(
+            FENSTER,
+            fenster(&[gegenkonto(JAN_15, 50_000, "KONTO_1"), ausgang(JAN_15, 350)]),
+        );
+
+    api.run(FENSTER).expect("Umbuchung plus ihre Gebühr");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![monat(2024, 1, 0, 350)],
+        transfers: vec![umgebucht(2024, 1, "haushalt", 0, 50_000)],
+        fingerprints: vec![],
+        counter_accounts: vec![eigen("haushalt")],
+        categories: vec![],
+    });
+}
+
+#[test]
+fn umbuchungen_werden_je_monat_und_rolle_getrennt_gefuehrt() {
+    // Die Umbuchungs-Sicht ist kein Klumpen: sie zerfällt nach **Monat** wie der Cashflow und
+    // zusätzlich nach der **Rolle des Gegenkontos** — 200 aufs Sparkonto und 200 aufs
+    // Haushaltskonto sind zwei verschiedene Aussagen über das Mehrkontenmodell.
+    let api = api()
+        .with_own_accounts(eigene_konten(&[
+            ("KONTO_1", "spar"),
+            ("KONTO_2", "haushalt"),
+        ]))
+        .with_window(
+            FENSTER,
+            fenster(&[
+                gegenkonto(JAN_15, 10_000, "KONTO_1"),
+                gegenkonto(JAN_31, 20_000, "KONTO_2"),
+                gegenkonto(MAR_05, 30_000, "KONTO_1"),
+            ]),
+        );
+
+    api.run(FENSTER).expect("drei Umbuchungen über zwei Monate");
+
+    api.assert_stored(WindowEvaluationRow {
+        window_id: FENSTER.to_string(),
+        currency: "EUR".to_string(),
+        months: vec![],
+        // Stabil sortiert: zuerst chronologisch, innerhalb eines Monats nach Rolle.
+        transfers: vec![
+            umgebucht(2024, 1, "haushalt", 0, 20_000),
+            umgebucht(2024, 1, "spar", 0, 10_000),
+            umgebucht(2024, 3, "spar", 0, 30_000),
+        ],
+        fingerprints: vec![],
+        counter_accounts: vec![eigen("haushalt"), eigen("spar")],
         categories: vec![],
     });
 }
@@ -326,7 +470,8 @@ fn dieselbe_tokenisierung_ordnet_ueber_importe_hinweg_stabil_zu() {
     erster_import.assert_stored(WindowEvaluationRow {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
-        months: vec![monat(2024, 1, 0, 20_000)],
+        months: vec![],
+        transfers: vec![umgebucht(2024, 1, "spar", 0, 20_000)],
         fingerprints: vec![],
         counter_accounts: vec![eigen("spar")],
         categories: vec![],
@@ -334,7 +479,9 @@ fn dieselbe_tokenisierung_ordnet_ueber_importe_hinweg_stabil_zu() {
     zweiter_import.assert_stored(WindowEvaluationRow {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
-        months: vec![monat(2024, 3, 0, 20_000)],
+        months: vec![],
+        // **Dasselbe** Netting wie im ersten Import: das Token entscheidet, nicht der Monat.
+        transfers: vec![umgebucht(2024, 3, "spar", 0, 20_000)],
         fingerprints: vec![],
         // **Dieselbe** Einordnung wie im ersten Import — trotz anderen Monats und anderem Lauf.
         counter_accounts: vec![eigen("spar")],
@@ -519,6 +666,7 @@ fn eine_unbekannte_buchungsart_wird_angefragt_und_ihre_antwort_am_fingerabdruck_
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_299)],
+        transfers: vec![],
         fingerprints: vec![schluessel.clone()],
         counter_accounts: vec![],
         categories: vec![kategorie(&schluessel, "Spiel & Spaß")],
@@ -549,6 +697,7 @@ fn eine_bereits_bekannte_buchungsart_erreicht_das_orakel_nicht() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_299)],
+        transfers: vec![],
         fingerprints: vec![schluessel],
         counter_accounts: vec![],
         categories: vec![],
@@ -605,6 +754,7 @@ fn zwei_arten_mit_demselben_text_bekommen_je_ihre_eigene_antwort() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 3_000)],
+        transfers: vec![],
         fingerprints: vec![eine.clone(), andere.clone()],
         counter_accounts: vec![],
         categories: vec![
@@ -673,6 +823,7 @@ fn ohne_etwas_zu_fragen_wird_auch_das_register_nicht_befragt() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 500)],
+        transfers: vec![],
         fingerprints: vec![],
         counter_accounts: vec![],
         categories: vec![],
@@ -700,6 +851,7 @@ fn ein_etikett_zu_einem_nie_gefragten_schluessel_wird_verworfen() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_299)],
+        transfers: vec![],
         fingerprints: vec![schluessel.clone()],
         counter_accounts: vec![],
         // Nur das erfragte Etikett — der erfundene Schlüssel hat es nicht hereingeschafft.
@@ -733,6 +885,7 @@ fn zwei_widersprechende_etiketten_zu_einer_art_ergeben_gar_kein_etikett() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_299)],
+        transfers: vec![],
         fingerprints: vec![schluessel],
         counter_accounts: vec![],
         categories: vec![],
@@ -759,6 +912,7 @@ fn dasselbe_etikett_zweimal_bleibt_ein_etikett() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_299)],
+        transfers: vec![],
         fingerprints: vec![schluessel.clone()],
         counter_accounts: vec![],
         categories: vec![kategorie(&schluessel, "Spiel & Spaß")],

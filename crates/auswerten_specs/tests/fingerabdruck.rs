@@ -49,6 +49,7 @@ fn zwei_buchungen_desselben_haendlers_ergeben_denselben_fingerabdruck() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_999), monat(2024, 2, 0, 1_999)],
+        transfers: vec![],
         // **Ein** Eintrag, nicht zwei: die zwei Buchungen sind eine Art.
         fingerprints: vec!["COMPANY:DE98ZZZ09999999999".to_string()],
         counter_accounts: vec![],
@@ -88,6 +89,7 @@ fn verschiedene_haendler_hinter_demselben_intermediaer_ergeben_verschiedene_fing
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 5_234)],
+        transfers: vec![],
         // **Zwei** Arten, nicht eine: der Händler-Token des Verwendungszwecks trennt sie.
         fingerprints: vec![
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT-IHR-EINKAUF".to_string(),
@@ -131,6 +133,7 @@ fn derselbe_haendler_hinter_einem_intermediaer_ueberlebt_die_wechselnde_referenz
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 1_200), monat(2024, 2, 0, 1_200)],
+        transfers: vec![],
         fingerprints: vec![
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
         ],
@@ -169,6 +172,7 @@ fn ein_intermediaer_ohne_gefuehrten_namen_verklumpt_seine_haendler_nicht() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 5_234)],
+        transfers: vec![],
         // Zwei Arten — erkannt über die **Gläubiger-ID**, die immer da ist.
         fingerprints: vec![
             "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
@@ -209,6 +213,7 @@ fn amazon_payments_ohne_gefuehrten_namen_verklumpt_seine_haendler_nicht() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 5_234)],
+        transfers: vec![],
         // Zwei Arten, nicht eine — erkannt über die **Gläubiger-ID**, die immer da ist.
         fingerprints: vec![
             "COMPANY:DE94ZZZ00000561653|MERCHANT:AMZN-MKTP-DE-BUCHSHOP-NORD".to_string(),
@@ -251,6 +256,7 @@ fn auch_amazon_digital_und_amazon_eu_tragen_den_haendler_token_ihres_zwecks() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 3_598)],
+        transfers: vec![],
         // Beide Schlüssel tragen den Händler-Token — ohne Durchleiter-Erkennung stünde hier nur der
         // nackte `COMPANY:`-Schlüssel und jede Firmierung wäre **ein** Klumpen.
         fingerprints: vec![
@@ -278,6 +284,7 @@ fn dieselbe_privatperson_ergibt_bei_gleichem_seed_denselben_fingerabdruck() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 25_000)],
+        transfers: vec![],
         fingerprints: vec!["PERSON:PERSON_7".to_string()],
         counter_accounts: vec![],
         categories: vec![],
@@ -286,6 +293,7 @@ fn dieselbe_privatperson_ergibt_bei_gleichem_seed_denselben_fingerabdruck() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 3, 0, 25_000)],
+        transfers: vec![],
         // **Derselbe** Schlüssel wie im ersten Import — trotz anderen Monats und anderem Lauf.
         fingerprints: vec!["PERSON:PERSON_7".to_string()],
         counter_accounts: vec![],
@@ -307,6 +315,7 @@ fn ein_anderer_seed_aendert_den_fingerabdruck_der_privatperson() {
         window_id: FENSTER.to_string(),
         currency: "EUR".to_string(),
         months: vec![monat(2024, 1, 0, 25_000)],
+        transfers: vec![],
         // Ein **anderer** Schlüssel als `PERSON:PERSON_7` derselben Person oben.
         fingerprints: vec!["PERSON:PERSON_42".to_string()],
         counter_accounts: vec![],

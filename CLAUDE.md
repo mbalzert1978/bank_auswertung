@@ -201,8 +201,8 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   analysis, the LLM only an oracle). **Two reaches, two single-purpose handlers — both built**
   (ADR-0013, decision E). The **per-window** reach (`WindowEvaluationHandler`, consuming
   `FensterGeschlossen` — an **ID pointer**) reads the frozen `Auswertungsfenster` by ID, computes
-  the periodic metric **within** the window — today the **month cashflow** — plus the window's
-  **distinct fingerprints**, and stores the result. The **window-spanning** reach
+  the periodic metric **within** the window — today the **month cashflow**, **netted** — plus the
+  window's **distinct fingerprints**, and stores the result. The **window-spanning** reach
   (`HistoryEvaluationHandler`, consuming `HistorieVollständig` — a **different** dispatch key, scoped
   to the run by the run span in the `partition_key`) runs **one** read-port query over **all** windows
   of the run and **returns** the occurrences of the whole timeline — it **stores nothing** (the
@@ -212,10 +212,16 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   domain, not adapter or `io`. **`Gegenkonto::Eigen|Fremd` is resolved on tokens** against the
   token-oriented own-accounts config passed in as a value (`io` wires it; the slice reads no file, no
   raw IBAN ever reaches it), with a `SeedMarker` guard that fails the run terminally if window and
-  config were not tokenised under the same seed. Calls `Kategorisierer` only for **unknown**
+  config were not tokenised under the same seed. On that resolution rests the **`Umbuchung` netting**
+  ([Issue 0004](docs/issues/0004-umbuchung-netting.md), **built**): a booking onto an own account is
+  no outflow, so it leaves the cashflow — **leaves, not vanishes**. It stands next to it as an
+  `InternalTransfer`, per month and counter-account role, so the gross flow is the sum of both views.
+  Netting is decided **per row, not per pair**: that the counter account is mine already stands on the
+  single booking, and waiting for its second leg would count every transfer whose counterpart sits in
+  another window or an unimported statement as an expense. Calls `Kategorisierer` only for **unknown**
   fingerprints; its egress DTO carries the no-`Serialize` guard. Read/store/query each **fallible +
   terminal**, **no** publish seam (it is the pipeline tail until `report`). Still to come on top of
-  these reaches: the fee/Pareto/`Umbuchung`-netting/recurrence analyzers (building blocks 0004–0007).
+  these reaches: the fee/Pareto/recurrence analyzers (building blocks 0005–0007).
 
 (An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
 `Gegenkonto::Eigen|Fremd` resolution into the **`auswerten`** slice, done **on
@@ -296,10 +302,21 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
 - Cosmetic: the `toml` dependency carries semver build metadata, so every workspace command
   prints a warning ([0086](docs/issues/0086-toml-abhaengigkeit-ohne-semver-metadaten.md)).
 
-**Next: the schema owner + version stamp ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md))
-and the dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md))
-— now that runs happen, a file on disk and a poisoned message both need an owner. Then
-`Kategorisierer`/`Speicher` (0009/0011) and the `report` HTML presenter.**
+**Next**, two threads (weighed in
+[docs/plans/2026-07-31-1335](docs/plans/2026-07-31-1335-aufwand-und-reihenfolge-der-offenen-posten.md)):
+
+- **Towards an answer** — the `Umbuchung` netting ([0004](docs/issues/0004-umbuchung-netting.md)) is
+  **done**, so the cashflow numbers are now right rather than merely computed. On top of it the
+  Pareto/savings-candidate analyzer ([0007](docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)) and then
+  the `report` ([0012](docs/issues/0012-html-bericht.md)) — after those the program says for
+  the first time **where the money goes**. Both need a decision from Markus first (what counts as a
+  realistic savings candidate; what the report should state).
+- **Towards a safe operation** — the schema owner + version stamp
+  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)) and the
+  dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
+  now that runs happen, a file on disk and a poisoned message both need an owner.
+
+Then `Kategorisierer`/`Speicher` (0009/0011), the recurrence and fee analyzers (0005/0006).
 
 ## Commands
 
@@ -386,15 +403,16 @@ each step runnable/valuable against fakes, real `io` last:
    ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).
    **done** — issues 0036–0039, real store + read seam since 0054/0057.
 5. **`auswerten` slice** — **two single-purpose handlers**, **both built**: per-window
-   (today the **month cashflow** *within* one `Auswertungsfenster`, carrying the window's distinct
-   fingerprints) and window-spanning (recurrence *reach* as a **read-port query over all windows of
-   the run**, triggered by `HistorieVollständig` — no fold-log). Owns the `Fingerabdruck` domain
-   function and token-based `Gegenkonto::Eigen|Fremd` resolution (counter `KONTO_x` vs. the
+   (today the **netted month cashflow** *within* one `Auswertungsfenster`, carrying the window's
+   distinct fingerprints) and window-spanning (recurrence *reach* as a **read-port query over all
+   windows of the run**, triggered by `HistorieVollständig` — no fold-log). Owns the `Fingerabdruck`
+   domain function and token-based `Gegenkonto::Eigen|Fremd` resolution (counter `KONTO_x` vs. the
    seed-tokenised own-accounts config, IBAN + role). Calls `Kategorisierer` only for unknown
-   fingerprints. Issues 0040–0045 **done**, real store + both read seams since 0058; the
-   fee/Pareto/`Umbuchung`-netting/recurrence analyzers (building blocks 0004–0007) build *on top*
-   of these reaches and are still to come. Own-accounts config and `Kategorisierer` still come in
-   from the caller as fakes.
+   fingerprints. Issues 0040–0045 **done**, real store + both read seams since 0058; the first
+   analyzer on top of them, the **`Umbuchung` netting** (0004), is **built** — the cashflow now
+   answers „where do we bleed" instead of counting own transfers as spending, and what it drops
+   stands next to it in `window_evaluation_transfers`. The fee/Pareto/recurrence analyzers (building
+   blocks 0005–0007) are still to come. `Kategorisierer` still comes in from the caller as a fake.
 6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
    fulfilling the seams — **largely built**: the SQLite Outbox broker/`UnitOfWork`, the
    `Calendar`/`Money`/`Currency` seams, the CSV-CAMT-v8 source, **all four** slice result stores

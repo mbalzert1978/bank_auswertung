@@ -31,9 +31,9 @@ use std::rc::Rc;
 use auswerten_adapter::{
     AnalysisWindowRow, AnalysisWindowSeam, BookingDirection, BookingRecipient, CategorizerSeam,
     CategorizerUnavailable, CategoryAnswerRow, CategoryRegistrySeam, CategoryRequestRow,
-    CategoryRow, CounterAccountRow, EvaluationStoreSeam, MonthlyCashflowRow, OccurrenceRow,
-    OccurrenceSeam, OwnAccountRow, OwnAccountsConfig, RegistryUnavailable, WindowBookingRow,
-    WindowEvaluationRow,
+    CategoryRow, CounterAccountRow, EvaluationStoreSeam, InternalTransferRow, MonthlyCashflowRow,
+    OccurrenceRow, OccurrenceSeam, OwnAccountRow, OwnAccountsConfig, RegistryUnavailable,
+    WindowBookingRow, WindowEvaluationRow,
 };
 use fenstern_adapter::{ObfuscatedRow, ObfuscatedWindowSeam};
 use io::Dispatcher;
@@ -614,16 +614,36 @@ pub(crate) fn monat(year: i64, month: i64, incoming: u64, outgoing: u64) -> Mont
     }
 }
 
+/// Ein erwarteter **Umbuchungs-Bucket**: derselbe Monats-Bucket wie beim Cashflow, dazu die Rolle
+/// des Gegenkontos, zwischen dem und dem gebuchten Konto das Geld floss.
+pub(crate) fn umgebucht(
+    year: i64,
+    month: i64,
+    role: &str,
+    incoming: u64,
+    outgoing: u64,
+) -> InternalTransferRow {
+    InternalTransferRow {
+        year,
+        month,
+        role: role.to_string(),
+        incoming_minor_units: incoming,
+        outgoing_minor_units: outgoing,
+    }
+}
+
 /// Das erwartete **Pro-Fenster-Ergebnis** zu einem Fenster.
 pub(crate) fn kennzahl(
     window_id: &str,
     months: Vec<MonthlyCashflowRow>,
+    transfers: Vec<InternalTransferRow>,
     counter_accounts: Vec<CounterAccountRow>,
 ) -> WindowEvaluationRow {
     WindowEvaluationRow {
         window_id: window_id.to_string(),
         currency: "EUR".to_string(),
         months,
+        transfers,
         fingerprints: vec![fingerabdruck()],
         counter_accounts,
         categories: vec![CategoryRow {

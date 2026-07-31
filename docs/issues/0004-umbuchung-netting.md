@@ -1,7 +1,7 @@
 ---
 id: "0004"
 title: "Umbuchung-Netting"
-status: open
+status: closed
 ---
 
 # Umbuchung-Netting
@@ -31,16 +31,39 @@ aufgelöst — dieser Slice matcht nur noch darauf).
 
 ## Abnahmekriterien
 
-- [ ] Ein Buchungspaar zweier eigener Konten (Ausgang von Konto A, Eingang bei
+- [x] Ein Buchungspaar zweier eigener Konten (Ausgang von Konto A, Eingang bei
       Konto B, `Gegenkonto::Eigen`) wird als Umbuchung erkannt und aus der
       Abfluss-Summe herausgenettet.
-- [ ] Die erkannte Umbuchung bleibt über eine eigene Geldfluss-Sicht zwischen
+- [x] Die erkannte Umbuchung bleibt über eine eigene Geldfluss-Sicht zwischen
       den eigenen Konten sichtbar (Test: Umbuchung erscheint dort, obwohl sie
       aus der Abfluss-Summe verschwindet).
-- [ ] Eine normale Ausgangs-Buchung an ein fremdes Konto (`Gegenkonto::Fremd`)
+- [x] Eine normale Ausgangs-Buchung an ein fremdes Konto (`Gegenkonto::Fremd`)
       wird **nicht** genettet und bleibt voll in der Abfluss-Summe.
-- [ ] Test deckt den DTO-Vertrag ab: eine Liste synthetischer `Buchung`-DTOs
+- [x] Test deckt den DTO-Vertrag ab: eine Liste synthetischer `Buchung`-DTOs
       rein, Netting-Ergebnis-DTO raus — ohne Datei- oder Netzzugriff.
+
+## Wie es gebaut wurde (2026-07-31)
+
+- **Netting je Zeile, nicht je Paar.** Der Ticket-Text spricht vom „Buchungspaar",
+  seine eigene Matching-Logik aber nur von `Gegenkonto::Eigen` — und das ist auch das
+  Richtige: auf das zweite Bein zu warten hieße, jede Umbuchung als Ausgabe zu zählen,
+  deren Gegenstück in einem anderen Fenster, einem nicht eingelesenen Auszug oder
+  jenseits des Monatswechsels liegt. Seit die Auflösung **auf Token** arbeitet
+  ([0042](0042-eigene-konten-config-und-gegenkonto-auf-token.md)) steht „das Gegenkonto
+  ist meines" schon an der einzelnen Zeile. Der Paar-Fall ist trotzdem als Spec belegt
+  (`beide_beine_eines_umbuchungspaares_werden_genettet`).
+- **Beide Richtungen fallen heraus**, nicht nur der Abfluss — sonst sähe das Sparkonto
+  wie eine Einnahmequelle aus.
+- **Die Geldfluss-Sicht** ist `InternalTransfer`: dieselbe Form wie ein Cashflow-Bucket
+  (Monat + zwei vorzeichenlose Spalten), zusätzlich die **Rolle des Gegenkontos**. Dass
+  die Form dieselbe ist, ist die Zusage „ausgeschlossen, aber sichtbar": brutto = genettet
+  plus umgebucht. Kein verrechneter Saldo — das Vorzeichen lebt in der Richtung (ADR-0005).
+- **Die Gebühr _für_ eine Umbuchung** hat kein Gegenkonto und bleibt darum im Abfluss
+  (CONTEXT.md, „Umbuchungskosten" — der Hauptverdächtige des Projekts).
+- **Persistenz:** eine sechste Tabelle `window_evaluation_transfers` im `auswerten`-Store
+  (`role` per `CHECK` aufs Vier-Wort-Vokabular). Kein Seam Richtung Slice geändert.
+- **Am echten Lauf belegt:** der Juni-Abfluss sinkt von 173060 auf 143060, die fehlenden
+  30000 stehen als Umbuchung aufs Sparkonto daneben — 173060 = 143060 + 30000.
 
 ## Blockiert durch
 

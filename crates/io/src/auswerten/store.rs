@@ -14,28 +14,29 @@
 //! [`AuswertenSqliteStore`] ist die [`UnitFactory`](crate::UnitFactory) des Slice — je
 //! Nachricht öffnet es eine [`AuswertenUnit`] über dem generischen [`SliceUnit`]. Deren
 //! [`save`](EvaluationStoreSeam::save) **mintet die neue ID synchron an der DB** (`randomblob`) und
-//! **stagt** die Ergebnis-`INSERT`s (Kopf + vier Detail-Tabellen) in **dieselbe** committende
+//! **stagt** die Ergebnis-`INSERT`s (Kopf + fünf Detail-Tabellen) in **dieselbe** committende
 //! Transaktion wie der Ack. Diese Reichweite **publiziert keinen Zeiger** stromabwärts (sie ist das
 //! Pipeline-Ende bis zum `report`), darum vergibt der Seam die neue ID nur DB-intern und gibt sie
 //! **nicht** zurück; das Ergebnis referenziert sein Quell-Fenster **nur per `window_id`**
 //! (Referenz-per-ID auf `auswertungsfenster.id`), nie eingebettet.
 //!
-//! **Fünf Tabellen (Kopf + vier Detail-Listen):** `window_evaluations` trägt Fremdschlüssel, Währung
-//! und Audit; die vier Detail-Tabellen die **positionsgetreuen** Listen — Monats-Buckets,
-//! Fingerabdrücke, eingeordnete Gegenkonten und die Orakel-Kategorien. Jede Detail-Zeile referenziert
-//! den Kopf **per `evaluation_id`** (indiziert), **kein** DB-`FOREIGN KEY`-Constraint (SQLite erzwingt
-//! FKs nur mit `PRAGMA foreign_keys`, das die synchrone Outbox-Spine bewusst nicht schaltet).
+//! **Sechs Tabellen (Kopf + fünf Detail-Listen):** `window_evaluations` trägt Fremdschlüssel, Währung
+//! und Audit; die fünf Detail-Tabellen die **positionsgetreuen** Listen — Monats-Buckets,
+//! Umbuchungen, Fingerabdrücke, eingeordnete Gegenkonten und die Orakel-Kategorien. Jede
+//! Detail-Zeile referenziert den Kopf **per `evaluation_id`** (indiziert), **kein**
+//! DB-`FOREIGN KEY`-Constraint (SQLite erzwingt FKs nur mit `PRAGMA foreign_keys`, das die synchrone
+//! Outbox-Spine bewusst nicht schaltet).
 //!
 //! **Seit [Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)
 //! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
 //! sein [`StoreSpec`]-`impl` (Schema + Inserts + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
 //! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
 //! Preflight/Minten, die [`UnitFactory`](crate::UnitFactory) und der Outbox-Passthrough leben
-//! generisch in [`SliceStore`]/[`SliceUnit`]. Er ist der **Fünf-Tabellen-Fall** und damit der
-//! Capstone der Abstraktion: **alle fünf** Tabellen stehen mit DDL und Ablage-Statement in **einer**
+//! generisch in [`SliceStore`]/[`SliceUnit`]. Er ist der **Sechs-Tabellen-Fall** und damit der
+//! Capstone der Abstraktion: **alle sechs** Tabellen stehen mit DDL und Ablage-Statement in **einer**
 //! [`TableSpec`]-Liste (also legt `new` jede an, rüstet auf jeder die Audit-Spalten nach und der
 //! Preflight probt **jedes** ihrer Statements), und [`stage`](StoreSpec::stage) liefert **eine**
-//! Schreibung, die Kopf- und alle vier Detail-Listen positionsgetreu in dieselbe Transaktion
+//! Schreibung, die Kopf- und alle fünf Detail-Listen positionsgetreu in dieselbe Transaktion
 //! schreibt. Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
@@ -44,15 +45,15 @@
 //! kein Retry im Slice.
 
 use auswerten_adapter::{
-    CounterAccountRow, EvaluationStoreSeam, MonthlyCashflowRow, StoreUnavailable,
-    WindowEvaluationRow,
+    CounterAccountRow, EvaluationStoreSeam, InternalTransferRow, MonthlyCashflowRow,
+    StoreUnavailable, WindowEvaluationRow,
 };
 use rusqlite::{Transaction, params};
 
 use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
-/// Die `auswerten`-Persistenz als [`StoreSpec`]: der **Fünf-Tabellen-Fall** — der Kopf
-/// (`window_evaluations`) und seine vier positionsgetreuen Detail-Listen, je mit ihrem `INSERT`, und
+/// Die `auswerten`-Persistenz als [`StoreSpec`]: der **Sechs-Tabellen-Fall** — der Kopf
+/// (`window_evaluations`) und seine fünf positionsgetreuen Detail-Listen, je mit ihrem `INSERT`, und
 /// als fehlbare Umdeutung die u64→i64-Deutung der Monats-Beträge. Der Marker-Typ parametrisiert
 /// [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
 pub struct AuswertenEvaluations;
@@ -60,7 +61,7 @@ pub struct AuswertenEvaluations;
 impl StoreSpec for AuswertenEvaluations {
     type Dto = WindowEvaluationRow;
     /// Das abgeflachte Ergebnis ohne seine ID — schreibbar wird erst die `EvaluationRow`, die
-    /// `stage` daraus **mit** der geminteten ID baut (Kopf **und** alle vier Detail-Listen tragen sie).
+    /// `stage` daraus **mit** der geminteten ID baut (Kopf **und** alle fünf Detail-Listen tragen sie).
     type Prepared = EvaluationFields;
     type Error = StoreUnavailable;
 
@@ -72,8 +73,8 @@ impl StoreSpec for AuswertenEvaluations {
         EvaluationFields::try_from(evaluation)
     }
 
-    /// Baut **eine** Schreibung über alle fünf Tabellen: erst die Kopf-Zeile unter der frisch
-    /// geminteten `id`, dann positionsgetreu die vier Detail-Listen unter derselben `id`.
+    /// Baut **eine** Schreibung über alle sechs Tabellen: erst die Kopf-Zeile unter der frisch
+    /// geminteten `id`, dann positionsgetreu die fünf Detail-Listen unter derselben `id`.
     fn stage(fields: EvaluationFields, id: MintedId) -> StagedRow {
         let row = EvaluationRow::new(id, fields);
         Box::new(move |tx| row.insert(tx))
@@ -98,10 +99,10 @@ pub type AuswertenSqliteStore = SliceStore<AuswertenEvaluations>;
 pub type AuswertenUnit = SliceUnit<AuswertenEvaluations>;
 
 impl EvaluationStoreSeam for AuswertenUnit {
-    /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt Kopf- und alle vier
+    /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt Kopf- und alle fünf
     /// Detail-`INSERT`s in die committende Transaktion; ein unerreichbarer Store (Schema fehlt /
     /// DB-Fehler) failt **hier** terminal als redigierte [`StoreUnavailable`]. Der Preflight probt
-    /// **alle fünf** Ablage-Statements (Kopf **und** die vier Detail — alle stehen in `TABLES`):
+    /// **alle sechs** Ablage-Statements (Kopf **und** die fünf Detail — alle stehen in `TABLES`):
     /// fehlt auch nur eine Detail-Tabelle, failt es hier terminal statt erst als Commit-Retry.
     ///
     /// Diese Reichweite ist das **Pipeline-Ende** und publiziert nichts, darum verwirft sie die
@@ -143,6 +144,7 @@ pub struct EvaluationFields {
     window_id: String,
     currency: String,
     months: Vec<MonthRow>,
+    transfers: Vec<TransferRow>,
     fingerprints: Vec<String>,
     counter_accounts: Vec<CounterRow>,
     categories: Vec<CategoryRow>,
@@ -151,7 +153,7 @@ pub struct EvaluationFields {
 impl TryFrom<&WindowEvaluationRow> for EvaluationFields {
     type Error = StoreUnavailable;
 
-    /// Übernimmt die vier Detail-Listen in ihrer **Reihenfolge** — die *ist* die Position; die
+    /// Übernimmt die fünf Detail-Listen in ihrer **Reihenfolge** — die *ist* die Position; die
     /// Positionszahl entsteht erst beim Schreiben ([`insert_positional`]), kann der Reihenfolge also
     /// nicht widersprechen. Fehlbar allein in der u64→i64-Deutung der Monats-Beträge, die damit
     /// **vor** dem Minten läuft, sodass [`EvaluationRow::new`] die schreibbare Row **in einem Zug
@@ -164,6 +166,11 @@ impl TryFrom<&WindowEvaluationRow> for EvaluationFields {
                 .months
                 .iter()
                 .map(MonthRow::try_from)
+                .collect::<Result<_, _>>()?,
+            transfers: evaluation
+                .transfers
+                .iter()
+                .map(TransferRow::try_from)
                 .collect::<Result<_, _>>()?,
             fingerprints: evaluation.fingerprints.clone(),
             counter_accounts: evaluation
@@ -184,6 +191,16 @@ impl TryFrom<&WindowEvaluationRow> for EvaluationFields {
 struct MonthRow {
     year: i64,
     month: i64,
+    incoming_minor_units: i64,
+    outgoing_minor_units: i64,
+}
+
+/// Eine **Umbuchung** in ihrer Speicher-Form — derselbe Monats-Bucket wie [`MonthRow`], zusätzlich
+/// mit der Rolle des Gegenkontos, die sie von den übrigen trennt.
+struct TransferRow {
+    year: i64,
+    month: i64,
+    role: String,
     incoming_minor_units: i64,
     outgoing_minor_units: i64,
 }
@@ -214,6 +231,20 @@ impl TryFrom<&MonthlyCashflowRow> for MonthRow {
     }
 }
 
+impl TryFrom<&InternalTransferRow> for TransferRow {
+    type Error = StoreUnavailable;
+
+    fn try_from(transfer: &InternalTransferRow) -> Result<Self, StoreUnavailable> {
+        Ok(Self {
+            year: transfer.year,
+            month: transfer.month,
+            role: transfer.role.clone(),
+            incoming_minor_units: magnitude(transfer.incoming_minor_units)?,
+            outgoing_minor_units: magnitude(transfer.outgoing_minor_units)?,
+        })
+    }
+}
+
 impl From<&CounterAccountRow> for CounterRow {
     fn from(counter_account: &CounterAccountRow) -> Self {
         match counter_account {
@@ -239,10 +270,10 @@ impl From<&auswerten_adapter::CategoryRow> for CategoryRow {
 }
 
 /// Die SQL-fertigen Zeilen **aller fünf** Tabellen: die abgeflachten Felder **unter** ihrer
-/// DB-vergebenen ID, die Kopf und alle vier Detail-Listen gemeinsam tragen. Sie reist in die
+/// DB-vergebenen ID, die Kopf und alle fünf Detail-Listen gemeinsam tragen. Sie reist in die
 /// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster Parameter von
 /// [`new`](EvaluationRow::new); dass es die eben an der DB gemintete ist, trägt ihr Typ
-/// [`MintedId`] — eine von Hand gebaute Schein-ID, die Kopf und die vier Detail-Listen unter einem
+/// [`MintedId`] — eine von Hand gebaute Schein-ID, die Kopf und die fünf Detail-Listen unter einem
 /// Schein-Primärschlüssel zusammenbände, ist hier ein Compile-Fehler.
 struct EvaluationRow {
     id: MintedId,
@@ -256,7 +287,7 @@ impl EvaluationRow {
         Self { id, fields }
     }
 
-    /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion. Jede der vier Detail-Listen
+    /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion. Jede der fünf Detail-Listen
     /// läuft **positionsgetreu** über [`insert_positional`], das die `enumerate`→`position`-Nummerierung
     /// an **einer** Stelle bündelt; jede Closure trägt nur noch das listen-eigene Statement und seine
     /// Feld-Params.
@@ -276,6 +307,21 @@ impl EvaluationRow {
                     month.month,
                     month.incoming_minor_units,
                     month.outgoing_minor_units,
+                ],
+            )
+            .map(drop)
+        })?;
+        insert_positional(&fields.transfers, |position, transfer| {
+            tx.execute(
+                INSERT_TRANSFER,
+                params![
+                    self.id,
+                    position,
+                    transfer.year,
+                    transfer.month,
+                    transfer.role,
+                    transfer.incoming_minor_units,
+                    transfer.outgoing_minor_units,
                 ],
             )
             .map(drop)
@@ -308,7 +354,7 @@ impl EvaluationRow {
 
 /// Schreibt eine Detail-Liste **positionsgetreu**: nummeriert jede Zeile (`enumerate` → `position`
 /// über [`position_or_sql_error`]) und überlässt das eigentliche `INSERT` der Closure, die Statement
-/// und Feld-Params kennt. Bündelt die `enumerate`/Positions-Mechanik der vier Detail-Listen an **einer**
+/// und Feld-Params kennt. Bündelt die `enumerate`/Positions-Mechanik der fünf Detail-Listen an **einer**
 /// Stelle, sodass je Liste nur ihr Statement und ihre Felder übrig bleiben.
 fn insert_positional<T>(
     items: &[T],
@@ -347,6 +393,11 @@ const TABLES: &[TableSpec] = &[
         insert: INSERT_MONTH,
     },
     TableSpec {
+        name: "window_evaluation_transfers",
+        ddl: SCHEMA_TRANSFERS,
+        insert: INSERT_TRANSFER,
+    },
+    TableSpec {
         name: "window_evaluation_fingerprints",
         ddl: SCHEMA_FINGERPRINTS,
         insert: INSERT_FINGERPRINT,
@@ -382,7 +433,7 @@ CREATE INDEX IF NOT EXISTS window_evaluations_window_id_idx
 /// Das Schema der **Monats-Bucket**-Detail-Tabelle: die positionsgetreuen Cashflow-Buckets, per
 /// `evaluation_id` (indiziert) an ihren Kopf gebunden — **kein** DB-`FOREIGN KEY`-Constraint (SQLite
 /// erzwingt FKs nur mit aktiviertem `PRAGMA foreign_keys`, das die synchrone Outbox-Spine bewusst
-/// nicht schaltet). Audit-Zeitstempel wie bei der Kopf-Tabelle; das gilt für alle vier Detail-Tabellen.
+/// nicht schaltet). Audit-Zeitstempel wie bei der Kopf-Tabelle; das gilt für alle fünf Detail-Tabellen.
 const SCHEMA_MONTHS: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluation_months (
     evaluation_id        TEXT    NOT NULL,
@@ -397,6 +448,30 @@ CREATE TABLE IF NOT EXISTS window_evaluation_months (
 );
 CREATE INDEX IF NOT EXISTS window_evaluation_months_evaluation_id_idx
     ON window_evaluation_months (evaluation_id);";
+
+/// Das Schema der **Umbuchungs**-Detail-Tabelle: die positionsgetreuen Monats-Buckets der Umbuchungen
+/// zwischen eigenen Konten — das, was aus `window_evaluation_months` herausgenettet wurde (Issue
+/// 0004). Sie steht **neben** den Monats-Buckets statt in ihnen, weil beide Sichten sonst nicht mehr
+/// getrennt lesbar wären; der Brutto-Fluss eines Monats ist die Summe aus beiden Tabellen.
+///
+/// `role` ist per `CHECK` auf das Vier-Wort-Vokabular der Konto-Rollen erzwungen
+/// (`.rules/sql/schema-konventionen.md`) — anders als bei den Gegenkonten, wo `role` optional ist und
+/// stattdessen an `kind` gekoppelt wird: eine Umbuchung **ohne** Rolle gibt es nicht.
+const SCHEMA_TRANSFERS: &str = "\
+CREATE TABLE IF NOT EXISTS window_evaluation_transfers (
+    evaluation_id        TEXT    NOT NULL,
+    position             INTEGER NOT NULL,
+    year                 INTEGER NOT NULL,
+    month                INTEGER NOT NULL,
+    role                 TEXT    NOT NULL CHECK (role IN ('giro', 'haushalt', 'spar', 'vorlauf')),
+    incoming_minor_units INTEGER NOT NULL,
+    outgoing_minor_units INTEGER NOT NULL,
+    created_at           INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at           INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    PRIMARY KEY (evaluation_id, position)
+);
+CREATE INDEX IF NOT EXISTS window_evaluation_transfers_evaluation_id_idx
+    ON window_evaluation_transfers (evaluation_id);";
 
 /// Das Schema der **Fingerabdruck**-Detail-Tabelle: die positionsgetreuen, im Fenster vorkommenden
 /// Fingerabdrücke.
@@ -461,6 +536,15 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6,
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
 
+const INSERT_TRANSFER: &str = "\
+INSERT INTO window_evaluation_transfers
+    (evaluation_id, position, year, month, role, incoming_minor_units, outgoing_minor_units,
+     created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER)
+);";
+
 const INSERT_FINGERPRINT: &str = "\
 INSERT INTO window_evaluation_fingerprints (evaluation_id, position, fingerprint, created_at, updated_at)
 VALUES (?1, ?2, ?3,
@@ -508,6 +592,7 @@ mod tests {
         START_MESSAGE_TYPE, consumer as fenstern_consumer, start_consumer,
     };
     use crate::obfuskierung::seed_marker;
+    use crate::outbox::UnitOfWork;
     use crate::pipeline_test_support::{
         CapturingAck, SEED, Stage, drain, register_fresh, seed_through, stamp,
     };
@@ -580,6 +665,7 @@ mod tests {
     struct StoredEvaluation {
         currency: String,
         months: Vec<(i64, i64, i64, i64)>,
+        transfers: Vec<StoredTransfer>,
         fingerprints: Vec<String>,
         counter_accounts: Vec<(String, Option<String>)>,
         categories: Vec<(String, String)>,
@@ -604,6 +690,7 @@ mod tests {
                     Ok(StoredEvaluation {
                         currency,
                         months: read_months(conn, &id)?,
+                        transfers: read_transfers(conn, &id)?,
                         fingerprints: read_fingerprints(conn, &id)?,
                         counter_accounts: read_counter_accounts(conn, &id)?,
                         categories: read_categories(conn, &id)?,
@@ -623,6 +710,29 @@ mod tests {
         )?
         .query_map(params![id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect()
+    }
+
+    /// Eine zurückgelesene Umbuchungs-Zeile: Jahr, Monat, Rolle, Zu-, Abfluss.
+    type StoredTransfer = (i64, i64, String, i64, i64);
+
+    fn read_transfers(
+        conn: &rusqlite::Connection,
+        id: &str,
+    ) -> rusqlite::Result<Vec<StoredTransfer>> {
+        conn.prepare(
+            "SELECT year, month, role, incoming_minor_units, outgoing_minor_units \
+             FROM window_evaluation_transfers WHERE evaluation_id = ?1 ORDER BY position;",
+        )?
+        .query_map(params![id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })?
         .collect()
     }
@@ -738,29 +848,39 @@ mod tests {
             "die volle Pipeline muss ohne Fehler durchlaufen: {outcomes:?}"
         );
 
-        // Pro-Fenster-Reichweite: drei Fenster, jedes mit seinem Monats-Cashflow, dem einen
-        // Fingerabdruck, dem als eigen (giro) aufgelösten Gegenkonto und ohne Kategorien.
+        // Pro-Fenster-Reichweite: drei Fenster, jedes mit dem einen Fingerabdruck, dem als eigen
+        // (giro) aufgelösten Gegenkonto und ohne Kategorien.
+        //
+        // **Der Cashflow ist leer, und das ist das Ergebnis.** Die vier Buchungen der Fixture zeigen
+        // alle auf dasselbe Gegenkonto, und dieses ist als eigenes Giro-Konto konfiguriert — also
+        // besteht dieser Lauf **ausschließlich** aus Umbuchungen und keine einzige davon ist ein
+        // Abfluss (Issue 0004). Verloren ist trotzdem nichts: dieselben Beträge stehen, real in der
+        // eigenen Tabelle abgelegt, in der Umbuchungs-Sicht.
         let own_giro = ("own".to_string(), Some("giro".to_string()));
+        let giro = |amount| (2024, 6, "giro".to_string(), 0, amount);
         assert_eq!(
             stored_evaluations(&outbox)?,
             vec![
                 StoredEvaluation {
                     currency: "EUR".to_string(),
-                    months: vec![(2024, 6, 0, 3000)],
+                    months: vec![],
+                    transfers: vec![giro(3000)],
                     fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
                     counter_accounts: vec![own_giro.clone()],
                     categories: vec![],
                 },
                 StoredEvaluation {
                     currency: "EUR".to_string(),
-                    months: vec![(2024, 6, 0, 3000)],
+                    months: vec![],
+                    transfers: vec![giro(3000)],
                     fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
                     counter_accounts: vec![own_giro.clone()],
                     categories: vec![],
                 },
                 StoredEvaluation {
                     currency: "EUR".to_string(),
-                    months: vec![(2024, 6, 0, 4000)],
+                    months: vec![],
+                    transfers: vec![giro(4000)],
                     fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
                     counter_accounts: vec![own_giro],
                     categories: vec![],
@@ -807,11 +927,84 @@ mod tests {
 
     #[expect(
         clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        reason = "Test-Helfer: assert_eq! und expect sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn kopf_und_alle_fuenf_detail_listen_landen_in_ihren_tabellen() -> rusqlite::Result<()> {
+        // Der Lauf oben zeigt die Ablage im Zusammenspiel, aber nur mit dem, was seine Fixture
+        // hergibt — dort ist jede Buchung eine Umbuchung, also bleibt die Cashflow-Tabelle leer.
+        // Dieser Test füttert den Store **direkt** mit einem Ergebnis, in dem **jede** der fünf
+        // Detail-Listen etwas trägt, und liest alles zurück: so ist keine Tabelle davon abhängig,
+        // wie die Beispieldaten gerade aussehen.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        let store = AuswertenSqliteStore::new(outbox.clone())?;
+        // Der Kopf-`JOIN` in `stored_evaluations` verlangt ein reales Quell-Fenster
+        // (Referenz-per-ID, ADR-0012); dessen Tabelle legt der `fenstern`-Store an.
+        FensternSqliteStore::new(outbox.clone())?;
+        outbox.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO auswertungsfenster (id, from_day, to_day, currency) \
+                 VALUES ('w-1', 0, 0, 'EUR');",
+                [],
+            )
+        })?;
+
+        // Die Arbeitseinheit quittiert **eine** Nachricht; ohne sie failt der Commit als
+        // `AlreadyProcessed` — Ablage und Ack hängen an derselben Transaktion (ADR-0012).
+        let ack = outbox.enqueue(AUSWERTEN_CONSUMED, "w-1")?;
+
+        let unit = store.begin(MessageId(&ack));
+        unit.save(&WindowEvaluationRow {
+            window_id: "w-1".to_string(),
+            currency: "EUR".to_string(),
+            months: vec![MonthlyCashflowRow {
+                year: 2024,
+                month: 6,
+                incoming_minor_units: 250_000,
+                outgoing_minor_units: 3_000,
+            }],
+            transfers: vec![InternalTransferRow {
+                year: 2024,
+                month: 6,
+                role: "spar".to_string(),
+                incoming_minor_units: 0,
+                outgoing_minor_units: 50_000,
+            }],
+            fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
+            counter_accounts: vec![CounterAccountRow::Own {
+                role: "spar".to_string(),
+            }],
+            categories: vec![auswerten_adapter::CategoryRow {
+                fingerprint: COMPANY_FINGERPRINT.to_string(),
+                category: "Abo".to_string(),
+            }],
+        })
+        .expect("die Ablage muss gelingen");
+        unit.commit().expect("der Commit muss gelingen");
+
+        assert_eq!(
+            stored_evaluations(&outbox)?,
+            vec![StoredEvaluation {
+                currency: "EUR".to_string(),
+                months: vec![(2024, 6, 250_000, 3_000)],
+                transfers: vec![(2024, 6, "spar".to_string(), 0, 50_000)],
+                fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
+                counter_accounts: vec![("own".to_string(), Some("spar".to_string()))],
+                categories: vec![(COMPANY_FINGERPRINT.to_string(), "Abo".to_string())],
+            }],
+            "jede der fünf Detail-Listen steht in ihrer eigenen Tabelle wieder"
+        );
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
         reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
-    fn jede_fehlende_der_fuenf_tabellen_failt_die_ablage_terminal() -> rusqlite::Result<()> {
-        // Der Fünf-Tabellen-Beweis (Issue 0077, Kriterium 3): je Durchgang stehen **alle** Tabellen
+    fn jede_fehlende_der_sechs_tabellen_failt_die_ablage_terminal() -> rusqlite::Result<()> {
+        // Der Sechs-Tabellen-Beweis (Issue 0077, Kriterium 3): je Durchgang stehen **alle** Tabellen
         // bis auf **eine**. Weil der Preflight über **jedes** `TableSpec::insert` aus `TABLES` läuft,
         // failt schon `save` terminal — nicht erst der Commit als Retry. Fiele eine Tabelle aus
         // `TABLES` (oder würde ihr `insert` nicht mehr geprobt), wird dieser Test für genau sie rot,
@@ -847,6 +1040,7 @@ mod tests {
             window_id: "w".to_string(),
             currency: "EUR".to_string(),
             months: vec![],
+            transfers: vec![],
             fingerprints: vec![],
             counter_accounts: vec![],
             categories: vec![],

@@ -44,4 +44,6 @@ pub use evaluate_window_command::{
 pub use occurrence_row::OccurrenceRow;
 pub(crate) use own_accounts_config::ConfigRejected;
 pub use own_accounts_config::{OwnAccountRow, OwnAccountsConfig};
-pub use window_evaluation_row::{CounterAccountRow, MonthlyCashflowRow, WindowEvaluationRow};
+pub use window_evaluation_row::{
+    CounterAccountRow, InternalTransferRow, MonthlyCashflowRow, WindowEvaluationRow,
+};

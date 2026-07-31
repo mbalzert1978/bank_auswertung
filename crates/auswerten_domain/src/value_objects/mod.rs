@@ -5,6 +5,9 @@
 //! [`MonthlyCashflow`] ist der Bucket selbst, [`WindowedBooking`] die gelesene Buchung des
 //! Fensters. Die [`WindowId`] ist die opake Identität des Aggregats, per Zeiger hereingereicht.
 //!
+//! Der [`InternalTransfer`] ist die **andere Seite** des Cashflows: die Umbuchung zwischen eigenen
+//! Konten, die aus ihm herausgenettet wurde und hier sichtbar bleibt.
+//!
 //! Das **Kategorisierer-Orakel** bringt drei mit: die [`Category`] als vergebenes Etikett und die
 //! beiden schmalen DTOs seiner zwei Richtungen — [`CategoryRequest`] hinaus, [`CategoryAnswer`]
 //! herein (ADR-0002: je Richtung ein eigenes, nie ein gemeinsames God-DTO).
@@ -23,6 +26,7 @@ mod category_request;
 mod counter_account;
 mod currency;
 mod fingerprint;
+mod internal_transfer;
 mod month;
 mod monthly_cashflow;
 mod non_empty_string;
@@ -41,6 +45,7 @@ pub use category_request::CategoryRequest;
 pub use counter_account::{AccountRole, AccountToken, CounterAccount};
 pub use currency::Currency;
 pub use fingerprint::Fingerprint;
+pub use internal_transfer::InternalTransfer;
 pub use month::{DayStamp, Month};
 pub use monthly_cashflow::MonthlyCashflow;
 pub use non_empty_string::NonEmptyString;

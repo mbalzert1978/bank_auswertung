@@ -20,7 +20,7 @@ mod fixtures;
 use auswerten_adapter::CounterAccountRow;
 use fixtures::{
     FEB_29, FakeBestand, FakeDb, JAN_15, Verdrahtung, bestand, dispatcher_mit, envelope,
-    fahre_lauf, kennzahl, monat, nachricht, vorkommen,
+    fahre_lauf, kennzahl, monat, nachricht, umgebucht, vorkommen,
 };
 
 // --- Der volle Lauf: ein Anstoß → beide Ergebnisse ---------------------------------------
@@ -37,19 +37,23 @@ fn ein_start_analysis_treibt_die_kette_bis_zu_beiden_ergebnissen() {
     assert_eq!(ergebnis, Ok(()));
 
     // **Erstes** Ergebnis: je materialisiertem Fenster eine Pro-Fenster-Kennzahl, jede mit dem
-    // Fremdschlüssel auf ihr Quell-Fenster. Fenster ≠ Zeitraum — das erste Fenster (30 Tage) zerfällt
-    // in **zwei** Monats-Buckets; die Umbuchung landet als Zufluss auf dem eigenen Giro-Konto.
+    // Fremdschlüssel auf ihr Quell-Fenster. Fenster ≠ Zeitraum — das erste Fenster (30 Tage) deckt
+    // Januar **und** Februar ab, hat aber nur **einen** Cashflow-Bucket: die Januar-Buchung ist eine
+    // Umbuchung vom eigenen Giro-Konto und damit **herausgenettet** (Issue 0004). Verloren ist sie
+    // nicht — sie steht als Zufluss unter `giro` in der Umbuchungs-Sicht daneben, und die Einordnung
+    // des Gegenkontos nennt sie weiterhin als vorgekommene Art.
     assert_eq!(
         db.committed_evaluations(),
         vec![
             kennzahl(
                 "fenster-1",
-                vec![monat(2024, 1, 250_000, 0), monat(2024, 2, 0, 1_999)],
+                vec![monat(2024, 2, 0, 1_999)],
+                vec![umgebucht(2024, 1, "giro", 250_000, 0)],
                 vec![CounterAccountRow::Own {
                     role: "giro".to_string()
                 }],
             ),
-            kennzahl("fenster-2", vec![monat(2024, 1, 0, 1_999)], vec![]),
+            kennzahl("fenster-2", vec![monat(2024, 1, 0, 1_999)], vec![], vec![]),
         ]
     );
 
