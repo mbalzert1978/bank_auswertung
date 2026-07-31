@@ -330,7 +330,7 @@ mod tests {
     use crate::einlesen::{
         CONSUMED_MESSAGE_TYPE, GermanCalendar, GermanMoney, IsoCurrencies, consumer,
     };
-    use crate::outbox::OutboxError;
+    use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{assert_redacted_diagnosis, csv_source, register_fresh};
     use crate::sqlite::SqliteOutbox;
 
@@ -370,7 +370,7 @@ mod tests {
         outbox: &SqliteOutbox,
         store: EinlesenSqliteStore,
         fixture: &str,
-    ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
         let source = csv_source(fixture);
         let konsument = consumer(
             &source,

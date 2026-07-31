@@ -54,7 +54,7 @@ pub(crate) fn register_fresh<'a>(
 )]
 #[track_caller]
 pub(crate) fn assert_redacted_diagnosis(
-    outcomes: &[(String, Result<(), OutboxError>)],
+    outcomes: &[(OutboxMessage, Result<(), OutboxError>)],
     expected_prefix: &str,
     raw_value: &str,
 ) {
@@ -150,6 +150,45 @@ pub(crate) fn seed_through(
     Ok(())
 }
 
+/// RAII-Wächter über einen eindeutigen temporären DB-Pfad: löscht die Datei beim Fallenlassen — auch
+/// wenn ein `assert!` den Test abbricht. Hier statt in einem einzelnen Testmodul, weil ihn jeder Test
+/// braucht, der das **datei-gestützte** Rückgrat prüft ([`SqliteOutbox::open`]) statt des flüchtigen
+/// In-Memory-Rückgrats: die Resume-Zusage über einen Prozess-Neustart und der reale Lauf
+/// ([`run`](crate::run)).
+pub(crate) struct TempDbPath(std::path::PathBuf);
+
+impl TempDbPath {
+    /// Ein frischer, eindeutiger Pfad im Temp-Verzeichnis (Prozess-ID + Nanosekunden), damit
+    /// parallel laufende Tests einander nicht in dieselbe Datei schreiben.
+    pub(crate) fn new(tag: &str) -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|dauer| dauer.as_nanos())
+            .unwrap_or(0);
+        let mut pfad = std::env::temp_dir();
+        pfad.push(format!(
+            "bank_auswertung_outbox_{tag}_{}_{nanos}.sqlite",
+            std::process::id()
+        ));
+        Self(pfad)
+    }
+
+    /// Der Pfad, den der Test der [`AppConfig`](crate::config::AppConfig) bzw. den
+    /// [`RunPaths`](crate::run::RunPaths) mitgibt.
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDbPath {
+    fn drop(&mut self) {
+        // Best-effort-Aufräumen: eine bereits fehlende Datei ist kein Fehler.
+        match std::fs::remove_file(&self.0) {
+            Ok(()) | Err(_) => {}
+        }
+    }
+}
+
 /// Der `i64`-Tag-Stamp eines Kalendertags über den geteilten
 /// [`calendar`](crate::common::calendar)-Helfer (Tage seit der Unix-Epoche) — dieselbe Achse, die die
 /// realen Stores ablegen und die realen Lese-Seams zurückgeben. Eine Quelle für alle Store-Testmodule
@@ -215,7 +254,7 @@ impl OutboxHandler for CapturingAck {
 pub(crate) fn drain(
     outbox: &SqliteOutbox,
     dispatcher: &Dispatcher<'_>,
-) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
+) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
     let mut all = Vec::new();
     for _ in 0..32 {
         let batch = outbox.deliver_open(dispatcher)?;

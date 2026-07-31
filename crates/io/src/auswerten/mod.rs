@@ -38,11 +38,20 @@ use crate::{
     MessageId, OutboxConsumer, TransactionError, TransactionalHandler, UnitFactory, run_in_unit,
 };
 
+mod oracle;
 mod source;
 mod store;
 
+pub use oracle::{EmptyCategoryRegistry, UnansweredCategorizer};
 pub use source::AuswertungsfensterSource;
 pub use store::{AuswertenEvaluations, AuswertenSqliteStore, AuswertenUnit};
+
+/// Die **eine** Ableitung des Seed-Markers, crate-intern erreichbar: der Lese-Seam zieht ihn aus dem
+/// je Zeile abgelegten Seed, der Eigene-Konten-Loader
+/// ([`EigeneKontenConfig`](crate::config::EigeneKontenConfig)) aus demselben Seed-Wert. Dass beide
+/// **dieselbe** Funktion benutzen, ist der Grund, warum Fenster- und Config-Marker per Konstruktion
+/// zusammenpassen, statt sich zufällig zu treffen.
+pub(crate) use source::seed_marker;
 
 /// Der `message_type`, unter dem der Dispatcher die **pro-Fenster**-Reichweite auflöst
 /// (`FensterGeschlossen`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am

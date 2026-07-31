@@ -48,10 +48,24 @@
 //! hinter dem eigenen Seam (Issues 0056–0058), und seit
 //! [ADR-0015](../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md) steht jeder davon
 //! als [`StoreSpec`](sqlite::StoreSpec)-`impl` auf **einem** generischen
-//! [`SliceStore`](sqlite::SliceStore). Von den Config-Loadern sind die Fenster- und die Seed-Config
-//! real ([`config`], Issues 0054/0059). **Noch draußen (Build-Order Schritt 5/6):** der
-//! Eigene-Konten-Loader ([Issue 0002](../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)),
-//! der `Speicher` für DTOs/Kategorie-Register und der `report`-Presenter.
+//! [`SliceStore`](sqlite::SliceStore). **Alle drei Config-Loader sind real** ([`config`]): Fenster
+//! (0054), Seed (0059) und — seit dem Lauf-Anstoß — die Eigene-Konten-Config
+//! ([Issue 0002](../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)), die IBANs
+//! liest und **Token** herausgibt.
+//!
+//! **Und darüber der Lauf** ([`run`],
+//! [Issue 0083](../../../docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)):
+//! die Verdrahtung **aller** realen Adapter zu einem Programm — Configs laden, Consumer registrieren,
+//! die Auslöser **einreihen** (nie rufen) und die Broker-Schleife drehen, bis keine offene Nachricht
+//! mehr bleibt. Damit läuft die Pipeline zum ersten Mal außerhalb eines Tests. Die Bin-Crate `lauf`
+//! darüber ist reine Kommandozeile.
+//!
+//! **Noch draußen (Build-Order Schritt 6):** der `Speicher` für DTOs/Kategorie-Register
+//! ([Issue 0009](../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)) und
+//! das Kategorisierer-Orakel
+//! ([Issue 0011](../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)) — beide heute mit
+//! einer bewusst leeren Antwort erfüllt ([`auswerten::EmptyCategoryRegistry`] /
+//! [`auswerten::UnansweredCategorizer`]) — sowie der `report`-Presenter.
 
 mod common;
 
@@ -63,6 +77,7 @@ pub mod config;
 pub mod einlesen;
 pub mod fenstern;
 pub mod obfuskierung;
+pub mod run;
 pub mod sqlite;
 
 pub use common::outbox;

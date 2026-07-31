@@ -1,0 +1,4 @@
+# Seed-Config des Lauf-Tests (Issue 0083). Bewusst ein **anderer** Wert als der Test-Seed der
+# Store-Tests: der Lauf zieht seinen Seed aus **dieser** Datei, nicht aus einer Test-Konstante.
+# Erfunden, kein echter Produktions-Seed.
+seed = 4711

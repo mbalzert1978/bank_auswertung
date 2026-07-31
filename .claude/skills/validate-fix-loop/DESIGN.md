@@ -6,8 +6,9 @@ diesen Entscheidungen geführt hat — damit niemand sie später aus Unkenntnis 
 
 ## Der Loop in einem Absatz
 
-23 `verifier-<smell>`-Checks laufen pro Iteration parallel, jeder als eigener Subagent auf
-dem in `config.json` gesetzten `agent_model`. Danach routet `fixer_map` die Findings jedes
+24 Checks laufen pro Iteration parallel — die 23 `verifier-<smell>` plus
+`design-pattern-fit-check` —, jeder als eigener Subagent auf dem in `config.json` gesetzten
+`agent_model`. Danach routet `fixer_map` die Findings jedes
 Verifiers an genau seinen `fixer-<smell>` — ebenfalls als Subagent, gebündelt in Wellen mit
 paarweise disjunkten Dateimengen. Der Orchestrator sammelt die Eingaben jeder Welle
 unmittelbar vor ihrem Dispatch und fährt das Test-Gate einmal pro Iteration selbst. Ein
@@ -69,6 +70,25 @@ double-counting"), aber die Überschneidung ist nicht paarweise:
 
 **Entscheidung:** die Breite der Feinraster-Checks behalten, die Opus-Kette streichen. Beide
 Netze gleichzeitig zu fahren war die eigentliche Verschwendung.
+
+### Nachtrag 2026-07-29: `design-pattern-fit-check` ist wieder drin
+
+Die Streichung ruhte laut Tabelle oben darauf, dass `review-against-rules` die
+„Abstraktions-Jagd … Strategy, Policy" mit abdeckt. Nur wurde `review-against-rules`
+**mitgestrichen** — und damit ging die Pattern-Ebene ersatzlos verloren. Kein
+`verifier-<smell>` kann ein GoF-Pattern **benennen**: jeder trägt genau das Remedy seines
+Fowler-Smells (`long-parameter-list` → *Introduce Parameter Object*), und „Builder" kommt in
+keiner der 46 Skill-Dateien vor.
+
+Der Beleg aus der Praxis: ein 7-Parameter-`build_dispatcher` wurde von
+`verifier-long-parameter-list` zwar **gefunden**, aber als Parameter Object vorgeschlagen —
+obwohl die Funktion eine mehrstufige, reihenfolge-sensitive Konstruktion war und sogar so
+hieß. Genau der Fall, den `design-pattern-fit-check` als „*A multi-step, order-sensitive
+construction is a Builder*" führt.
+
+Cluster **C** (Verzweigung → Polymorphie) bleibt damit vierfach besetzt — das ist der
+bewusst in Kauf genommene Preis. Fixer-Gegenstück ist `apply-validator-findings`, das
+Findings mit benanntem Remedy anwendet, ohne selbst zu reviewen.
 
 ## Warum `agent_model: sonnet`
 
@@ -148,14 +168,16 @@ Alles in `config.json`, nichts in `SKILL.md`:
 | Schlüssel | Wirkung |
 |---|---|
 | `agent_model` | Modell **jedes** dispatchten Subagenten (Verifier wie Fixer) |
-| `max_iterations` | Validierungs-Durchläufe. **`1` heißt Diagnose ohne Fix** — die letzte erlaubte Iteration validiert, dispatcht aber nie mehr Fixer, weil keine Iteration mehr folgte, die den Erfolg bestätigen könnte. `3` erlaubt zwei Fixer-Runden. |
+| `max_iterations` | **Vollständige Runden** — eine Runde ist eine Validierung **plus ihre Fixer-Wellen**. `2` heißt zwei Validierungen und **zwei** Fixer-Runden, nicht anderthalb. Die Iterationen `1..max_iterations` dispatchen jeweils Fixer; erst der **abschließende** Validierungs-Durchlauf danach meldet den Cap und dispatcht nichts mehr — er existiert nur, damit der Bericht den echten Endstand zeigt. |
 | `validators` + `fixer_map` | Ein neues Smell-Paar ist ein Eintrag in beiden — keine Änderung an `SKILL.md`. |
 | `test_gate` | `enabled` plus `command`/`args`; zeigt auf `run-tests`, damit das Repo-Wissen dort bleibt. |
 
 ## Was bewusst nicht mehr im Loop ist
 
-Die acht allgemeinen Validatoren und `apply-validator-findings` sind **nur ausgehängt, nicht
+Sieben der acht allgemeinen Validatoren sind **nur ausgehängt, nicht
 gelöscht** — einzeln bleiben sie aufrufbar und für einen gezielten Tiefen-Review weiterhin
-sinnvoll, allen voran `review-against-rules`. Sie tragen allerdings noch die Repo- und
+sinnvoll, allen voran `review-against-rules`. (`design-pattern-fit-check` ist seit dem
+Nachtrag oben wieder im Loop, `apply-validator-findings` als dessen Fixer.) Sie tragen
+allerdings noch die Repo- und
 Sprachbezüge, von denen die 46 Loop-Skills befreit wurden; wer sie in ein anderes Repo
 mitnimmt, muss sie zuerst genauso entkoppeln.

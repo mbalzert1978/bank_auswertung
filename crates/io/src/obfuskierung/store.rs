@@ -321,7 +321,7 @@ mod tests {
     use crate::obfuskierung::{
         CONSUMED_MESSAGE_TYPE, EinlesenRowSource, SeededObfuscator, consumer,
     };
-    use crate::outbox::OutboxError;
+    use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{
         SEED, Stage, assert_redacted_diagnosis, register_fresh, seed_through,
     };
@@ -409,7 +409,7 @@ mod tests {
         obfuskierung_store: ObfuskierungSqliteStore,
         fixture: &str,
         seed: u64,
-    ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
         // Vorstufe einlesen seeden: die reale einlesen-Zeile landet, `Ingested` wird publiziert.
         seed_through(outbox, Stage::Einlesen, fixture)?;
 

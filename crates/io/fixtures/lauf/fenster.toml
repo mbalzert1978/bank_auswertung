@@ -1,0 +1,4 @@
+# Fenster-Config des Lauf-Tests (Issue 0083). Die Lauf-CSV umspannt vier Monate; 30 Tage je Seite
+# ergeben mehrere Fenster, sodass die Paginierung (Selbst-Fortsetzung des `fenstern`-Slice) im Lauf
+# tatsächlich läuft. Real liegt die Seitengröße höher (ADR-0013, ~400).
+window_days = 30

@@ -29,7 +29,10 @@
 //! **samt ihrem Fehlertyp** ([`IngestedSourceSeam`] + [`SourceUnavailable`],
 //! [`ObfuscatedStoreSeam`] + [`StoreUnavailable`], [`ObfuscatorSeam`]) und der von `io` verdrahtete
 //! Slice-Vertrag ([`ObfuscatingHandler`], [`ObfuscateCommand`]/[`ObfuscateCommandDecoder`], das opake
-//! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`ObfuscationError`]). Alles andere
+//! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`ObfuscationError`]) — dazu
+//! [`account_token`], über das ein Aufrufer **dasselbe** Konto-Token bilden kann, das dieser Slice
+//! einer IBAN vergäbe (der Eigene-Konten-Loader braucht genau das, sonst verglichen `auswerten`s Token
+//! zwei Alphabete). Alles andere
 //! ist crate-privat. Die eingehende Nachricht trägt **nur die ID** — kein Wire-DTO, **kein serde** im
 //! Slice.
 //!
@@ -39,6 +42,7 @@
 //! **Compile-Fehler**.
 
 mod abstractions;
+mod account_tokenising;
 mod adapter;
 mod handler;
 mod models;
@@ -47,6 +51,7 @@ mod testapi;
 pub use abstractions::{
     IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, SourceUnavailable, StoreUnavailable,
 };
+pub use account_tokenising::account_token;
 pub use handler::ObfuscatingHandler;
 pub use models::{
     AccountId, CONSUMED_MESSAGE_TYPE, IngestedRow, ObfuscateCommand, ObfuscateCommandDecoder,

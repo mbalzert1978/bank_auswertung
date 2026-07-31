@@ -118,7 +118,7 @@ pub use models::{
     CONSUMED_MESSAGE_TYPE, CategoryAnswerRow, CategoryRequestRow, CategoryRow, CounterAccountRow,
     EvaluateHistoryCommand, EvaluateHistoryCommandDecoder, EvaluateWindowCommand,
     EvaluateWindowCommandDecoder, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow,
-    OwnAccountsConfig, WindowBookingRow, WindowEvaluationRow,
+    OwnAccountsConfig, WindowBookingRow, WindowEvaluationRow, account_role_label,
 };
 pub use testapi::{EvaluationTestApi, HistoryTestApi};
 

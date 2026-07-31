@@ -14,7 +14,9 @@ never re-derives it by hand:
 
   * parse each report's `Verdict: CONFIG ERROR` marker and `Findings: <n>` trailer
   * sum this iteration's findings and compare against the previous iteration
-    (clean / plateau / cap / continue)
+    (clean / plateau / cap / continue). `max_iterations` counts full rounds
+    (validate + fix), so iterations 1..max_iterations each dispatch fixers and the
+    cap fires on the closing validation pass that follows the last one.
   * route each verifier with findings to its own fixer via config's `fixer_map`
   * extract the file paths each verifier's findings point at, and group the fixer
     dispatches into WAVES whose file sets are pairwise disjoint — so the
@@ -217,7 +219,10 @@ def decide(
         return Clean(), 0
     if previous_total is not None and total >= previous_total:
         return Plateau(), total
-    if iteration >= max_iterations:
+    # `max_iterations` counts full rounds — a round is one validation pass PLUS its
+    # fixer waves. Iterations 1..max_iterations each dispatch fixers; the cap fires on
+    # the pass *after* the last one, which exists only to report the true final state.
+    if iteration > max_iterations:
         return Cap(), total
 
     units = tuple(

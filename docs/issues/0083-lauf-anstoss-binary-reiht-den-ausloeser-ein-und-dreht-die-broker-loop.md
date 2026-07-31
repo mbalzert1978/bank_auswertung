@@ -1,7 +1,7 @@
 ---
 id: "0083"
 title: "Lauf-Anstoß: Binary reiht den Auslöser ein und dreht die Broker-Loop"
-status: blocked
+status: closed
 ---
 
 # Lauf-Anstoß: Binary reiht den Auslöser ein und dreht die Broker-Loop
@@ -41,14 +41,36 @@ Fake-Seam — real ist die Mechanik, erfunden sind die Daten.
 
 ## Acceptance criteria
 
-- [ ] Ein Lauf gegen die erfundene Lauf-CSV füllt alle vier Ergebnis-Tabellen und endet mit leerer Outbox und Exit-Code 0.
-- [ ] Ein Integrationstest fährt diesen Lauf end-to-end über die realen `io`-Adapter, ohne einen einzigen Fake-Seam — auf erfundenen Daten.
-- [ ] Ein Test nagelt fest, dass das Lauf-Protokoll weder Rohwert, Freitext, IBAN noch Seed enthält.
-- [ ] Ein terminal gescheiterter Lauf endet mit Exit-Code ungleich 0 und nennt den redigierten Fehler.
-- [ ] Der `architecture`-Test hält fest, dass die Bin-Crate `io` als einzige interne Abhängigkeit bindet.
-- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [x] Ein Lauf gegen die erfundene Lauf-CSV füllt alle vier Ergebnis-Tabellen und endet mit leerer Outbox und Exit-Code 0.
+- [x] Ein Integrationstest fährt diesen Lauf end-to-end über die realen `io`-Adapter, ohne einen einzigen Fake-Seam — auf erfundenen Daten.
+- [x] Ein Test nagelt fest, dass das Lauf-Protokoll weder Rohwert, Freitext, IBAN noch Seed enthält.
+- [x] Ein terminal gescheiterter Lauf endet mit Exit-Code ungleich 0 und nennt den redigierten Fehler.
+- [x] Der `architecture`-Test hält fest, dass die Bin-Crate `io` als einzige interne Abhängigkeit bindet.
+- [x] Die sechs Gates sind grün (`/cargo-six-gates`).
 
 ## Blocked by
 
-- [0002](0002-eigene-konten-config-schema-und-loader.md) — die `auswerten`-Verdrahtung braucht
-  die Eigene-Konten-Config als Wert; ohne ihren Loader kann das Programm sie nicht beschaffen.
+- ~~[0002](0002-eigene-konten-config-schema-und-loader.md)~~ — **aufgelöst**: der io-seitige
+  Eigene-Konten-Loader (`io::config::EigeneKontenConfig`) ist mit diesem Ticket gebaut; er liest die
+  IBANs, prüft Form + mod-97 und gibt **Token** heraus. Offen bleibt an 0002 allein das HITL-Stück
+  (Markus' echte IBANs) — das blockiert den Lauf nicht, er läuft auf der erfundenen Config.
+
+## Wie es gebaut wurde
+
+- **`crates/lauf`** (Bin `bank-auswertung`) — reine Kommandozeile: fünf Pflicht-Optionen (`--db`,
+  `--csv`, `--fenster`, `--seed`, `--eigene-konten`), Exit-Code `0`/`1`/`2` (Erfolg / terminal
+  gescheitert / falsch aufgerufen). Bindet `io` als einzige interne und **keine** externe Abhängigkeit.
+- **`io::run`** — die Verdrahtung: Configs laden, sieben Consumer registrieren, Auslöser einreihen,
+  Broker-Schleife drehen, redigiertes Protokoll schreiben. Der Test dazu liegt crate-intern
+  (er prüft die vier Ergebnis-Tabellen und braucht dafür den privaten Verbindungszugriff).
+
+### Zwei Befunde, die das Ticket nicht vorhersah
+
+1. **Zwischen Import und Analyse fehlt eine Nachricht.** `obfuskieren` publiziert `Obfuscated`, aber
+   **niemand** konsumiert es — `fenstern` hängt an `StartAnalysis`, das **niemand** publiziert.
+   Gelöst mit zwei Phasen: der Lauf reiht `ReadTransactions` ein, lässt leer laufen, reiht dann
+   `StartAnalysis` ein. `Obfuscated` räumt ein `AckSink` ab, sonst bliebe es ewig offen und jeder
+   spätere Lauf stellte den Altbestand erneut zu.
+2. **Register und Orakel hatten keine Erfüllung.** `io::auswerten::EmptyCategoryRegistry` /
+   `UnansweredCategorizer` antworten bewusst leer statt zu scheitern — ADR-0004s Lackmustest
+   („ohne LLM bleibt das Programm wertvoll") in Codeform. Sie treten ab, wenn 0009/0011 landen.

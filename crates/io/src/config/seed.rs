@@ -52,21 +52,14 @@ impl SeedConfig {
     /// Lädt den Seed aus einer Datei. Ein unlesbarer/fehlender Pfad ist ein **redigierter**
     /// [`ConfigError::Unreadable`](super::ConfigError::Unreadable) — der Pfad selbst bleibt draußen.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        // Die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt): sie könnte den
-        // Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
-        let raw = std::fs::read_to_string(path)
-            .map_err(|_err| ConfigError::Unreadable(ConfigKind::Seed))?;
+        let raw = super::read_config_file(path, ConfigKind::Seed)?;
         Self::from_toml_str(&raw)
     }
 
     /// Parst den Seed aus einem toml-Text. Öffentlich, damit der Test ihn gegen eine eingebettete
     /// Fixture prüfen kann, ohne über das Dateisystem zu gehen.
     pub fn from_toml_str(raw: &str) -> Result<Self, ConfigError> {
-        // Der toml-Parsefehler wird verworfen — er kann Zeilen-/Feldinhalt (bis hin zum Seed) zitieren;
-        // redigiert heißt, nur die statische Ursache reist weiter.
-        let table: toml::Table = raw
-            .parse()
-            .map_err(|_err| ConfigError::Malformed(ConfigKind::Seed))?;
+        let table = super::parse_toml_table(raw, ConfigKind::Seed)?;
 
         let seed = table
             .get("seed")
