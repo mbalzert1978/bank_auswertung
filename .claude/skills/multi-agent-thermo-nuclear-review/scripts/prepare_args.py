@@ -32,8 +32,11 @@ CONFIG = SKILL_DIR / "config.json"
 ASSETS = SKILL_DIR / "assets"
 
 # Delegation target — the rubric the finder/verifier agents read for their review standard.
-# Repo-relative so the sub-agents (cwd = repo root) can open it directly.
-THERMO_STANDARDS_PATH = ".claude/skills/thermo-nuclear-code-quality-review/SKILL.md"
+# `thermo-nuclear-code-quality-review` lives in the user-level skill directory, not in this
+# repo, so the path is resolved against $HOME rather than the repo root.
+THERMO_STANDARDS_PATH = str(
+    Path.home() / ".claude/skills/thermo-nuclear-code-quality-review/SKILL.md"
+)
 
 # One named template block per heading: `## NAME` then a fenced block whose body is the template.
 _BLOCK = re.compile(r"^##\s+(HEADER|FINDER|VERIFIER)\s*\n+```[^\n]*\n(.*?)\n```", re.MULTILINE | re.DOTALL)

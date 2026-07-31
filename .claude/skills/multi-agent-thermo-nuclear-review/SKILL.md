@@ -35,7 +35,7 @@ Lenses, their angles, the finder count, and the project guardrails are all confi
 
 3. **Run the delegated size pass.** Run `thermo-nuclear-code-quality-review`'s objective check by path:
    ```bash
-   uv run .claude/skills/thermo-nuclear-code-quality-review/scripts/changed_files.py [scope]
+   uv run ~/.claude/skills/thermo-nuclear-code-quality-review/scripts/changed_files.py [scope]
    ```
    Any `OVER`/`CROSSED` flag feeds the reconciliation in step 7.
 
