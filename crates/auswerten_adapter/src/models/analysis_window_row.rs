@@ -22,8 +22,9 @@ pub struct AnalysisWindowRow {
 
 /// Eine **Buchung des Fensters** als rohe Zeile — die drei Zellen, die der Cashflow verwertet (der
 /// Buchungstag, der den Monats-Bucket bestimmt; der **vorzeichenlose** Betrag in Minor Units; die Richtung,
-/// in der das Vorzeichen lebt, ADR-0005), plus die zwei, aus denen der **Fingerabdruck** entsteht:
-/// die obfuskierte Gegenpartei und der obfuskierte Verwendungszweck.
+/// in der das Vorzeichen lebt, ADR-0005), die zwei, aus denen der **Fingerabdruck** entsteht (die
+/// obfuskierte Gegenpartei und der obfuskierte Verwendungszweck), und die zwei, auf denen die
+/// **Gebühren-Sicht** ruht: das belastete Konto und der Buchungstext.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WindowBookingRow {
     /// Der Buchungstag als sortierbarer Tag-Stamp (ADR-0013, Entscheidung C).
@@ -37,6 +38,12 @@ pub struct WindowBookingRow {
     /// Das **Gegenkonto als Token** (`KONTO_…`), wie `obfuskieren` es abgelegt hat — **nie** eine
     /// IBAN. Echt optional: eine Entgeltzeile hat keine Gegenseite.
     pub counter_account: Option<String>,
+    /// Das **belastete Konto als Token** (`KONTO_…`) — ebenfalls nie eine IBAN, aber im Gegensatz
+    /// zum Gegenkonto ein **Pflichtfeld**: jede Buchung steht auf genau einem Konto.
+    pub ordering_account: String,
+    /// Der von der **Bank vergebene** Buchungstext (`LASTSCHRIFT`, `ENTGELTABSCHLUSS`, …), auf dem
+    /// die Gebühren-Klassifikation ruht. Echt optional — nicht jede Zeile führt einen.
+    pub booking_text: Option<String>,
 }
 
 /// Die **Gegenpartei** als adapter-eigener DTO-Typ. Wie [`BookingDirection`] bewusst
@@ -92,8 +99,8 @@ impl AnalysisWindowRow {
 
 impl WindowBookingRow {
     /// Deutet die rohe Buchungs-Zeile in die Domänen-Sicht. Buchungstag, Betrag und Richtung sind
-    /// schon im Typ vollständig; **fehlbar** ist die Zeile allein über ihre Gegenpartei, deren
-    /// Schlüssel-Zelle der Adapter hier auf Präsenz prüft (ACL).
+    /// schon im Typ vollständig; **fehlbar** ist die Zeile über ihre Gegenpartei und über das
+    /// belastete Konto, deren Schlüssel-Zellen der Adapter hier auf Präsenz prüft (ACL).
     pub(crate) fn to_booking(&self) -> Result<WindowedBooking, MissingMandatoryField> {
         Ok(WindowedBooking::hydrate(
             DayStamp::new(self.booking_day),
@@ -111,6 +118,12 @@ impl WindowBookingRow {
                 .as_deref()
                 .and_then(NonEmptyString::new)
                 .map(AccountToken::from),
+            // **Pflichtfeld**: ohne das belastete Konto ließe sich nicht sagen, welches Konto eine
+            // Gebühr kostet — und still auf einen leeren Schlüssel auszuweichen verklumpte die
+            // Gebühren aller Konten zu einem Bucket.
+            AccountToken::from(mandatory(&self.ordering_account, "ordering_account")?),
+            // Echt optional: eine Zeile ohne Buchungstext ist keine erkennbare Gebühr, kein Fehler.
+            self.booking_text.as_deref().and_then(NonEmptyString::new),
         ))
     }
 }

@@ -14,15 +14,15 @@
 //! [`AuswertenSqliteStore`] ist die [`UnitFactory`](crate::UnitFactory) des Slice — je
 //! Nachricht öffnet es eine [`AuswertenUnit`] über dem generischen [`SliceUnit`]. Deren
 //! [`save`](EvaluationStoreSeam::save) **mintet die neue ID synchron an der DB** (`randomblob`) und
-//! **stagt** die Ergebnis-`INSERT`s (Kopf + fünf Detail-Tabellen) in **dieselbe** committende
+//! **stagt** die Ergebnis-`INSERT`s (Kopf + sechs Detail-Tabellen) in **dieselbe** committende
 //! Transaktion wie der Ack. Diese Reichweite **publiziert keinen Zeiger** stromabwärts (sie ist das
 //! Pipeline-Ende bis zum `report`), darum vergibt der Seam die neue ID nur DB-intern und gibt sie
 //! **nicht** zurück; das Ergebnis referenziert sein Quell-Fenster **nur per `window_id`**
 //! (Referenz-per-ID auf `auswertungsfenster.id`), nie eingebettet.
 //!
-//! **Sechs Tabellen (Kopf + fünf Detail-Listen):** `window_evaluations` trägt Fremdschlüssel, Währung
-//! und Audit; die fünf Detail-Tabellen die **positionsgetreuen** Listen — Monats-Buckets,
-//! Umbuchungen, Fingerabdrücke, eingeordnete Gegenkonten und die Orakel-Kategorien. Jede
+//! **Sieben Tabellen (Kopf + sechs Detail-Listen):** `window_evaluations` trägt Fremdschlüssel, Währung
+//! und Audit; die sechs Detail-Tabellen die **positionsgetreuen** Listen — Monats-Buckets,
+//! Umbuchungen, Bank-Gebühren, Fingerabdrücke, eingeordnete Gegenkonten und die Orakel-Kategorien. Jede
 //! Detail-Zeile referenziert den Kopf **per `evaluation_id`** (indiziert), **kein**
 //! DB-`FOREIGN KEY`-Constraint (SQLite erzwingt FKs nur mit `PRAGMA foreign_keys`, das die synchrone
 //! Outbox-Spine bewusst nicht schaltet).
@@ -32,11 +32,11 @@
 //! sein [`StoreSpec`]-`impl` (Schema + Inserts + Flatten + Row-mit-ID) und die dünne Seam-`impl`, die
 //! [`SliceUnit::store_dto`](crate::sqlite::SliceUnit) aufruft. Store-Struct, `new`, Unit-Newtype,
 //! Preflight/Minten, die [`UnitFactory`](crate::UnitFactory) und der Outbox-Passthrough leben
-//! generisch in [`SliceStore`]/[`SliceUnit`]. Er ist der **Sechs-Tabellen-Fall** und damit der
-//! Capstone der Abstraktion: **alle sechs** Tabellen stehen mit DDL und Ablage-Statement in **einer**
+//! generisch in [`SliceStore`]/[`SliceUnit`]. Er ist der **Sieben-Tabellen-Fall** und damit der
+//! Capstone der Abstraktion: **alle sieben** Tabellen stehen mit DDL und Ablage-Statement in **einer**
 //! [`TableSpec`]-Liste (also legt `new` jede an, rüstet auf jeder die Audit-Spalten nach und der
 //! Preflight probt **jedes** ihrer Statements), und [`stage`](StoreSpec::stage) liefert **eine**
-//! Schreibung, die Kopf- und alle fünf Detail-Listen positionsgetreu in dieselbe Transaktion
+//! Schreibung, die Kopf- und alle sechs Detail-Listen positionsgetreu in dieselbe Transaktion
 //! schreibt. Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
 //!
@@ -45,15 +45,15 @@
 //! kein Retry im Slice.
 
 use auswerten_adapter::{
-    CounterAccountRow, EvaluationStoreSeam, InternalTransferRow, MonthlyCashflowRow,
+    CounterAccountRow, EvaluationStoreSeam, FeeRow, InternalTransferRow, MonthlyCashflowRow,
     StoreUnavailable, WindowEvaluationRow,
 };
 use rusqlite::{Transaction, params};
 
 use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
-/// Die `auswerten`-Persistenz als [`StoreSpec`]: der **Sechs-Tabellen-Fall** — der Kopf
-/// (`window_evaluations`) und seine fünf positionsgetreuen Detail-Listen, je mit ihrem `INSERT`, und
+/// Die `auswerten`-Persistenz als [`StoreSpec`]: der **Sieben-Tabellen-Fall** — der Kopf
+/// (`window_evaluations`) und seine sechs positionsgetreuen Detail-Listen, je mit ihrem `INSERT`, und
 /// als fehlbare Umdeutung die u64→i64-Deutung der Monats-Beträge. Der Marker-Typ parametrisiert
 /// [`SliceStore`]/[`SliceUnit`] auf diesen Slice.
 pub struct AuswertenEvaluations;
@@ -61,7 +61,7 @@ pub struct AuswertenEvaluations;
 impl StoreSpec for AuswertenEvaluations {
     type Dto = WindowEvaluationRow;
     /// Das abgeflachte Ergebnis ohne seine ID — schreibbar wird erst die `EvaluationRow`, die
-    /// `stage` daraus **mit** der geminteten ID baut (Kopf **und** alle fünf Detail-Listen tragen sie).
+    /// `stage` daraus **mit** der geminteten ID baut (Kopf **und** alle sechs Detail-Listen tragen sie).
     type Prepared = EvaluationFields;
     type Error = StoreUnavailable;
 
@@ -73,8 +73,8 @@ impl StoreSpec for AuswertenEvaluations {
         EvaluationFields::try_from(evaluation)
     }
 
-    /// Baut **eine** Schreibung über alle sechs Tabellen: erst die Kopf-Zeile unter der frisch
-    /// geminteten `id`, dann positionsgetreu die fünf Detail-Listen unter derselben `id`.
+    /// Baut **eine** Schreibung über alle sieben Tabellen: erst die Kopf-Zeile unter der frisch
+    /// geminteten `id`, dann positionsgetreu die sechs Detail-Listen unter derselben `id`.
     fn stage(fields: EvaluationFields, id: MintedId) -> StagedRow {
         let row = EvaluationRow::new(id, fields);
         Box::new(move |tx| row.insert(tx))
@@ -99,10 +99,10 @@ pub type AuswertenSqliteStore = SliceStore<AuswertenEvaluations>;
 pub type AuswertenUnit = SliceUnit<AuswertenEvaluations>;
 
 impl EvaluationStoreSeam for AuswertenUnit {
-    /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt Kopf- und alle fünf
+    /// Mintet die neue ID **synchron an der DB** (`randomblob`) und stagt Kopf- und alle sechs
     /// Detail-`INSERT`s in die committende Transaktion; ein unerreichbarer Store (Schema fehlt /
     /// DB-Fehler) failt **hier** terminal als redigierte [`StoreUnavailable`]. Der Preflight probt
-    /// **alle sechs** Ablage-Statements (Kopf **und** die fünf Detail — alle stehen in `TABLES`):
+    /// **alle sieben** Ablage-Statements (Kopf **und** die sechs Detail — alle stehen in `TABLES`):
     /// fehlt auch nur eine Detail-Tabelle, failt es hier terminal statt erst als Commit-Retry.
     ///
     /// Diese Reichweite ist das **Pipeline-Ende** und publiziert nichts, darum verwirft sie die
@@ -145,6 +145,7 @@ pub struct EvaluationFields {
     currency: String,
     months: Vec<MonthRow>,
     transfers: Vec<TransferRow>,
+    fees: Vec<ChargeRow>,
     fingerprints: Vec<String>,
     counter_accounts: Vec<CounterRow>,
     categories: Vec<CategoryRow>,
@@ -153,7 +154,7 @@ pub struct EvaluationFields {
 impl TryFrom<&WindowEvaluationRow> for EvaluationFields {
     type Error = StoreUnavailable;
 
-    /// Übernimmt die fünf Detail-Listen in ihrer **Reihenfolge** — die *ist* die Position; die
+    /// Übernimmt die sechs Detail-Listen in ihrer **Reihenfolge** — die *ist* die Position; die
     /// Positionszahl entsteht erst beim Schreiben ([`insert_positional`]), kann der Reihenfolge also
     /// nicht widersprechen. Fehlbar allein in der u64→i64-Deutung der Monats-Beträge, die damit
     /// **vor** dem Minten läuft, sodass [`EvaluationRow::new`] die schreibbare Row **in einem Zug
@@ -171,6 +172,11 @@ impl TryFrom<&WindowEvaluationRow> for EvaluationFields {
                 .transfers
                 .iter()
                 .map(TransferRow::try_from)
+                .collect::<Result<_, _>>()?,
+            fees: evaluation
+                .fees
+                .iter()
+                .map(ChargeRow::try_from)
                 .collect::<Result<_, _>>()?,
             fingerprints: evaluation.fingerprints.clone(),
             counter_accounts: evaluation
@@ -201,6 +207,20 @@ struct TransferRow {
     year: i64,
     month: i64,
     role: String,
+    incoming_minor_units: i64,
+    outgoing_minor_units: i64,
+}
+
+/// Eine **Bank-Gebühr** in ihrer Speicher-Form — derselbe Monats-Bucket wie [`MonthRow`], zusätzlich
+/// mit dem belasteten Konto-Token, das sie von den übrigen trennt.
+///
+/// Sie heißt `ChargeRow` statt `FeeRow`, weil dieser Name schon dem gleichnamigen Adapter-DTO gehört,
+/// aus dem sie entsteht — die Schwestern kürzen dafür (`MonthlyCashflowRow` → [`MonthRow`]), was hier
+/// nicht ginge.
+struct ChargeRow {
+    year: i64,
+    month: i64,
+    account: String,
     incoming_minor_units: i64,
     outgoing_minor_units: i64,
 }
@@ -245,6 +265,20 @@ impl TryFrom<&InternalTransferRow> for TransferRow {
     }
 }
 
+impl TryFrom<&FeeRow> for ChargeRow {
+    type Error = StoreUnavailable;
+
+    fn try_from(fee: &FeeRow) -> Result<Self, StoreUnavailable> {
+        Ok(Self {
+            year: fee.year,
+            month: fee.month,
+            account: fee.account.clone(),
+            incoming_minor_units: magnitude(fee.incoming_minor_units)?,
+            outgoing_minor_units: magnitude(fee.outgoing_minor_units)?,
+        })
+    }
+}
+
 impl From<&CounterAccountRow> for CounterRow {
     fn from(counter_account: &CounterAccountRow) -> Self {
         match counter_account {
@@ -269,11 +303,11 @@ impl From<&auswerten_adapter::CategoryRow> for CategoryRow {
     }
 }
 
-/// Die SQL-fertigen Zeilen **aller fünf** Tabellen: die abgeflachten Felder **unter** ihrer
-/// DB-vergebenen ID, die Kopf und alle fünf Detail-Listen gemeinsam tragen. Sie reist in die
+/// Die SQL-fertigen Zeilen **aller sieben** Tabellen: die abgeflachten Felder **unter** ihrer
+/// DB-vergebenen ID, die Kopf und alle sechs Detail-Listen gemeinsam tragen. Sie reist in die
 /// gestagete Ablage-Closure und wird erst am Commit-Rand geschrieben. Die ID ist erster Parameter von
 /// [`new`](EvaluationRow::new); dass es die eben an der DB gemintete ist, trägt ihr Typ
-/// [`MintedId`] — eine von Hand gebaute Schein-ID, die Kopf und die fünf Detail-Listen unter einem
+/// [`MintedId`] — eine von Hand gebaute Schein-ID, die Kopf und die sechs Detail-Listen unter einem
 /// Schein-Primärschlüssel zusammenbände, ist hier ein Compile-Fehler.
 struct EvaluationRow {
     id: MintedId,
@@ -287,7 +321,7 @@ impl EvaluationRow {
         Self { id, fields }
     }
 
-    /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion. Jede der fünf Detail-Listen
+    /// Schreibt Kopf- und Detail-Zeilen in die committende Transaktion. Jede der sechs Detail-Listen
     /// läuft **positionsgetreu** über [`insert_positional`], das die `enumerate`→`position`-Nummerierung
     /// an **einer** Stelle bündelt; jede Closure trägt nur noch das listen-eigene Statement und seine
     /// Feld-Params.
@@ -326,6 +360,21 @@ impl EvaluationRow {
             )
             .map(drop)
         })?;
+        insert_positional(&fields.fees, |position, fee| {
+            tx.execute(
+                INSERT_FEE,
+                params![
+                    self.id,
+                    position,
+                    fee.year,
+                    fee.month,
+                    fee.account,
+                    fee.incoming_minor_units,
+                    fee.outgoing_minor_units,
+                ],
+            )
+            .map(drop)
+        })?;
         insert_positional(&fields.fingerprints, |position, fingerprint| {
             tx.execute(INSERT_FINGERPRINT, params![self.id, position, fingerprint])
                 .map(drop)
@@ -354,7 +403,7 @@ impl EvaluationRow {
 
 /// Schreibt eine Detail-Liste **positionsgetreu**: nummeriert jede Zeile (`enumerate` → `position`
 /// über [`position_or_sql_error`]) und überlässt das eigentliche `INSERT` der Closure, die Statement
-/// und Feld-Params kennt. Bündelt die `enumerate`/Positions-Mechanik der fünf Detail-Listen an **einer**
+/// und Feld-Params kennt. Bündelt die `enumerate`/Positions-Mechanik der sechs Detail-Listen an **einer**
 /// Stelle, sodass je Liste nur ihr Statement und ihre Felder übrig bleiben.
 fn insert_positional<T>(
     items: &[T],
@@ -377,7 +426,7 @@ fn position_or_sql_error(index: usize) -> rusqlite::Result<i64> {
     })
 }
 
-/// Die **fünf** Tabellen des Slice, je mit ihrem DDL und ihrem Ablage-`INSERT` — der Capstone-Fall
+/// Die **sieben** Tabellen des Slice, je mit ihrem DDL und ihrem Ablage-`INSERT` — der Capstone-Fall
 /// der Abstraktion. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen alle über diese Liste,
 /// also gilt der Preflight-Beweis für **jede**: eine Tabelle, die eines davon verpasst, ist gar nicht
 /// erst deklarierbar.
@@ -396,6 +445,11 @@ const TABLES: &[TableSpec] = &[
         name: "window_evaluation_transfers",
         ddl: SCHEMA_TRANSFERS,
         insert: INSERT_TRANSFER,
+    },
+    TableSpec {
+        name: "window_evaluation_fees",
+        ddl: SCHEMA_FEES,
+        insert: INSERT_FEE,
     },
     TableSpec {
         name: "window_evaluation_fingerprints",
@@ -433,7 +487,7 @@ CREATE INDEX IF NOT EXISTS window_evaluations_window_id_idx
 /// Das Schema der **Monats-Bucket**-Detail-Tabelle: die positionsgetreuen Cashflow-Buckets, per
 /// `evaluation_id` (indiziert) an ihren Kopf gebunden — **kein** DB-`FOREIGN KEY`-Constraint (SQLite
 /// erzwingt FKs nur mit aktiviertem `PRAGMA foreign_keys`, das die synchrone Outbox-Spine bewusst
-/// nicht schaltet). Audit-Zeitstempel wie bei der Kopf-Tabelle; das gilt für alle fünf Detail-Tabellen.
+/// nicht schaltet). Audit-Zeitstempel wie bei der Kopf-Tabelle; das gilt für alle sechs Detail-Tabellen.
 const SCHEMA_MONTHS: &str = "\
 CREATE TABLE IF NOT EXISTS window_evaluation_months (
     evaluation_id        TEXT    NOT NULL,
@@ -472,6 +526,32 @@ CREATE TABLE IF NOT EXISTS window_evaluation_transfers (
 );
 CREATE INDEX IF NOT EXISTS window_evaluation_transfers_evaluation_id_idx
     ON window_evaluation_transfers (evaluation_id);";
+
+/// Das Schema der **Gebühren**-Detail-Tabelle: die positionsgetreuen Monats-Buckets dessen, was die
+/// Bank selbst einzog, je belastetem Konto (Issue 0006).
+///
+/// **Sie steht anders zu `window_evaluation_months` als die Umbuchungen.** Was hier liegt, ist ein
+/// **Ausschnitt** der Monats-Buckets, kein Gegenstück zu ihnen: eine Gebühr ist echter Abfluss und
+/// bleibt dort stehen. Wer die beiden Tabellen addiert, zählt dieselben Beträge zweimal — bei den
+/// Umbuchungen ist genau das die richtige Rechnung, hier nicht.
+///
+/// `account` trägt ein opakes `KONTO_…`-Token, nie eine IBAN — und darum auch **kein** `CHECK`: das
+/// Vokabular ist nicht endlich, es entsteht mit jedem Konto, das eingelesen wird.
+const SCHEMA_FEES: &str = "\
+CREATE TABLE IF NOT EXISTS window_evaluation_fees (
+    evaluation_id        TEXT    NOT NULL,
+    position             INTEGER NOT NULL,
+    year                 INTEGER NOT NULL,
+    month                INTEGER NOT NULL,
+    account              TEXT    NOT NULL,
+    incoming_minor_units INTEGER NOT NULL,
+    outgoing_minor_units INTEGER NOT NULL,
+    created_at           INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at           INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    PRIMARY KEY (evaluation_id, position)
+);
+CREATE INDEX IF NOT EXISTS window_evaluation_fees_evaluation_id_idx
+    ON window_evaluation_fees (evaluation_id);";
 
 /// Das Schema der **Fingerabdruck**-Detail-Tabelle: die positionsgetreuen, im Fenster vorkommenden
 /// Fingerabdrücke.
@@ -539,6 +619,15 @@ VALUES (?1, ?2, ?3, ?4, ?5, ?6,
 const INSERT_TRANSFER: &str = "\
 INSERT INTO window_evaluation_transfers
     (evaluation_id, position, year, month, role, incoming_minor_units, outgoing_minor_units,
+     created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+    CAST(unixepoch('subsec') * 1000 AS INTEGER),
+    CAST(unixepoch('subsec') * 1000 AS INTEGER)
+);";
+
+const INSERT_FEE: &str = "\
+INSERT INTO window_evaluation_fees
+    (evaluation_id, position, year, month, account, incoming_minor_units, outgoing_minor_units,
      created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
     CAST(unixepoch('subsec') * 1000 AS INTEGER),
@@ -659,13 +748,15 @@ mod tests {
         })
     }
 
-    /// Ein zurückgelesenes Fenster-Ergebnis (nur für Tests): Währung, Monats-Buckets, Fingerabdrücke,
-    /// eingeordnete Gegenkonten (`kind`, optionale Rolle) und Kategorien.
+    /// Ein zurückgelesenes Fenster-Ergebnis (nur für Tests): Währung, Monats-Buckets, Umbuchungen,
+    /// Bank-Gebühren, Fingerabdrücke, eingeordnete Gegenkonten (`kind`, optionale Rolle) und
+    /// Kategorien.
     #[derive(Debug, PartialEq, Eq)]
     struct StoredEvaluation {
         currency: String,
         months: Vec<(i64, i64, i64, i64)>,
         transfers: Vec<StoredTransfer>,
+        fees: Vec<StoredFee>,
         fingerprints: Vec<String>,
         counter_accounts: Vec<(String, Option<String>)>,
         categories: Vec<(String, String)>,
@@ -691,6 +782,7 @@ mod tests {
                         currency,
                         months: read_months(conn, &id)?,
                         transfers: read_transfers(conn, &id)?,
+                        fees: read_fees(conn, &id)?,
                         fingerprints: read_fingerprints(conn, &id)?,
                         counter_accounts: read_counter_accounts(conn, &id)?,
                         categories: read_categories(conn, &id)?,
@@ -724,6 +816,26 @@ mod tests {
         conn.prepare(
             "SELECT year, month, role, incoming_minor_units, outgoing_minor_units \
              FROM window_evaluation_transfers WHERE evaluation_id = ?1 ORDER BY position;",
+        )?
+        .query_map(params![id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?
+        .collect()
+    }
+
+    /// Eine zurückgelesene Gebühren-Zeile: Jahr, Monat, belastetes Konto-Token, Zu-, Abfluss.
+    type StoredFee = (i64, i64, String, i64, i64);
+
+    fn read_fees(conn: &rusqlite::Connection, id: &str) -> rusqlite::Result<Vec<StoredFee>> {
+        conn.prepare(
+            "SELECT year, month, account, incoming_minor_units, outgoing_minor_units \
+             FROM window_evaluation_fees WHERE evaluation_id = ?1 ORDER BY position;",
         )?
         .query_map(params![id], |row| {
             Ok((
@@ -865,6 +977,7 @@ mod tests {
                     currency: "EUR".to_string(),
                     months: vec![],
                     transfers: vec![giro(3000)],
+                    fees: vec![],
                     fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
                     counter_accounts: vec![own_giro.clone()],
                     categories: vec![],
@@ -873,6 +986,7 @@ mod tests {
                     currency: "EUR".to_string(),
                     months: vec![],
                     transfers: vec![giro(3000)],
+                    fees: vec![],
                     fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
                     counter_accounts: vec![own_giro.clone()],
                     categories: vec![],
@@ -881,6 +995,7 @@ mod tests {
                     currency: "EUR".to_string(),
                     months: vec![],
                     transfers: vec![giro(4000)],
+                    fees: vec![],
                     fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
                     counter_accounts: vec![own_giro],
                     categories: vec![],
@@ -931,10 +1046,10 @@ mod tests {
         reason = "Test-Helfer: assert_eq! und expect sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
-    fn kopf_und_alle_fuenf_detail_listen_landen_in_ihren_tabellen() -> rusqlite::Result<()> {
+    fn kopf_und_alle_sechs_detail_listen_landen_in_ihren_tabellen() -> rusqlite::Result<()> {
         // Der Lauf oben zeigt die Ablage im Zusammenspiel, aber nur mit dem, was seine Fixture
         // hergibt — dort ist jede Buchung eine Umbuchung, also bleibt die Cashflow-Tabelle leer.
-        // Dieser Test füttert den Store **direkt** mit einem Ergebnis, in dem **jede** der fünf
+        // Dieser Test füttert den Store **direkt** mit einem Ergebnis, in dem **jede** der sechs
         // Detail-Listen etwas trägt, und liest alles zurück: so ist keine Tabelle davon abhängig,
         // wie die Beispieldaten gerade aussehen.
         let outbox = SqliteOutbox::open_in_memory()?;
@@ -971,6 +1086,16 @@ mod tests {
                 incoming_minor_units: 0,
                 outgoing_minor_units: 50_000,
             }],
+            // Die Gebühr steckt auch in den `months` oben (3_000 Abfluss) — sie ist deren
+            // Ausschnitt, nicht ihr Gegenstück. Hier steht sie noch einmal für sich, mit dem
+            // belasteten Konto.
+            fees: vec![FeeRow {
+                year: 2024,
+                month: 6,
+                account: "KONTO_1".to_string(),
+                incoming_minor_units: 0,
+                outgoing_minor_units: 3_000,
+            }],
             fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
             counter_accounts: vec![CounterAccountRow::Own {
                 role: "spar".to_string(),
@@ -989,11 +1114,12 @@ mod tests {
                 currency: "EUR".to_string(),
                 months: vec![(2024, 6, 250_000, 3_000)],
                 transfers: vec![(2024, 6, "spar".to_string(), 0, 50_000)],
+                fees: vec![(2024, 6, "KONTO_1".to_string(), 0, 3_000)],
                 fingerprints: vec![COMPANY_FINGERPRINT.to_string()],
                 counter_accounts: vec![("own".to_string(), Some("spar".to_string()))],
                 categories: vec![(COMPANY_FINGERPRINT.to_string(), "Abo".to_string())],
             }],
-            "jede der fünf Detail-Listen steht in ihrer eigenen Tabelle wieder"
+            "jede der sechs Detail-Listen steht in ihrer eigenen Tabelle wieder"
         );
         Ok(())
     }
@@ -1003,8 +1129,8 @@ mod tests {
         reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
-    fn jede_fehlende_der_sechs_tabellen_failt_die_ablage_terminal() -> rusqlite::Result<()> {
-        // Der Sechs-Tabellen-Beweis (Issue 0077, Kriterium 3): je Durchgang stehen **alle** Tabellen
+    fn jede_fehlende_der_sieben_tabellen_failt_die_ablage_terminal() -> rusqlite::Result<()> {
+        // Der Sieben-Tabellen-Beweis (Issue 0077, Kriterium 3): je Durchgang stehen **alle** Tabellen
         // bis auf **eine**. Weil der Preflight über **jedes** `TableSpec::insert` aus `TABLES` läuft,
         // failt schon `save` terminal — nicht erst der Commit als Retry. Fiele eine Tabelle aus
         // `TABLES` (oder würde ihr `insert` nicht mehr geprobt), wird dieser Test für genau sie rot,
@@ -1041,6 +1167,7 @@ mod tests {
             currency: "EUR".to_string(),
             months: vec![],
             transfers: vec![],
+            fees: vec![],
             fingerprints: vec![],
             counter_accounts: vec![],
             categories: vec![],

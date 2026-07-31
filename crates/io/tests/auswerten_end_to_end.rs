@@ -19,8 +19,8 @@ use io::outbox::OutboxError;
 mod fixtures;
 use auswerten_adapter::CounterAccountRow;
 use fixtures::{
-    FEB_29, FakeBestand, FakeDb, JAN_15, Verdrahtung, bestand, dispatcher_mit, envelope,
-    fahre_lauf, kennzahl, monat, nachricht, umgebucht, vorkommen,
+    BELASTETES_KONTO, FEB_29, FakeBestand, FakeDb, JAN_15, Verdrahtung, bestand, dispatcher_mit,
+    envelope, fahre_lauf, gebuehr, kennzahl, monat, nachricht, umgebucht, vorkommen,
 };
 
 // --- Der volle Lauf: ein Anstoß → beide Ergebnisse ---------------------------------------
@@ -42,6 +42,11 @@ fn ein_start_analysis_treibt_die_kette_bis_zu_beiden_ergebnissen() {
     // Umbuchung vom eigenen Giro-Konto und damit **herausgenettet** (Issue 0004). Verloren ist sie
     // nicht — sie steht als Zufluss unter `giro` in der Umbuchungs-Sicht daneben, und die Einordnung
     // des Gegenkontos nennt sie weiterhin als vorgekommene Art.
+    //
+    // Das **zweite** Fenster zeigt die Gegenbewegung dazu (Issue 0006): seine Entgeltzeile steckt mit
+    // 350 **im** Abfluss (1_999 + 350 = 2_349) und steht zusätzlich in der Gebühren-Sicht. Die beiden
+    // Analyzer ziehen also gegenläufig — die Umbuchung verlässt den Cashflow, die Gebühr bleibt darin
+    // und wird nur herausgehoben.
     assert_eq!(
         db.committed_evaluations(),
         vec![
@@ -49,11 +54,18 @@ fn ein_start_analysis_treibt_die_kette_bis_zu_beiden_ergebnissen() {
                 "fenster-1",
                 vec![monat(2024, 2, 0, 1_999)],
                 vec![umgebucht(2024, 1, "giro", 250_000, 0)],
+                vec![],
                 vec![CounterAccountRow::Own {
                     role: "giro".to_string()
                 }],
             ),
-            kennzahl("fenster-2", vec![monat(2024, 1, 0, 1_999)], vec![], vec![]),
+            kennzahl(
+                "fenster-2",
+                vec![monat(2024, 1, 0, 2_349)],
+                vec![],
+                vec![gebuehr(2024, 1, BELASTETES_KONTO, 0, 350)],
+                vec![],
+            ),
         ]
     );
 

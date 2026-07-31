@@ -31,9 +31,9 @@ use std::rc::Rc;
 use auswerten_adapter::{
     AnalysisWindowRow, AnalysisWindowSeam, BookingDirection, BookingRecipient, CategorizerSeam,
     CategorizerUnavailable, CategoryAnswerRow, CategoryRegistrySeam, CategoryRequestRow,
-    CategoryRow, CounterAccountRow, EvaluationStoreSeam, InternalTransferRow, MonthlyCashflowRow,
-    OccurrenceRow, OccurrenceSeam, OwnAccountRow, OwnAccountsConfig, RegistryUnavailable,
-    WindowBookingRow, WindowEvaluationRow,
+    CategoryRow, CounterAccountRow, EvaluationStoreSeam, FeeRow, InternalTransferRow,
+    MonthlyCashflowRow, OccurrenceRow, OccurrenceSeam, OwnAccountRow, OwnAccountsConfig,
+    RegistryUnavailable, WindowBookingRow, WindowEvaluationRow,
 };
 use fenstern_adapter::{ObfuscatedRow, ObfuscatedWindowSeam};
 use io::Dispatcher;
@@ -533,10 +533,23 @@ pub(crate) const KATEGORIE: &str = "Abo";
 /// tokenisiert hat wie `obfuskieren` die Gegenkonto-Token (Issue 0002).
 const EIGENES_KONTO: &str = "KONTO_1";
 
+/// Das Konto-Token, auf dem die Buchungen dieses Laufs **stehen** (das Auftragskonto) — im Gegensatz
+/// zu [`EIGENES_KONTO`], das die Umbuchung als **Gegen**konto trägt.
+pub(crate) const BELASTETES_KONTO: &str = "KONTO_0";
+
+/// Der Buchungstext, an dem die Gebühren-Klassifikation greift (Issue 0006) — dasselbe Vokabular,
+/// das die CSV-Fixtures führen.
+const ENTGELT_TEXT: &str = "ENTGELTABSCHLUSS";
+
 /// Der Bestand des Laufs: er zerfällt bei Seitengröße 30 in genau **zwei** Fenster —
 /// `[19753…19782]` mit der Februar-Buchung und der Januar-Umbuchung, `[19708…19737]` mit der
-/// Januar-Buchung. Beide Fenster tragen **dieselbe** wiederkehrende Buchungsart: genau das kann die
-/// pro-Fenster-Reichweite nicht sehen, und genau das legt die fenster-übergreifende zusammen.
+/// Januar-Buchung und der Entgeltzeile. Beide Fenster tragen **dieselbe** wiederkehrende Buchungsart:
+/// genau das kann die pro-Fenster-Reichweite nicht sehen, und genau das legt die
+/// fenster-übergreifende zusammen.
+///
+/// Die drei Zeilen-Arten sind mit Bedacht gemischt: eine gewöhnliche Buchung, eine **Umbuchung** (die
+/// aus dem Cashflow herausfällt, Issue 0004) und ein **Entgelt** (das darin bleibt und zusätzlich
+/// herausgehoben wird, Issue 0006) — die beiden gegenläufigen Behandlungen an einem Lauf.
 pub(crate) fn bestand() -> FakeBestand {
     FakeBestand::mit(&[
         Buchung {
@@ -554,6 +567,11 @@ pub(crate) fn bestand() -> FakeBestand {
             day: JAN_15,
             row: wiederkehrend(JAN_15, 1_999),
         },
+        Buchung {
+            id: "b-4",
+            day: JAN_15,
+            row: entgelt(JAN_15, 350),
+        },
     ])
 }
 
@@ -570,6 +588,8 @@ fn wiederkehrend(booking_day: i64, minor_units: u64) -> WindowBookingRow {
         },
         purpose: None,
         counter_account: None,
+        ordering_account: BELASTETES_KONTO.to_string(),
+        booking_text: None,
     }
 }
 
@@ -583,6 +603,23 @@ fn umbuchung(booking_day: i64, minor_units: u64) -> WindowBookingRow {
         recipient: BookingRecipient::Absent,
         purpose: None,
         counter_account: Some(EIGENES_KONTO.to_string()),
+        ordering_account: BELASTETES_KONTO.to_string(),
+        booking_text: None,
+    }
+}
+
+/// Eine **Entgeltzeile**: der Abfluss, den die Bank selbst einzieht — ohne Gegenpartei und ohne
+/// Gegenkonto, dafür mit dem Buchungstext, an dem die Klassifikation ihn erkennt.
+fn entgelt(booking_day: i64, minor_units: u64) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_minor_units: minor_units,
+        direction: BookingDirection::Outgoing,
+        recipient: BookingRecipient::Absent,
+        purpose: None,
+        counter_account: None,
+        ordering_account: BELASTETES_KONTO.to_string(),
+        booking_text: Some(ENTGELT_TEXT.to_string()),
     }
 }
 
@@ -632,11 +669,25 @@ pub(crate) fn umgebucht(
     }
 }
 
+/// Ein erwarteter **Gebühren-Bucket**: derselbe Monats-Bucket wie beim Cashflow, dazu das belastete
+/// Konto-Token. Anders als bei `umgebucht` steht, was hier steht, **auch** im `monat` desselben
+/// Zeitraums — die Gebühr wird herausgehoben, nicht herausgenommen.
+pub(crate) fn gebuehr(year: i64, month: i64, konto: &str, incoming: u64, outgoing: u64) -> FeeRow {
+    FeeRow {
+        year,
+        month,
+        account: konto.to_string(),
+        incoming_minor_units: incoming,
+        outgoing_minor_units: outgoing,
+    }
+}
+
 /// Das erwartete **Pro-Fenster-Ergebnis** zu einem Fenster.
 pub(crate) fn kennzahl(
     window_id: &str,
     months: Vec<MonthlyCashflowRow>,
     transfers: Vec<InternalTransferRow>,
+    fees: Vec<FeeRow>,
     counter_accounts: Vec<CounterAccountRow>,
 ) -> WindowEvaluationRow {
     WindowEvaluationRow {
@@ -644,6 +695,7 @@ pub(crate) fn kennzahl(
         currency: "EUR".to_string(),
         months,
         transfers,
+        fees,
         fingerprints: vec![fingerabdruck()],
         counter_accounts,
         categories: vec![CategoryRow {

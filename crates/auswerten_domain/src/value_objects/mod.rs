@@ -6,7 +6,9 @@
 //! Fensters. Die [`WindowId`] ist die opake Identität des Aggregats, per Zeiger hereingereicht.
 //!
 //! Der [`InternalTransfer`] ist die **andere Seite** des Cashflows: die Umbuchung zwischen eigenen
-//! Konten, die aus ihm herausgenettet wurde und hier sichtbar bleibt.
+//! Konten, die aus ihm herausgenettet wurde und hier sichtbar bleibt. Die [`Fee`] ist dagegen eine
+//! **Überlagerung** von ihm — was die Bank selbst einzog, gedeutet über die [`BookingKind`], bleibt
+//! echter Abfluss und steht darum weiterhin *in* den Monats-Buckets.
 //!
 //! Das **Kategorisierer-Orakel** bringt drei mit: die [`Category`] als vergebenes Etikett und die
 //! beiden schmalen DTOs seiner zwei Richtungen — [`CategoryRequest`] hinaus, [`CategoryAnswer`]
@@ -20,11 +22,13 @@
 //! liegen in `entities/`.
 
 mod amount;
+mod booking_kind;
 mod category;
 mod category_answer;
 mod category_request;
 mod counter_account;
 mod currency;
+mod fee;
 mod fingerprint;
 mod internal_transfer;
 mod month;
@@ -39,11 +43,13 @@ mod window_id;
 mod windowed_booking;
 
 pub use amount::{Amount, Direction};
+pub use booking_kind::BookingKind;
 pub use category::Category;
 pub use category_answer::CategoryAnswer;
 pub use category_request::CategoryRequest;
 pub use counter_account::{AccountRole, AccountToken, CounterAccount};
 pub use currency::Currency;
+pub use fee::Fee;
 pub use fingerprint::Fingerprint;
 pub use internal_transfer::InternalTransfer;
 pub use month::{DayStamp, Month};

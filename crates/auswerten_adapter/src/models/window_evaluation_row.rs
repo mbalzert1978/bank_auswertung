@@ -22,6 +22,10 @@ pub struct WindowEvaluationRow {
     /// Die **Umbuchungen** des Fensters, je Monat und Rolle des Gegenkontos — die andere Seite des
     /// Nettings: was aus den [`months`](Self::months) herausfiel, steht hier, statt verloren zu sein.
     pub transfers: Vec<InternalTransferRow>,
+    /// Die **Bank-Gebühren** des Fensters, je Monat und belastetem Konto — anders als die
+    /// [`transfers`](Self::transfers) ein **Ausschnitt** der [`months`](Self::months), keine
+    /// Ergänzung: eine Gebühr ist echter Abfluss und steht darum auch dort.
+    pub fees: Vec<FeeRow>,
     /// Die **distinkten** Fingerabdrücke der Buchungsarten des Fensters, in stabiler Reihenfolge —
     /// der Schlüssel, auf dem Wiederkehr-Erkennung, gelernte Korrekturen und die Deduplizierung der
     /// Kategorisierer-Anfrage später aufsetzen.
@@ -98,6 +102,26 @@ pub struct InternalTransferRow {
     pub outgoing_minor_units: u64,
 }
 
+/// Eine **Bank-Gebühr** als Zeile: derselbe Monats-Bucket wie beim Cashflow, zusätzlich das
+/// **belastete Konto** als `KONTO_…`-Token (nie eine IBAN) — die Antwort auf „welches meiner Konten
+/// kostet mich Gebühren".
+///
+/// Dass auch hier die Form des [`MonthlyCashflowRow`] wiederkehrt, hat einen anderen Grund als bei
+/// der [`InternalTransferRow`]: eine Gebühr kann **erstattet** werden, und ein verrechneter Saldo
+/// verspielte den Unterschied zwischen „nichts genommen" und „genommen und zurückgegeben".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeeRow {
+    pub year: i64,
+    /// Der Monat im Jahr, **1..=12** — von der Domäne per Konstruktion garantiert.
+    pub month: i64,
+    /// Das **belastete** Konto als Token — das Auftragskonto der Zeile, nie ein Gegenkonto.
+    pub account: String,
+    /// Was die Bank **erstattet** hat — meist `0`, aber ein Storno ist keine negative Gebühr.
+    pub incoming_minor_units: u64,
+    /// Was die Bank **eingezogen** hat — die Zahl, um die es geht.
+    pub outgoing_minor_units: u64,
+}
+
 /// Projiziert das **Domänen-Aggregat** auf die Zeile — die einzige Stelle, an der es die
 /// Adapter-Grenze überquert (die Repository-Bridge ruft sie vor dem Ablegen).
 impl From<&WindowEvaluation> for WindowEvaluationRow {
@@ -124,6 +148,17 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
                     role: role_label(transfer.role()).to_string(),
                     incoming_minor_units: transfer.incoming().minor_units(),
                     outgoing_minor_units: transfer.outgoing().minor_units(),
+                })
+                .collect(),
+            fees: evaluation
+                .fees()
+                .iter()
+                .map(|fee| FeeRow {
+                    year: fee.month().year(),
+                    month: fee.month().month_of_year(),
+                    account: fee.account().as_str().to_string(),
+                    incoming_minor_units: fee.incoming().minor_units(),
+                    outgoing_minor_units: fee.outgoing().minor_units(),
                 })
                 .collect(),
             fingerprints: evaluation

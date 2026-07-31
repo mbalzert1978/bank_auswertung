@@ -17,8 +17,8 @@
 
 use auswerten_adapter::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRequestRow, CategoryRow,
-    CounterAccountRow, EvaluationTestApi, HistoryTestApi, InternalTransferRow, MonthlyCashflowRow,
-    OccurrenceRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
+    CounterAccountRow, EvaluationTestApi, FeeRow, HistoryTestApi, InternalTransferRow,
+    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -26,6 +26,20 @@ use auswerten_adapter::{
 /// umkehrbares Kennzeichen seiner Identität, das io beiden Seiten mitgibt (ADR-0010: der Seed selbst
 /// erreicht diesen Slice nie).
 pub(crate) const SEED_MARKER: &str = "marker-a";
+
+/// Das **belastete** Konto der Buchungen im Normalfall — das Auftragskonto als `KONTO_…`-Token, wie
+/// `obfuskieren` es abgelegt hat. Jede Buchung steht auf genau einem Konto; welches es ist,
+/// interessiert erst die Gebühren-Sicht, die je Konto trennt.
+pub(crate) const EIGENES_KONTO: &str = "KONTO_MEIN";
+
+/// Ein **zweites** eigenes Konto — nur dort gebraucht, wo nachzuweisen ist, dass Gebühren je Konto
+/// getrennt geführt werden statt in einen Topf zu fallen.
+pub(crate) const ZWEITES_KONTO: &str = "KONTO_ZWEIT";
+
+/// Ein Buchungstext, den die Bank für ihre **eigenen Entgelte** setzt — das Signal, an dem die
+/// Gebühren-Klassifikation greift (Issue 0006). Erfunden wie alle Testdaten, aber aus demselben
+/// Vokabular wie die CSV-Fixtures.
+pub(crate) const ENTGELT_TEXT: &str = "ENTGELTABSCHLUSS";
 
 /// Die opake ID des eingefrorenen Auswertungsfensters, auf die das konsumierte
 /// `FensterGeschlossen` zeigt — die **Ablage von `fenstern`** hat sie vergeben (uniformes
@@ -72,12 +86,33 @@ pub(crate) fn fenster_mit_marker(
 }
 
 /// Ein **Abfluss** an einem Buchungstag (Betrag vorzeichenlos in Minor Units — das Vorzeichen lebt allein
-/// in der Richtung, ADR-0005) — **ohne Gegenpartei**, wie eine Entgeltzeile.
+/// in der Richtung, ADR-0005) — **ohne Gegenpartei** und **ohne Buchungstext**, also keine erkennbare
+/// Gebühr (dafür `entgelt`).
 pub(crate) fn ausgang(booking_day: i64, minor_units: u64) -> WindowBookingRow {
     WindowBookingRow {
         booking_day,
         amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
+        ordering_account: EIGENES_KONTO.to_string(),
+        ..WindowBookingRow::default()
+    }
+}
+
+/// Eine **Entgeltzeile**: der Abfluss, den die Bank selbst einzieht — ohne Gegenpartei (sie bucht
+/// direkt aufs Konto) und mit dem Buchungstext, an dem die Klassifikation ihn erkennt.
+pub(crate) fn entgelt(booking_day: i64, minor_units: u64) -> WindowBookingRow {
+    entgelt_auf(booking_day, minor_units, EIGENES_KONTO)
+}
+
+/// Dieselbe Entgeltzeile auf einem **frei gewählten** Konto — für den Nachweis, dass Gebühren je
+/// belastetem Konto getrennt geführt werden.
+pub(crate) fn entgelt_auf(booking_day: i64, minor_units: u64, konto: &str) -> WindowBookingRow {
+    WindowBookingRow {
+        booking_day,
+        amount_minor_units: minor_units,
+        direction: BookingDirection::Outgoing,
+        ordering_account: konto.to_string(),
+        booking_text: Some(ENTGELT_TEXT.to_string()),
         ..WindowBookingRow::default()
     }
 }
@@ -88,6 +123,7 @@ pub(crate) fn eingang(booking_day: i64, minor_units: u64) -> WindowBookingRow {
         booking_day,
         amount_minor_units: minor_units,
         direction: BookingDirection::Incoming,
+        ordering_account: EIGENES_KONTO.to_string(),
         ..WindowBookingRow::default()
     }
 }
@@ -112,6 +148,8 @@ pub(crate) fn firma(
         },
         purpose: purpose.map(str::to_string),
         counter_account: None,
+        ordering_account: EIGENES_KONTO.to_string(),
+        booking_text: None,
     }
 }
 
@@ -133,6 +171,8 @@ pub(crate) fn firma_ohne_namen(
         },
         purpose: purpose.map(str::to_string),
         counter_account: None,
+        ordering_account: EIGENES_KONTO.to_string(),
+        booking_text: None,
     }
 }
 
@@ -149,6 +189,8 @@ pub(crate) fn person(booking_day: i64, minor_units: u64, pseudonym: &str) -> Win
         },
         purpose: None,
         counter_account: None,
+        ordering_account: EIGENES_KONTO.to_string(),
+        booking_text: None,
     }
 }
 
@@ -161,6 +203,7 @@ pub(crate) fn gegenkonto(booking_day: i64, minor_units: u64, token: &str) -> Win
         amount_minor_units: minor_units,
         direction: BookingDirection::Outgoing,
         counter_account: Some(token.to_string()),
+        ordering_account: EIGENES_KONTO.to_string(),
         ..WindowBookingRow::default()
     }
 }
@@ -228,6 +271,19 @@ pub(crate) fn umgebucht(
     }
 }
 
+/// Ein erwarteter **Gebühren-Bucket**: dieselbe Form wie ein Monats-Bucket, dazu das **belastete
+/// Konto** als Token. Anders als bei `umgebucht` steht, was hier steht, **auch** im `monat`
+/// desselben Zeitraums — eine Gebühr ist echter Abfluss und wird nur zusätzlich herausgehoben.
+pub(crate) fn gebuehr(year: i64, month: i64, konto: &str, incoming: u64, outgoing: u64) -> FeeRow {
+    FeeRow {
+        year,
+        month,
+        account: konto.to_string(),
+        incoming_minor_units: incoming,
+        outgoing_minor_units: outgoing,
+    }
+}
+
 /// Ein **Zufluss von einem Gegenkonto**, das nur als Token vorliegt — die Gegenrichtung zu
 /// `gegenkonto`: Geld, das von dort kam. Erst mit ihr lässt sich prüfen, dass das Netting **beide**
 /// Richtungen erfasst und nicht nur den Abfluss.
@@ -241,6 +297,7 @@ pub(crate) fn gegenkonto_eingang(
         amount_minor_units: minor_units,
         direction: BookingDirection::Incoming,
         counter_account: Some(token.to_string()),
+        ordering_account: EIGENES_KONTO.to_string(),
         ..WindowBookingRow::default()
     }
 }

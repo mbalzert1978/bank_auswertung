@@ -87,8 +87,8 @@ pub use ports::{
     AnalysisWindowSource, Categorizer, CategoryRegistry, EvaluationRepository, OccurrenceSource,
 };
 pub use value_objects::{
-    AccountRole, AccountToken, Amount, Category, CategoryAnswer, CategoryRequest, CounterAccount,
-    Currency, DayStamp, Direction, Fingerprint, InternalTransfer, Month, MonthlyCashflow,
-    NonEmptyString, Occurrence, OwnAccounts, Recipient, RunSpan, SeedMarker, WindowId,
-    WindowedBooking,
+    AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer, CategoryRequest,
+    CounterAccount, Currency, DayStamp, Direction, Fee, Fingerprint, InternalTransfer, Month,
+    MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts, Recipient, RunSpan, SeedMarker,
+    WindowId, WindowedBooking,
 };

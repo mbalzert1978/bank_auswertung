@@ -3,16 +3,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::entities::AnalysisWindow;
 use crate::value_objects::WindowedBooking;
 use crate::value_objects::{
-    AccountRole, Category, CategoryAnswer, CounterAccount, Currency, Fingerprint, InternalTransfer,
-    Month, MonthlyCashflow, OwnAccounts, WindowId,
+    AccountRole, BookingKind, Category, CategoryAnswer, CounterAccount, Currency, Fee, Fingerprint,
+    InternalTransfer, Month, MonthlyCashflow, OwnAccounts, WindowId,
 };
 
 /// Das **Pro-Fenster-Ergebnis** — was dieser Slice aus **einem** eingefrorenen Auswertungsfenster
 /// rechnet und ablegt (ADR-0013, Entscheidung E, Reichweite 1). Es trägt die erste periodische
 /// Kennzahl — den **Cashflow je Monat innerhalb** des Fensters — und zwar **genettet**: eine
 /// Umbuchung zwischen eigenen Konten steht nicht darin, sondern daneben in den
-/// [`transfers`](Self::transfers). Hier docken die weiteren Fach-Analyzer an
-/// (Gebühren-Klassifikation, Pareto).
+/// [`transfers`](Self::transfers) — und was die Bank innerhalb dieses Cashflows selbst einzog,
+/// steht als [`fees`](Self::fees) noch einmal gesondert. Hier docken die weiteren Fach-Analyzer an
+/// (Pareto, Wiederkehr).
+///
+/// **Die drei Sichten stehen nicht gleichrangig nebeneinander.** Cashflow und Umbuchungen
+/// **teilen** die Buchungen unter sich auf (disjunkt, zusammen vollständig); die Gebühren
+/// **überlagern** den Cashflow (ein Ausschnitt von ihm). Der Unterschied ist fachlich: eine
+/// Umbuchung ist kein verlorenes Geld, eine Gebühr sehr wohl.
 ///
 /// Es referenziert sein Quell-Fenster **nur per ID** (ADR-0012) — die Buchungen bleiben, wo sie
 /// eingefroren sind. Seine **eigene** Identität vergibt die Persistenz beim Ablegen.
@@ -22,6 +28,7 @@ pub struct WindowEvaluation {
     currency: Currency,
     months: Vec<MonthlyCashflow>,
     transfers: Vec<InternalTransfer>,
+    fees: Vec<Fee>,
     fingerprints: Vec<Fingerprint>,
     counter_accounts: Vec<CounterAccount>,
     categories: Vec<CategoryAnswer>,
@@ -37,6 +44,12 @@ impl WindowEvaluation {
     /// den Cashflow. Die beiden Sichten sind darum disjunkt und zusammen vollständig — keine Buchung
     /// zählt doppelt, keine fällt heraus. Die Fingerabdruck- und die Gegenkonto-Liste bleiben davon
     /// **unberührt**: sie sagen, welche *Arten* im Fenster vorkamen, und eine Umbuchung kam vor.
+    ///
+    /// **Die Gebühren-Sicht teilt nichts auf, sie hebt heraus** ([Issue
+    /// 0006](../../../../docs/issues/0006-gebuehren-klassifikation.md)): jede Buchung des Cashflows,
+    /// deren Buchungstext sie als Bank-Entgelt ausweist, wächst **zusätzlich** einen Bucket je
+    /// Monat und belastetem Konto. Sie verlässt den Cashflow dabei nicht — eine Gebühr ist echter
+    /// Abfluss, im Gegensatz zur Umbuchung.
     ///
     /// **Ein Fenster deckt mehrere Monate ab** — es ist die *Seitengröße* des Pagers (~400 Tage),
     /// nicht der Bucketing-*Zeitraum* (CONTEXT.md, „Fenster vs. Zeitraum"). Die `BTreeMap` fällt
@@ -69,6 +82,18 @@ impl WindowEvaluation {
                 .iter()
                 .filter_map(|booking| Some((transfer_role(booking, own_accounts)?, booking))),
         );
+        // Und die **Überlagerung**: was die Bank innerhalb desselben Cashflows selbst einzog, je
+        // Monat und belastetem Konto. Sie liest aus **derselben** Menge wie der Cashflow oben — nur
+        // so gilt „die Gebühren sind ein Teil der Monats-Buckets" von Bauart wegen und nicht bloß
+        // in der Praxis (siehe [`Fee`]).
+        let fees = bucket_by_month(
+            snapshot
+                .bookings()
+                .iter()
+                .filter(|booking| transfer_role(booking, own_accounts).is_none())
+                .filter(|booking| booking.kind() == BookingKind::Fee)
+                .map(|booking| (booking.ordering_account().clone(), booking)),
+        );
         // Die **distinkten** Fingerabdrücke des Fensters: der Schlüssel steht für eine *Art* von
         // Buchung, nicht für die einzelne — zwanzig Buchungen desselben Händlers sind **eine** Art.
         // Das `BTreeSet` faltet sie darum zusammen und legt sie zugleich in einer stabilen,
@@ -98,6 +123,10 @@ impl WindowEvaluation {
             transfers: transfers
                 .into_iter()
                 .map(|((_month, role), flow)| InternalTransfer::of(role, flow))
+                .collect(),
+            fees: fees
+                .into_iter()
+                .map(|((_month, account), flow)| Fee::of(account, flow))
                 .collect(),
             fingerprints: fingerprints.into_iter().collect(),
             counter_accounts: counter_accounts.into_iter().collect(),
@@ -131,6 +160,20 @@ impl WindowEvaluation {
     #[must_use]
     pub fn transfers(&self) -> &[InternalTransfer] {
         &self.transfers
+    }
+
+    /// Die **Bank-Gebühren** dieses Fensters — je Monat und belastetem Konto ein Bucket, in
+    /// chronologischer Reihenfolge und darin nach Konto-Token. Was die Bank selbst einzog, statt
+    /// dessen, was der Nutzer ausgab ([Issue
+    /// 0006](../../../../docs/issues/0006-gebuehren-klassifikation.md)).
+    ///
+    /// **Ein Ausschnitt der [`months`](Self::months), keine Ergänzung.** Anders als die
+    /// [`transfers`](Self::transfers), die aus dem Cashflow herausfielen, stehen diese Beträge
+    /// **auch** dort — eine Gebühr ist echter, verlorener Abfluss. Wer beides addiert, zählt sie
+    /// doppelt; wer sie voneinander abzieht, erhält, was der Nutzer selbst veranlasst hat.
+    #[must_use]
+    pub fn fees(&self) -> &[Fee] {
+        &self.fees
     }
 
     /// Die **distinkten** Fingerabdrücke der Buchungsarten dieses Fensters, in stabiler Reihenfolge
@@ -181,7 +224,8 @@ impl WindowEvaluation {
 ///
 /// **Keine Gegenseite ist keine eigene.** Eine Entgeltzeile hat gar kein Gegenkonto — sie ist echter
 /// Abfluss und bleibt im Cashflow (CONTEXT.md, „Umbuchungskosten": die Gebühr *für* eine Umbuchung
-/// ist selbst keine).
+/// ist selbst keine). Genau daran hängt, dass beide Analyzer koexistieren: die Umbuchung fällt
+/// heraus, die Gebühr für sie bleibt und wird von [`Fee`] zusätzlich herausgehoben.
 fn transfer_role(booking: &WindowedBooking, own_accounts: &OwnAccounts) -> Option<AccountRole> {
     match booking
         .counter_account()
@@ -192,14 +236,14 @@ fn transfer_role(booking: &WindowedBooking, own_accounts: &OwnAccounts) -> Optio
     }
 }
 
-/// Faltet Buchungen zu **Monats-Buckets** — die eine Bucketing-Mechanik, die sich der genettete
-/// Cashflow und die Umbuchungs-Sicht teilen: jede Buchung fällt in den Monat ihres Buchungstags und
-/// wächst dort die Spalte ihrer Richtung.
+/// Faltet Buchungen zu **Monats-Buckets** — die eine Bucketing-Mechanik, die sich alle drei Sichten
+/// teilen: jede Buchung fällt in den Monat ihres Buchungstags und wächst dort die Spalte ihrer
+/// Richtung.
 ///
 /// Der `key` je Buchung ist, was die Sichten **zusätzlich** zum Monat trennt: nichts (`()`) beim
-/// Cashflow, die Rolle des Gegenkontos bei den Umbuchungen. Er steht im Schlüssel **hinter** dem
-/// Monat, sodass die `BTreeMap` zuerst chronologisch ordnet und erst danach nach ihm — dieselbe
-/// stabile, eingabe-unabhängige Reihenfolge für beide.
+/// Cashflow, die Rolle des Gegenkontos bei den Umbuchungen, das belastete Konto bei den Gebühren. Er
+/// steht im Schlüssel **hinter** dem Monat, sodass die `BTreeMap` zuerst chronologisch ordnet und
+/// erst danach nach ihm — dieselbe stabile, eingabe-unabhängige Reihenfolge für alle drei.
 fn bucket_by_month<'a, K: Ord>(
     bookings: impl Iterator<Item = (K, &'a WindowedBooking)>,
 ) -> BTreeMap<(Month, K), MonthlyCashflow> {

@@ -218,10 +218,17 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   `InternalTransfer`, per month and counter-account role, so the gross flow is the sum of both views.
   Netting is decided **per row, not per pair**: that the counter account is mine already stands on the
   single booking, and waiting for its second leg would count every transfer whose counterpart sits in
-  another window or an unimported statement as an expense. Calls `Kategorisierer` only for **unknown**
+  another window or an unimported statement as an expense. Next to it stands the **fee
+  classification** ([Issue 0006](docs/issues/0006-gebuehren-klassifikation.md), **built**), and the two
+  pull in **opposite directions** — which is the point: a `BookingKind::Fee`, derived by a pure domain
+  function from the bank-assigned booking text, is real lost money, so it **stays** in the cashflow and
+  is merely lifted out **alongside** it as a `Fee` per month and **charged account** (an overlay, a
+  subset of `months` — not a second half like the transfers, and adding the two would double-count).
+  The fee markers are deliberately conservative and still **HITL-unverified** against Markus' real
+  statements. Calls `Kategorisierer` only for **unknown**
   fingerprints; its egress DTO carries the no-`Serialize` guard. Read/store/query each **fallible +
   terminal**, **no** publish seam (it is the pipeline tail until `report`). Still to come on top of
-  these reaches: the fee/Pareto/recurrence analyzers (building blocks 0005–0007).
+  these reaches: the Pareto and recurrence analyzers (building blocks 0005/0007).
 
 (An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
 `Gegenkonto::Eigen|Fremd` resolution into the **`auswerten`** slice, done **on
@@ -305,18 +312,21 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
 **Next**, two threads (weighed in
 [docs/plans/2026-07-31-1335](docs/plans/2026-07-31-1335-aufwand-und-reihenfolge-der-offenen-posten.md)):
 
-- **Towards an answer** — the `Umbuchung` netting ([0004](docs/issues/0004-umbuchung-netting.md)) is
-  **done**, so the cashflow numbers are now right rather than merely computed. On top of it the
+- **Towards an answer** — the `Umbuchung` netting ([0004](docs/issues/0004-umbuchung-netting.md)) and
+  the fee classification ([0006](docs/issues/0006-gebuehren-klassifikation.md)) are **done**, so the
+  cashflow numbers are now right rather than merely computed, and what the bank itself takes is named
+  separately. On top of them the
   Pareto/savings-candidate analyzer ([0007](docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)) and then
   the `report` ([0012](docs/issues/0012-html-bericht.md)) — after those the program says for
   the first time **where the money goes**. Both need a decision from Markus first (what counts as a
-  realistic savings candidate; what the report should state).
+  realistic savings candidate; what the report should state). One **HITL** item is now open on 0006
+  too: which booking texts his bank actually sets for fees.
 - **Towards a safe operation** — the schema owner + version stamp
   ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)) and the
   dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
   now that runs happen, a file on disk and a poisoned message both need an owner.
 
-Then `Kategorisierer`/`Speicher` (0009/0011), the recurrence and fee analyzers (0005/0006).
+Then `Kategorisierer`/`Speicher` (0009/0011) and the recurrence analyzer (0005).
 
 ## Commands
 
@@ -411,8 +421,11 @@ each step runnable/valuable against fakes, real `io` last:
    fingerprints. Issues 0040–0045 **done**, real store + both read seams since 0058; the first
    analyzer on top of them, the **`Umbuchung` netting** (0004), is **built** — the cashflow now
    answers „where do we bleed" instead of counting own transfers as spending, and what it drops
-   stands next to it in `window_evaluation_transfers`. The fee/Pareto/recurrence analyzers (building
-   blocks 0005–0007) are still to come. `Kategorisierer` still comes in from the caller as a fake.
+   stands next to it in `window_evaluation_transfers`. The **second**, the **fee classification**
+   (0006), is built too and pulls the other way: a fee is real lost money, so it **stays** in the
+   cashflow and is only lifted out alongside it into `window_evaluation_fees`, per month and charged
+   account. The Pareto and recurrence analyzers (building blocks 0005/0007) are still to come.
+   `Kategorisierer` still comes in from the caller as a fake.
 6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
    fulfilling the seams — **largely built**: the SQLite Outbox broker/`UnitOfWork`, the
    `Calendar`/`Money`/`Currency` seams, the CSV-CAMT-v8 source, **all four** slice result stores

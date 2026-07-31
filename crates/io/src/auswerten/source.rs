@@ -138,10 +138,12 @@ struct RawBooking {
     purpose: Option<String>,
     counter_account: Option<String>,
     seed_marker: String,
+    ordering_account: String,
+    booking_text: Option<String>,
 }
 
 impl RawBooking {
-    /// Liest die zehn vom [`RawBooking`] verwerteten Spalten aus der Join-Zeile (die Reihenfolge
+    /// Liest die zwölf vom [`RawBooking`] verwerteten Spalten aus der Join-Zeile (die Reihenfolge
     /// spiegelt die `SELECT`-Liste der beiden Statements).
     fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
@@ -155,6 +157,8 @@ impl RawBooking {
             purpose: row.get(7)?,
             counter_account: row.get(8)?,
             seed_marker: row.get(9)?,
+            ordering_account: row.get(10)?,
+            booking_text: row.get(11)?,
         })
     }
 
@@ -177,6 +181,8 @@ impl RawBooking {
             recipient: self.recipient()?,
             purpose: self.purpose.clone(),
             counter_account: self.counter_account.clone(),
+            ordering_account: self.ordering_account.clone(),
+            booking_text: self.booking_text.clone(),
         })
     }
 
@@ -268,7 +274,8 @@ macro_rules! booking_columns {
     () => {
         "o.booking_day, o.amount_minor_units, o.direction, \
          o.recipient_kind, o.recipient_name, o.recipient_creditor_id, o.recipient_pseudonym, \
-         o.purpose, o.counter_account, o.seed_marker"
+         o.purpose, o.counter_account, o.seed_marker, \
+         o.ordering_account, o.booking_text"
     };
 }
 
@@ -385,6 +392,8 @@ mod tests {
             purpose: None,
             counter_account: None,
             seed_marker: seed_marker(seed),
+            ordering_account: "KONTO_1".to_string(),
+            booking_text: None,
         }
     }
 

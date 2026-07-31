@@ -1,7 +1,7 @@
 ---
 id: "0006"
 title: "Gebühren-Klassifikation"
-status: open
+status: closed
 ---
 
 # Gebühren-Klassifikation
@@ -28,16 +28,45 @@ von „die Gebühr für die Umbuchung" trennen zu können.
 
 ## Abnahmekriterien
 
-- [ ] Eine Buchung mit Buchungstext `ENTGELT` (oder äquivalentem
+- [x] Eine Buchung mit Buchungstext `ENTGELT` (oder äquivalentem
       Gebühren-Marker) wird als `Buchungsart`-Gebühr klassifiziert, nicht als
       normaler Abfluss.
-- [ ] Gebühren werden über den Auswertungszeitraum summiert und je Konto
+- [x] Gebühren werden über den Auswertungszeitraum summiert und je Konto
       ausweisbar.
-- [ ] Eine Umbuchung zwischen eigenen Konten mit begleitender Gebührenbuchung:
+- [x] Eine Umbuchung zwischen eigenen Konten mit begleitender Gebührenbuchung:
       die Umbuchung selbst wird genettet (Slice 0004), die Gebühr dafür bleibt
       als echter Abfluss sichtbar — Test deckt beide Seiten ab.
-- [ ] Test deckt den DTO-Vertrag ab: Buchungs-Liste rein, Gebühren-Summen
+- [x] Test deckt den DTO-Vertrag ab: Buchungs-Liste rein, Gebühren-Summen
       raus, ohne Datei-/Netzzugriff.
+
+## Wie es gebaut wurde (2026-07-31)
+
+- **Überlagerung, keine Aufteilung — der entscheidende Unterschied zu 0004.** „Nicht als
+  normaler Abfluss" heißt **nicht**, dass die Gebühr den Cashflow verlässt. Sie ist echtes,
+  verlorenes Geld und bleibt in den Monats-Buckets stehen; die Gebühren-Sicht hebt sie
+  zusätzlich heraus. Die Umbuchung dagegen **teilt** den Cashflow (disjunkt, zusammen
+  vollständig), weil sie kein Abfluss ist. Wer die beiden Ergebnis-Listen gleich behandelt,
+  zählt bei den Gebühren doppelt — im Code, im Schema und in den Specs steht das ausdrücklich
+  dabei.
+- **Die Gebühren lesen aus derselben Menge wie der Cashflow** (also nach dem Netting). So gilt
+  „Gebühren ⊆ Monats-Buckets" von Bauart wegen statt nur in der Praxis.
+- **Klassifikation als reine Domänenfunktion** `BookingKind::of(buchungstext)` — dieselbe Linie
+  wie beim `Fingerabdruck` (ADR-0004): Fachwissen der Domäne, keine Konfiguration. Ein
+  Summentyp statt eines `ist_gebuehr`-Flags, damit Zins/Storno später danebenpassen.
+- **Je Monat und belastetem Konto**, nicht nur je Monat — das ist die Zelle „je Konto
+  ausweisbar". Das Konto ist das **Auftragskonto** (eine Entgeltzeile hat keine Gegenseite,
+  die Bank bucht direkt), es steht als opakes `KONTO_…`-Token da.
+- **Zwei Zellen mussten nachwachsen**: `ordering_account` und `booking_text` lagen bereits in
+  der `obfuskiert`-Ablage, fehlten aber in der `SELECT`-Liste, die `auswerten` liest. Da dessen
+  Lese-Seam ohnehin auf `obfuskiert` joint, blieb `fenstern` **unangetastet** — kein
+  Durchreichen durch die Pipeline nötig.
+- **Persistenz:** eine siebte Tabelle `window_evaluation_fees`. Ohne `CHECK` auf `account`:
+  das Token-Vokabular ist nicht endlich, es wächst mit jedem eingelesenen Konto.
+- **Offene HITL-Lücke:** die Marker-Liste (`ENTGELT`, `GEBUEHR`, `GEBÜHR`) stammt aus dem
+  Vokabular der Fixture-Auszüge und aus allgemeiner Kenntnis — **nicht** aus einer Sichtung von
+  Markus' echten Auszügen, anders als die Gläubiger-IDs der Durchleiter (0047). Bewusst
+  konservativ: ein `ABSCHLUSS` allein steht auch am Rechnungsabschluss, der Zinsen bucht.
+  Lieber eine Gebühr übersehen als eine Nicht-Gebühr etikettieren.
 
 ## Blockiert durch
 

@@ -4,6 +4,12 @@ Stand: 2026-07-31
 
 ## Erledigt
 
+- [x] **[0006-gebuehren-klassifikation.md](0006-gebuehren-klassifikation.md)** (2026-07-31)
+  Was die Bank selbst einzieht, wird am Buchungstext erkannt und je Monat und belastetem Konto
+  ausgewiesen — **herausgehoben, nicht herausgenommen**: anders als die Umbuchung bleibt die
+  Gebühr im Cashflow, weil sie echtes verlorenes Geld ist. Damit stehen die beiden gegenläufigen
+  Analyzer nebeneinander; die Marker-Liste ist bewusst konservativ und noch gegen Markus' echte
+  Auszüge zu verifizieren (HITL). **Zweiter gebauter Analyzer** des `auswerten`-Slice.
 - [x] **[0004-umbuchung-netting.md](0004-umbuchung-netting.md)** (2026-07-31)
   Umbuchungen zwischen eigenen Konten fallen aus dem Cashflow heraus und stehen daneben als
   eigene Geldfluss-Sicht (je Monat und Rolle des Gegenkontos) — genettet wird je Zeile auf
