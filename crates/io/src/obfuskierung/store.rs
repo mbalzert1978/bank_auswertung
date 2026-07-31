@@ -21,8 +21,12 @@
 //!
 //! **Datenschutz-Grenze:** in diese Tabelle fließen **nur Token** — die Konten stehen als
 //! `KONTO_…`/`PERSON_…`, Freitext als obfuskierter Text; **keine rohe IBAN**. Einziger Klartext-Anker
-//! ist die öffentliche `Gläubiger-ID` einer Firma (ADR-0010). Der Seed reist **mit** jeder Zeile (für
-//! die Rehydrierung), bleibt aber lokal — kein Egress-DTO trägt ihn.
+//! ist die öffentliche `Gläubiger-ID` einer Firma (ADR-0010). Der **Seed selbst berührt die Platte
+//! nie**: je Zeile abgelegt wird allein sein [`seed_marker`] — der opake, vergleichbare Hash, den
+//! `auswerten` braucht, um Fenster und Eigene-Konten-Config derselben Tokenisierung zuzuordnen. Läge
+//! dort der Seed, wäre jedes Token gegen eine Klartextliste durchprobierbar, sobald die Datei die
+//! Maschine verlässt; so bleibt er im Prozess, wo `.rules/common/privacy-invarianten.md` ihn haben
+//! will.
 //!
 //! **Seit [Issue 0075](../../../../docs/issues/0075-obfuskierung-migrieren-und-storeunavailable-vereinheitlichen.md)
 //! trägt dieser Store nur noch das Slice-Spezifische** ([ADR-0015](../../../../docs/adr/0015-generischer-slice-store-ueber-storespec.md)):
@@ -46,6 +50,7 @@
 use obfuskierung_adapter::{ObfuscatedBooking, ObfuscatedStoreSeam, Recipient, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
+use crate::obfuskierung::seed_marker;
 use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `obfuskierung`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als
@@ -134,7 +139,7 @@ pub struct BookingFields {
     value_date: String,
     purpose: Option<String>,
     booking_text: Option<String>,
-    seed: i64,
+    seed_marker: String,
 }
 
 /// Der flache Empfänger-Teil (der Summentyp [`Recipient`] auf vier Spalten aufgelöst): `kind` trägt
@@ -177,9 +182,9 @@ impl TryFrom<&ObfuscatedBooking> for BookingFields {
 
     /// Fehlbar allein im Betrag: eine **Magnitude** jenseits `i64::MAX` passt nicht in die
     /// `INTEGER`-Spalte und failt terminal als redigierte [`StoreUnavailable`] (Speicher-Mechanik,
-    /// nie ein Rohwert). Der `seed` dagegen ist ein **opaker `u64`** und wird **bitweise** als `i64`
-    /// umgedeutet (`u64::cast_signed`, Rückweg `i64::cast_unsigned`), damit ein Seed > `i64::MAX`
-    /// verlustfrei durch die INTEGER-Spalte reist, statt terminal abgelehnt zu werden.
+    /// nie ein Rohwert). Der Seed dagegen wird **hier abgeleitet und nicht mitgeführt**: gespeichert
+    /// wird allein sein [`seed_marker`], der opake, vergleichbare Hash. Damit ist die Frage nach der
+    /// Seed-Breite gegenstandslos — der Marker ist unabhängig vom Zahlenwert immer ein 32-Zeichen-Text.
     fn try_from(booking: &ObfuscatedBooking) -> Result<Self, StoreUnavailable> {
         Ok(Self {
             source_id: booking.source_id.clone(),
@@ -203,7 +208,7 @@ impl TryFrom<&ObfuscatedBooking> for BookingFields {
                 .booking_text
                 .as_ref()
                 .map(|text| text.as_str().to_string()),
-            seed: booking.seed.cast_signed(),
+            seed_marker: seed_marker(booking.seed),
         })
     }
 }
@@ -243,7 +248,7 @@ impl BookingRow {
                 fields.value_date,
                 fields.purpose,
                 fields.booking_text,
-                fields.seed,
+                fields.seed_marker,
             ],
         )
         .map(drop)
@@ -272,9 +277,12 @@ const TABLES: &[TableSpec] = &[TableSpec {
 /// Konventionen aus `.rules/sql/schema-konventionen.md`. Die Tabelle ist append-only, daher fällt
 /// `updated_at` mit `created_at` zusammen. Die **Referenz-Spalte `source_id` ist indiziert**
 /// (`.rules/sql/queries-und-performance.md`), damit ein späterer Rückbezug auf die Quell-Zeile keinen
-/// Full-Table-Scan erzwingt. Die `seed`-Spalte trägt den **opaken `u64`-Seed bitweise als `i64`
-/// umgedeutet** (`u64::cast_signed`) — ein Seed > `i64::MAX` erscheint dadurch als negativer INTEGER,
-/// reist aber verlustfrei (Rückweg `i64::cast_unsigned`), statt terminal abgelehnt zu werden.
+/// Full-Table-Scan erzwingt.
+///
+/// Die `seed_marker`-Spalte trägt **nicht den Seed**, sondern den daraus abgeleiteten opaken Marker
+/// ([`seed_marker`]) — `auswerten` braucht nur Vergleichbarkeit („stammen Fenster und Config aus
+/// derselben Tokenisierung?"), nicht den Wert. Der Seed selbst berührt die Platte nie: läge er hier,
+/// wäre jedes `KONTO_…`-Token für jeden, der die Datei hat, gegen eine Klartextliste durchprobierbar.
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS obfuskiert (
     id                    TEXT    PRIMARY KEY,
@@ -292,7 +300,7 @@ CREATE TABLE IF NOT EXISTS obfuskiert (
     value_date            TEXT    NOT NULL,
     purpose               TEXT,
     booking_text          TEXT,
-    seed                  INTEGER NOT NULL,
+    seed_marker           TEXT    NOT NULL,
     created_at            INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
     updated_at            INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
 );
@@ -305,7 +313,7 @@ const INSERT_BOOKING: &str = "\
 INSERT INTO obfuskiert (
     id, source_id, ordering_account, counter_account, amount_minor_units, currency, direction,
     recipient_kind, recipient_name, recipient_creditor_id, recipient_pseudonym,
-    booking_day, value_date, purpose, booking_text, seed,
+    booking_day, value_date, purpose, booking_text, seed_marker,
     created_at, updated_at
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
@@ -354,7 +362,7 @@ mod tests {
         recipient_name: Option<String>,
         recipient_creditor_id: Option<String>,
         booking_day: String,
-        seed: u64,
+        seed_marker: String,
     }
 
     /// Liest die abgelegten obfuskiert-Zeilen (nur für Tests). Der reale Lesepfad des Folge-Slice
@@ -364,7 +372,7 @@ mod tests {
             let mut statement = conn.prepare(
                 "SELECT id, source_id, ordering_account, counter_account, amount_minor_units, \
                  currency, direction, recipient_kind, recipient_name, recipient_creditor_id, \
-                 booking_day, seed FROM obfuskiert ORDER BY rowid;",
+                 booking_day, seed_marker FROM obfuskiert ORDER BY rowid;",
             )?;
             let rows = statement.query_map([], |row| {
                 Ok(StoredBooking {
@@ -379,9 +387,7 @@ mod tests {
                     recipient_name: row.get(8)?,
                     recipient_creditor_id: row.get(9)?,
                     booking_day: row.get(10)?,
-                    // Rückweg der bitweisen Umdeutung: der als `i64` abgelegte Seed kommt
-                    // verlustfrei als `u64` zurück (Gegenstück zu `u64::cast_signed` beim Schreiben).
-                    seed: row.get::<_, i64>(11)?.cast_unsigned(),
+                    seed_marker: row.get(11)?,
                 })
             })?;
             rows.collect()
@@ -474,7 +480,11 @@ mod tests {
             buchung.booking_day, "2024-06-13",
             "Buchungstag als ISO-Textstamp"
         );
-        assert_eq!(buchung.seed, SEED, "der Seed reist mit");
+        assert_eq!(
+            buchung.seed_marker,
+            seed_marker(SEED),
+            "der Marker der Tokenisierung reist mit — der Seed selbst nie"
+        );
         // Empfänger **mit** Gläubiger-ID → Firma: die öffentliche `creditor_id` bleibt der
         // Klartext-Analyse-Anker (ADR-0010). Der Firmenname reist als `ObfuscatedText` (best-effort,
         // heute nur trimmend — die Scrubbing-Regeln sind vertagt), also **nicht** strukturell
@@ -526,19 +536,24 @@ mod tests {
         reason = "Test-Helfer: assert!/panic! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
-    fn ein_seed_jenseits_von_i64_max_wird_verlustfrei_round_trip_gespeichert()
+    fn der_rohe_seed_erreicht_die_tabelle_nie_auch_nicht_jenseits_von_i64_max()
     -> rusqlite::Result<()> {
-        // Regression (Copilot-Review #55): der Seed ist ein opaker `u64`. Ein Wert > `i64::MAX`
-        // (hier `u64::MAX`) muss **bitweise** durch die INTEGER-Spalte reisen und identisch
-        // zurückkommen — `u64::cast_signed` beim Schreiben, `i64::cast_unsigned` beim Lesen. Das
-        // frühere `i64::try_from` hätte ihn terminal als `StoreUnavailable` abgelehnt.
+        // Zwei Zusicherungen in einer, weil sie dieselbe Wurzel haben — die Spalte trägt den
+        // **Marker**, nicht den Seed:
+        //
+        //  * Datenschutz: stünde der Seed hier, wäre jedes `KONTO_…`-Token für jeden, der die Datei
+        //    hat, gegen eine Klartextliste durchprobierbar. Der Test sucht ihn in **jeder** Zelle,
+        //    nicht nur in der Marker-Spalte, damit er auch anschlägt, wenn er anderswo durchsickert.
+        //  * Breite: `u64::MAX` war früher der Grenzfall der INTEGER-Spalte (Copilot-Review #55,
+        //    bitweise Umdeutung). Ein Marker ist Text, also ist die Frage gegenstandslos — was der
+        //    Test festhält, indem er genau diesen Seed durchschickt.
         let outbox = SqliteOutbox::open_in_memory()?;
         let store = ObfuskierungSqliteStore::new(outbox.clone())?;
 
         let outcomes = run_pipeline(&outbox, store.clone(), "gueltig.csv", u64::MAX)?;
         assert!(
             matches!(outcomes.as_slice(), [(_, Ok(()))]),
-            "der Seed jenseits von i64::MAX darf die Ablage nicht scheitern lassen: {outcomes:?}"
+            "ein Seed jenseits von i64::MAX darf die Ablage nicht scheitern lassen: {outcomes:?}"
         );
 
         let bookings = stored_bookings(&store)?;
@@ -547,9 +562,15 @@ mod tests {
             other => panic!("genau eine obfuskierte Buchung erwartet: {other:?}"),
         };
         assert_eq!(
-            buchung.seed,
-            u64::MAX,
-            "ein Seed jenseits von i64::MAX reist verlustfrei durch die INTEGER-Spalte"
+            buchung.seed_marker,
+            seed_marker(u64::MAX),
+            "abgelegt wird der Marker der Tokenisierung"
+        );
+
+        let zeile = format!("{buchung:?}");
+        assert!(
+            !zeile.contains(&u64::MAX.to_string()),
+            "keine Zelle darf den rohen Seed tragen: {zeile}"
         );
         Ok(())
     }

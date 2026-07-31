@@ -155,6 +155,12 @@ pub enum RunError {
         message_type: String,
         reason: String,
     },
+    /// In der Outbox liegt noch ein **unerledigter Import-Auslöser einer anderen Quelle**. Ihn
+    /// zuzustellen hieße, die *jetzt* übergebene Datei ein zweites Mal einzulesen — der Auslöser
+    /// benennt seine Quelle zwar, aber beschafft wird sie über den Datenquellen-Port dieses Laufs
+    /// (Issue 0018). Der Lauf bricht darum **vor** dem ersten Schreiben ab, statt still einen
+    /// Doppelbestand anzulegen. Beide Werte sind Dateinamen, keine Pfade.
+    PendingImport { pending: String, requested: String },
     /// Die Broker-Schleife kam nach der intern gedeckelten Rundenzahl nicht zur Ruhe.
     NotConverging,
     /// Das Lauf-Protokoll ließ sich nicht schreiben. Es **ist** Teil des Laufs: ein Lauf, dessen
@@ -173,7 +179,13 @@ impl std::fmt::Display for RunError {
             Self::Message {
                 message_type,
                 reason,
-            } => write!(f, "{message_type} terminal gescheitert: {reason}"),
+            } => write!(f, "{message_type} — {reason}"),
+            Self::PendingImport { pending, requested } => write!(
+                f,
+                "unerledigter Import-Auslöser für {pending} — ein Lauf mit {requested} würde diese \
+                 Datei doppelt einlesen; erst den offenen Lauf abschließen oder seine Nachricht \
+                 entfernen"
+            ),
             Self::NotConverging => f.write_str("die Broker-Schleife kam nicht zur Ruhe"),
             Self::Protocol(diagnosis) => write!(f, "Lauf-Protokoll nicht schreibbar: {diagnosis}"),
         }
@@ -217,7 +229,7 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // Phase 1 — Import. Der `partition_key` benennt die Quelle; der Slice beschafft den Batch selbst
     // über seinen Datenquellen-Port (Issue 0018), der Auslöser ist ein reiner Trigger.
     write_line(protocol, "Lauf: Import")?;
-    enqueue(&outbox, EINLESEN_CONSUMED, &source_key(&paths.transactions))?;
+    enqueue_import(&outbox, &source_key(&paths.transactions))?;
     drain(&outbox, &dispatcher, protocol, &mut report)?;
 
     // Phase 2 — Analyse. **Erst jetzt**: der Anstoß liest den Initial-Anker aus dem obfuskierten
@@ -541,8 +553,37 @@ fn enqueue(outbox: &SqliteOutbox, message_type: &str, key: &str) -> Result<(), R
         .map_err(backbone)
 }
 
+/// Reiht den Import-Auslöser ein — **nachdem** geprüft ist, dass kein alter unerledigt herumliegt.
+///
+/// Der Grund für die Prüfung: der Auslöser **benennt** seine Quelle im `partition_key`, aber
+/// **beschafft** wird sie über den Datenquellen-Port *dieses* Laufs (Issue 0018). Eine
+/// liegengebliebene Nachricht liest bei der nächsten Zustellung darum die Datei, auf die das
+/// *aktuelle* Kommando zeigt — nicht die, für die sie eingereiht wurde. Ohne diesen Vorab-Check
+/// verwandelt sich jeder Rest eines gescheiterten Laufs still in einen zusätzlichen Import der
+/// aktuellen Datei, und der Lauf meldete dafür Exit 0.
+///
+/// Zwei Fälle, zwei Antworten:
+///
+/// - **Derselbe Dateiname** — die Fortsetzung genau dieses Imports. Der offene Auslöser wird
+///   wiederverwendet, statt einen zweiten danebenzulegen (der Lauf ist resümierbar, ADR-0012).
+/// - **Ein anderer Dateiname** — der Lauf bricht mit [`RunError::PendingImport`] ab, **bevor** er
+///   irgendetwas schreibt. Was zu tun ist, entscheidet der Mensch: den alten Lauf zu Ende fahren oder
+///   seine Nachricht entfernen.
+fn enqueue_import(outbox: &SqliteOutbox, key: &str) -> Result<(), RunError> {
+    match outbox.pending_key(EINLESEN_CONSUMED).map_err(backbone)? {
+        Some(pending) if pending == key => Ok(()),
+        Some(pending) => Err(RunError::PendingImport {
+            pending,
+            requested: key.to_string(),
+        }),
+        None => enqueue(outbox, EINLESEN_CONSUMED, key),
+    }
+}
+
 /// Der `partition_key` des Import-Auslösers: der **Dateiname** der Quelle, nie ihr Pfad. Er benennt
-/// den Lauf wiedererkennbar, ohne die Verzeichnisstruktur der Maschine mit in die Outbox zu schreiben.
+/// den Lauf wiedererkennbar, ohne die Verzeichnisstruktur der Maschine mit in die Outbox zu schreiben
+/// — und ist seit [`enqueue_import`] kein bloßes Etikett mehr, sondern das, woran ein Lauf einen
+/// fremden liegengebliebenen Auslöser erkennt.
 fn source_key(transactions: &Path) -> String {
     transactions
         .file_name()
@@ -813,6 +854,44 @@ mod tests {
             "zwei Läufe über dieselbe Datei importieren zweimal"
         );
         assert_eq!(offene_nachrichten(&paths)?, 0, "und beide laufen leer");
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+    )]
+    #[test]
+    fn ein_offener_ausloeser_einer_anderen_quelle_bricht_den_lauf_ab() -> rusqlite::Result<()> {
+        // Der Fall, der vorher **still** danebenging: ein gescheiterter Lauf lässt seinen Auslöser
+        // offen liegen. Da der Slice seine Quelle über den Datenquellen-Port *dieses* Laufs beschafft
+        // (Issue 0018) und nicht über den `partition_key`, las die liegengebliebene Nachricht beim
+        // nächsten Mal die **neue** Datei — der Lauf importierte sie zweimal und meldete Exit 0.
+        let db = TempDbPath::new("lauf_fremder_rest");
+        let mut kaputt = lauf_pfade(&db);
+        kaputt.transactions = fixture("einlesen/csv/pflichtfeld_fehlt.csv");
+        let mut protokoll = Vec::new();
+
+        run(&kaputt, &mut protokoll).expect_err("ein fehlendes Pflichtfeld ist terminal");
+        assert_eq!(
+            offene_nachrichten(&kaputt)?,
+            1,
+            "der gescheiterte Auslöser bleibt offen (ADR-0012)"
+        );
+
+        let gut = lauf_pfade(&db);
+        let fehler = run(&gut, &mut protokoll).expect_err("der fremde Rest muss den Lauf stoppen");
+
+        assert!(
+            matches!(&fehler, RunError::PendingImport { pending, requested }
+                if pending == "pflichtfeld_fehlt.csv" && requested == "lauf.csv"),
+            "der Abbruch muss beide Quellen benennen: {fehler:?}"
+        );
+        assert_eq!(
+            zeilen(&gut, "einlesen_lines")?,
+            0,
+            "und zwar **bevor** irgendetwas geschrieben wurde"
+        );
         Ok(())
     }
 }

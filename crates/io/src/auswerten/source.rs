@@ -27,9 +27,9 @@
 //!
 //! **Seed-Marker statt Seed (ADR-0010):** das Fenster braucht das **opake Kennzeichen der
 //! Tokenisierung**, unter der seine Token entstanden — nicht den Seed selbst, der diesen Slice nie
-//! erreicht. `obfuskiert` legt den `seed` je Zeile ab; dieser Seam leitet daraus über [`seed_marker`]
-//! einen stabilen, opaken Marker ab (ein seed-gekeyter Hash über ein festes Etikett), gegen den die
-//! Eigene-Konten-Config geprüft wird. Der rohe Seed bleibt so hinter der Datenschutz-Grenze.
+//! erreicht. `obfuskiert` legt genau diesen Marker je Zeile ab (abgeleitet **bevor** geschrieben wird,
+//! siehe `obfuskierung`s `seed_marker`), sodass dieser Seam ihn nur noch **liest** und gegen die
+//! Eigene-Konten-Config hält. Der rohe Seed erreicht damit weder diesen Slice noch die Platte.
 //!
 //! **Fehlbar → terminal, redigiert:** ein `Err` ist stromabwärts terminal ([`SourceUnavailable`],
 //! io-Diagnose); der Text beschreibt ausschließlich die Beschaffungs-Mechanik — dieser Seam liest
@@ -40,27 +40,10 @@ use auswerten_adapter::{
     AnalysisWindowRow, AnalysisWindowSeam, BookingDirection, BookingRecipient, OccurrenceSeam,
     SourceUnavailable, WindowBookingRow,
 };
-use obfuskierung_adapter::ObfuscatorSeam;
 use rusqlite::{OptionalExtension, params};
 
 use crate::common::calendar;
-use crate::obfuskierung::SeededObfuscator;
 use crate::sqlite::SqliteOutbox;
-
-/// Das feste Etikett, über das [`seed_marker`] aus dem Seed einen stabilen, opaken Marker ableitet.
-/// Es ist **kein** Konto- und **kein** Klartextwert — nur der Aufhänger, der den seed-gekeyten Hash
-/// von den Konto-Token unterscheidet, die derselbe Obfuskator aus IBANs bildet.
-const SEED_MARKER_LABEL: &str = "seed-marker";
-
-/// Leitet aus dem `obfuskiert`-`seed` das **opake Kennzeichen der Tokenisierung** ab — denselben
-/// Marker, den die Eigene-Konten-Config trägt, wenn ihre Token aus demselben Seed stammen (ADR-0010).
-/// Es ist bewusst **nicht** der Seed: der seed-gekeyte Hash über [`SEED_MARKER_LABEL`] ist stabil und
-/// vergleichbar, gibt den Seed aber nicht preis. Dieselbe eine Ableitung nutzt später der
-/// Eigene-Konten-Loader ([Issue 0002](../../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)),
-/// damit Fenster- und Config-Marker per Konstruktion zusammenpassen.
-pub(crate) fn seed_marker(seed: u64) -> String {
-    SeededObfuscator.obfuscate(seed, SEED_MARKER_LABEL)
-}
 
 /// Der reale Lese-Seam auf `fenstern`s Fenster-Tabellen, im Join auf die `obfuskiert`-Ablage. `Clone`
 /// teilt dasselbe Rückgrat (`Rc` im Innern von [`SqliteOutbox`]).
@@ -98,7 +81,7 @@ impl AuswertungsfensterSource {
 impl AnalysisWindowSeam for AuswertungsfensterSource {
     /// Liest das Auswertungsfenster zur ID: erst die Fenster-Zeile (Währung + Existenz), dann ihre
     /// Buchungen im Join auf `obfuskiert`. `Ok(None)` = zu dieser ID liegt **kein** Fenster;
-    /// `Err` = die Beschaffung misslang (terminal). Der **Seed-Marker** kommt aus dem `seed` der
+    /// `Err` = die Beschaffung misslang (terminal). Der **Seed-Marker** steht fertig in den
     /// gelesenen Zeilen — sie teilen ihn (eine Tokenisierung je Lauf); ein Fenster ohne Zeilen trägt
     /// keinen, was die ACL beim Deuten terminal als fehlendes Pflichtfeld failt.
     fn read(&self, window_id: &str) -> Result<Option<AnalysisWindowRow>, SourceUnavailable> {
@@ -141,7 +124,7 @@ impl OccurrenceSeam for AuswertungsfensterSource {
 }
 
 /// Eine **rohe** Buchungs-Zeile, wie der Join sie liefert — die Zellen der `obfuskiert`-Ablage in
-/// ihrer Speicher-Form (Text-Tag-Stamp, `i64`-Betrag, `seed`), vor der Deutung „außen → innen". Sie
+/// ihrer Speicher-Form (Text-Tag-Stamp, `i64`-Betrag, Seed-Marker), vor der Deutung „außen → innen". Sie
 /// existiert, weil die Deutung fehlbar ist (Tag-Stamp/Richtung) und darum **außerhalb** der
 /// rusqlite-Lese-Closure laufen muss.
 struct RawBooking {
@@ -154,7 +137,7 @@ struct RawBooking {
     recipient_pseudonym: Option<String>,
     purpose: Option<String>,
     counter_account: Option<String>,
-    seed: i64,
+    seed_marker: String,
 }
 
 impl RawBooking {
@@ -171,14 +154,14 @@ impl RawBooking {
             recipient_pseudonym: row.get(6)?,
             purpose: row.get(7)?,
             counter_account: row.get(8)?,
-            seed: row.get(9)?,
+            seed_marker: row.get(9)?,
         })
     }
 
-    /// Der opake Seed-Marker dieser Zeile — der `seed` (bitweise als `u64` zurückgedeutet, Gegenstück
-    /// zu `obfuskierung`s `u64::cast_signed`) über [`seed_marker`].
+    /// Der opake Seed-Marker dieser Zeile — **gelesen, nicht abgeleitet**: `obfuskierung` legt ihn
+    /// beim Ablegen fertig ab, damit der Seed selbst die Platte nie berührt.
     fn seed_marker(&self) -> String {
-        seed_marker(self.seed.cast_unsigned())
+        self.seed_marker.clone()
     }
 
     /// Deutet die rohe Zeile in die Adapter-Sicht [`WindowBookingRow`] („außen → innen"). Fehlbar
@@ -233,7 +216,7 @@ impl RawBooking {
 
 /// Leitet den **einen** Seed-Marker des Fensters aus seinen Zeilen ab und **erzwingt dabei die
 /// Fenster-Invariante**: alle Buchungen eines Fensters stammen aus **einer** Tokenisierung, tragen
-/// also denselben `seed`. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
+/// also denselben Marker. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
 /// **terminal + redigiert** statt still einen Marker der ersten Zeile zu wählen — sonst könnte die
 /// [`SeedMarker`](auswerten_adapter)-Schranke der Domäne stillschweigend verfälscht werden. Ein
 /// Fenster **ohne** Zeilen trägt keinen Marker (leerer String); die ACL deutet das terminal als
@@ -242,7 +225,10 @@ fn window_seed_marker(raw: &[RawBooking]) -> Result<String, SourceUnavailable> {
     let Some(first) = raw.first() else {
         return Ok(String::new());
     };
-    if raw.iter().any(|booking| booking.seed != first.seed) {
+    if raw
+        .iter()
+        .any(|booking| booking.seed_marker != first.seed_marker)
+    {
         return Err(unavailable_message(
             "Fenster trägt Buchungen aus unterschiedlichen Tokenisierungen",
         ));
@@ -282,7 +268,7 @@ macro_rules! booking_columns {
     () => {
         "o.booking_day, o.amount_minor_units, o.direction, \
          o.recipient_kind, o.recipient_name, o.recipient_creditor_id, o.recipient_pseudonym, \
-         o.purpose, o.counter_account, o.seed"
+         o.purpose, o.counter_account, o.seed_marker"
     };
 }
 
@@ -315,6 +301,7 @@ const SELECT_RUN_BOOKINGS: &str = concat!(
 mod tests {
     use super::*;
     use crate::fenstern::FensternSqliteStore;
+    use crate::obfuskierung::seed_marker;
 
     /// Der reale Marker ist deterministisch und **nicht** der Seed: gleicher Seed → gleicher Marker,
     /// aber der Seed selbst steckt nicht drin (keyed Hash über ein festes Etikett).
@@ -386,7 +373,7 @@ mod tests {
 
     /// Baut eine rohe Zeile mit einem gegebenen `seed`; die übrigen Zellen sind für die
     /// Marker-Ableitung belanglos.
-    fn raw_with_seed(seed: i64) -> RawBooking {
+    fn raw_with_seed(seed: u64) -> RawBooking {
         RawBooking {
             booking_day: "2024-06-20".to_string(),
             amount_minor_units: 1000,
@@ -397,7 +384,7 @@ mod tests {
             recipient_pseudonym: None,
             purpose: None,
             counter_account: None,
-            seed,
+            seed_marker: seed_marker(seed),
         }
     }
 

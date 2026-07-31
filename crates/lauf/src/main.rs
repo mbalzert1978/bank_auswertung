@@ -53,7 +53,13 @@ Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <dat
   --seed            Seed-Config (seed)
   --eigene-konten   Eigene-Konten-Config ([[konto]] mit iban + rolle)
 
-Alle fünf sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.";
+Alle fünf sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
+
+ACHTUNG — ein Lauf ist resümierbar, aber NICHT idempotent: dieselbe CSV zweimal in
+dieselbe --db eingelesen ergibt den Bestand zweimal. Weil `fenstern` je Lauf die ganze
+Historie neu paginiert, wächst dabei nicht nur der Bestand, sondern auch das
+Analyse-Ergebnis überproportional — die Zahlen sind danach nicht doppelt, sondern falsch.
+Für einen Wiederholungslauf eine frische --db verwenden. Die Entdopplung ist Issue 0084.";
 
 /// Warum die Kommandozeile nicht trägt. **Redigiert wie alles andere:** die Meldung nennt die
 /// **Option**, nie den übergebenen Wert — ein Pfad kann Kontonamen tragen, und ein verrutschtes

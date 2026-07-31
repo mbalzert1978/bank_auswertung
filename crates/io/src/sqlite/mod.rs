@@ -36,7 +36,7 @@ pub use slice_store::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, Tab
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::config::AppConfig;
 use crate::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
@@ -185,6 +185,18 @@ impl SqliteOutbox {
             })
         })?;
         rows.collect()
+    }
+
+    /// Der `partition_key` der **ältesten noch offenen** Nachricht dieses Typs, falls es eine gibt.
+    ///
+    /// Schmaler als [`open_messages`](Self::open_messages) und mit anderer Absicht: nicht „was ist zu
+    /// tun", sondern „liegt hier noch etwas von vorher". [`run`](crate::run) fragt damit **vor** dem
+    /// Einreihen, ob ein Auslöser einer anderen Quelle unerledigt herumliegt — der einzige Weg, den
+    /// stillen Doppelimport zu bemerken, bevor er passiert.
+    pub(crate) fn pending_key(&self, message_type: &str) -> rusqlite::Result<Option<String>> {
+        let conn = self.inner.conn.borrow();
+        conn.query_row(SELECT_PENDING_KEY, params![message_type], |row| row.get(0))
+            .optional()
     }
 }
 
@@ -408,6 +420,16 @@ SELECT id, message_type, partition_key, content, occurred_on_utc, attempt
 FROM outbox
 WHERE processed_on_utc IS NULL
 ORDER BY rowid;";
+
+/// Nur der `partition_key` der ältesten offenen Nachricht **eines** Typs — die schmalste Auskunft für
+/// den Vorab-Check in [`run`](crate::run), eine Spalte statt sechs
+/// (`.rules/sql/queries-und-performance.md`).
+const SELECT_PENDING_KEY: &str = "\
+SELECT partition_key
+FROM outbox
+WHERE processed_on_utc IS NULL AND message_type = ?1
+ORDER BY rowid
+LIMIT 1;";
 
 /// Ackt **nur eine noch offene** Nachricht (`AND processed_on_utc IS NULL`). Der Zusatz macht den
 /// Ack **idempotent**: trifft er keine offene Zeile (bereits verarbeitet / überlappende Zustellung

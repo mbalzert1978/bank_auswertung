@@ -35,8 +35,8 @@ use auswerten_adapter::{OwnAccountRow, OwnAccountsConfig, account_role_label};
 use obfuskierung_adapter::account_token;
 
 use super::{ConfigError, ConfigKind};
-use crate::auswerten::seed_marker;
 use crate::obfuskierung::SeededObfuscator;
+use crate::obfuskierung::seed_marker;
 
 /// Ein eigenes Konto, wie es in der Datei steht: die **rohe** IBAN (normalisiert) und die
 /// **kanonische** Rolle. Crate-privat und ohne Getter auf die IBAN — sie verlässt diesen Loader nur

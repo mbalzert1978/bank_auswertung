@@ -29,6 +29,7 @@ mod source;
 mod store;
 
 pub use obfuscator::SeededObfuscator;
+pub(crate) use obfuscator::seed_marker;
 pub use source::EinlesenRowSource;
 pub use store::{ObfuskiertBookings, ObfuskierungSqliteStore, ObfuskierungUnit};
 

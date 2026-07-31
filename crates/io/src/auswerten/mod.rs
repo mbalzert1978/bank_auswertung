@@ -51,8 +51,6 @@ pub use store::{AuswertenEvaluations, AuswertenSqliteStore, AuswertenUnit};
 /// ([`EigeneKontenConfig`](crate::config::EigeneKontenConfig)) aus demselben Seed-Wert. Dass beide
 /// **dieselbe** Funktion benutzen, ist der Grund, warum Fenster- und Config-Marker per Konstruktion
 /// zusammenpassen, statt sich zufällig zu treffen.
-pub(crate) use source::seed_marker;
-
 /// Der `message_type`, unter dem der Dispatcher die **pro-Fenster**-Reichweite auflöst
 /// (`FensterGeschlossen`). Re-exportiert aus dem Adapter — die eine Quelle des Keys liegt am
 /// Slice-Eingang. Es ist derselbe Key, den [`fenstern`](crate::fenstern) je materialisiertem Fenster

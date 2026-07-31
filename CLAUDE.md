@@ -147,8 +147,13 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   re-exporting them — no domain internal crosses the boundary (re-evaluate the mapping
   concentration at the `io` revision). Consumes a `ReadTransactions` command — since
   [0018](docs/issues/0018-einlesen-beschafft-zeilen-ueber-datenquellen-port-statt-per-command.md)
-  a **pure trigger** (empty `RunConfiguration`, field-less payload; the source lives in
-  the envelope `partition_key`): the handler **fetches** the batch through the
+  a **pure trigger** (empty `RunConfiguration`, field-less payload). The envelope
+  `partition_key` **names** the source (its file name) but does not **select** it: the batch is
+  fetched over the data-source port this run was wired with, so a redelivered trigger would read
+  whatever file the *current* invocation points at. That is why `io::run` refuses to start when an
+  open trigger names a *different* source (`RunError::PendingImport`) — without it, the leftover of
+  a failed run silently became a second import of the current file, at exit code 0. The handler
+  **fetches** the batch through the
   domain-required data-source port (`RawLineSource`, fallible + terminal), which the
   `SourceBridge` binds to the `SourceSeam` (`io`-fulfilled by the real `CsvCamtV8Source`).
   Fans out **one `Ingested` message per valid line**; read, store and publish are each **fallible +
@@ -265,7 +270,10 @@ ADR-0004's litmus test in code: without the LLM the program still computes every
 trims/rejects-empty today) and persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
 [Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
-writing the seed **alongside each aggregate** is not).
+persisting the seed across runs is not). Note what the `obfuskiert` table stores: **not the seed but
+its marker**, the opaque seed-keyed hash `auswerten` compares window against own-accounts config.
+The seed itself never touches disk — were it in the table, every `KONTO_x` would be brute-forceable
+against a plaintext list by anyone holding the file, which is the whole pseudonymisation undone.
 
 **Still open beyond the adapters** (issues filed 2026-07-29):
 
@@ -320,6 +328,16 @@ Exit code `0` = the outbox ran empty, `1` = a message failed terminally (named, 
 command line was wrong. The invented fixtures under
 [`crates/io/fixtures/lauf/`](crates/io/fixtures/lauf/) plus
 [`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example.
+
+**A run is resumable, not idempotent** — feed the same CSV into the same `--db` twice and you hold
+the inventory twice. It is worse than a factor of two on the analysis side: `fenstern` re-paginates
+the **whole** obfuscated history per run, so run *n* adds *n* × the rows to
+`auswertungsfenster_buchungen` (measured: 53 → 159 → 318 over three runs, occurrences 49 → 147 →
+294). The numbers after a repeat run are not doubled, they are **wrong**. Use a fresh `--db` per run
+until the de-duplication lands
+([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)). A leftover
+trigger from a *failed* run is caught (`RunError::PendingImport`, see `einlesen` above); a
+deliberate repeat of the *same* file is not — that one is the operator's call.
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 
 ## Architecture — the big picture

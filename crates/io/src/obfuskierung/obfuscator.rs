@@ -44,6 +44,28 @@ impl ObfuscatorSeam for SeededObfuscator {
     }
 }
 
+/// Das feste Etikett, über das [`seed_marker`] aus dem Seed einen stabilen, opaken Marker ableitet.
+/// Es ist **kein** Konto- und **kein** Klartextwert — nur der Aufhänger, der den seed-gekeyten Hash
+/// von den Konto-Token unterscheidet, die derselbe Obfuskator aus IBANs bildet.
+const SEED_MARKER_LABEL: &str = "seed-marker";
+
+/// Leitet aus dem Seed das **opake Kennzeichen der Tokenisierung** ab — den Wert, über den `auswerten`
+/// prüft, ob Fenster und Eigene-Konten-Config aus **demselben** Seed tokenisiert wurden
+/// ([ADR-0010](../../../../docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)).
+///
+/// Es ist bewusst **nicht** der Seed: der seed-gekeyte Hash über [`SEED_MARKER_LABEL`] ist stabil und
+/// vergleichbar, gibt den Seed aber nicht preis.
+///
+/// **Er wird abgeleitet, bevor er die Platte berührt.** Die `obfuskiert`-Tabelle legt diesen Marker ab,
+/// nicht den Seed — denn ein Vergleich braucht nur Vergleichbarkeit, und was nie gespeichert wird, kann
+/// aus einer weitergegebenen Datenbankdatei auch nicht zurückgewonnen werden. Läge dort der Seed, wäre
+/// jedes `KONTO_…`-Token gegen eine Klartextliste durchprobierbar und die Pseudonymisierung für jeden
+/// umkehrbar, der die Datei hat. Der Seed bleibt so im Prozess, wo
+/// `.rules/common/privacy-invarianten.md` („Der Seed bleibt lokal") ihn haben will.
+pub(crate) fn seed_marker(seed: u64) -> String {
+    SeededObfuscator.obfuscate(seed, SEED_MARKER_LABEL)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

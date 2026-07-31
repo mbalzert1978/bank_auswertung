@@ -498,7 +498,6 @@ mod tests {
     use rusqlite::params;
 
     use super::*;
-    use crate::auswerten::source::seed_marker;
     use crate::auswerten::{
         AuswertungsfensterSource, CONSUMED_HISTORY_MESSAGE_TYPE,
         CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, OccurrenceSink,
@@ -508,6 +507,7 @@ mod tests {
         CONSUMED_MESSAGE_TYPE as FENSTERN_CONSUMED, FensternSqliteStore, ObfuskiertWindowSource,
         START_MESSAGE_TYPE, consumer as fenstern_consumer, start_consumer,
     };
+    use crate::obfuskierung::seed_marker;
     use crate::pipeline_test_support::{
         CapturingAck, SEED, Stage, drain, register_fresh, seed_through, stamp,
     };
