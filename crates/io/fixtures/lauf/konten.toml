@@ -1,0 +1,24 @@
+# Eigene-Konten-Config des Lauf-Tests (Issue 0083/0002).
+#
+# **Dateiname bewusst `konten.toml`, nicht `eigene-konten.toml`:** Letzterer ist per .gitignore
+# ausgeschlossen, damit eine ECHTE Kontendatei nie versehentlich im Repository landet. Diese
+# Fixture eine Ausnahme von diesem Schutz zu machen hieße, ihn aufzuweichen.
+#
+# **Frei erfundene** Konten — es sind genau die drei eigenen IBANs der Lauf-CSV
+# (`fixtures/einlesen/csv/lauf.csv`): das Auftragskonto und die beiden Konten, auf die dort
+# umgebucht wird. Anders als die Vorlage `eigene-konten.example.toml` tragen sie **gültige**
+# Prüfziffern, damit der Loader sie annimmt.
+#
+# Eine echte Kontodatei sieht genauso aus — steht aber nie im Repository (.gitignore).
+
+[[konto]]
+iban  = "DE93 1000 0000 0000 0001 00"
+rolle = "Giro"
+
+[[konto]]
+iban  = "DE12100000000000000200"
+rolle = "Haushalt"
+
+[[konto]]
+iban  = "DE28100000000000000300"
+rolle = "Spar"

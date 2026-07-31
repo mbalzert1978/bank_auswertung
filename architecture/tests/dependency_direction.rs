@@ -237,6 +237,31 @@ fn specs_haengen_nur_am_eigenen_adapter() {
     assert_no_violations(&violations, "_specs hängt nur am eigenen `_adapter`");
 }
 
+/// Die Bin-Crate, aus der ein Lauf wird ([Issue 0083](../../docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)).
+const BIN_CRATE: &str = "lauf";
+
+#[test]
+fn die_bin_crate_bindet_io_als_einzige_interne_abhaengigkeit() {
+    // Der Lauf ist die **äußerste** Schale: er stößt an und setzt einen Exit-Code. Griffe er an einem
+    // `_adapter` oder gar einer Domäne vorbei direkt in einen Slice, wäre die Pipeline nicht mehr
+    // allein über die Outbox gekoppelt (ADR-0008) — die Verdrahtung gehört in `io`, nicht in die
+    // Kommandozeile. Dass er **keine** externe Crate bindet, deckt bereits
+    // `nur_das_io_crate_bindet_externe_fremd_crates` ab.
+    let crates = workspace_crates();
+    let violations: Vec<String> = crates
+        .iter()
+        .filter(|item| item.name == BIN_CRATE)
+        .flat_map(|item| {
+            item.internal_deps().filter(|dep| *dep != "io").map(|dep| {
+                format!(
+                    "`{BIN_CRATE}` hängt an `{dep}` — die Bin-Crate bindet `io` als einzige interne Abhängigkeit",
+                )
+            })
+        })
+        .collect();
+    assert_no_violations(&violations, &format!("`{BIN_CRATE}` bindet nur `io`"));
+}
+
 /// Die interne Crate, die `io` **neben** den Slice-Adaptern binden darf: der Kernel
 /// `application_kernel` — der Slice↔`io`-Vertrag (`OutboxConsumer<H: Handler>`). Die io-private
 /// Outbox-Mechanik lebt seit dem Kernel-Flip (ADR-0011, Entscheidung D) als io-internes Modul,

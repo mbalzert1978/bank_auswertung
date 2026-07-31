@@ -148,18 +148,21 @@ impl SqliteOutbox {
     /// [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
     /// vertagt.
     ///
-    /// Gibt je Nachricht ihren Zustell-Ausgang zurück; die Reihenfolge folgt der Einreihung.
+    /// Gibt je Nachricht **den zugestellten Envelope samt ihrem Zustell-Ausgang** zurück; die
+    /// Reihenfolge folgt der Einreihung. Der Envelope reist mit, weil der Aufrufer sonst nur eine
+    /// opake ID hätte: das **Lauf-Protokoll** ([`run`](crate::run)) zählt je `message_type`, und
+    /// dieser Typ ist ein statischer Dispatch-Key, kein Rohwert.
     pub fn deliver_open(
         &self,
         dispatcher: &Dispatcher,
-    ) -> rusqlite::Result<Vec<(String, Result<(), OutboxError>)>> {
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
         let open = self.open_messages()?;
         let outcomes = open
             .into_iter()
             .map(|message| {
-                let id = message.id.clone();
+                let delivered = message.clone();
                 let outcome = dispatcher.dispatch(message);
-                (id, outcome)
+                (delivered, outcome)
             })
             .collect();
         Ok(outcomes)
@@ -456,6 +459,7 @@ pub(crate) const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pipeline_test_support::TempDbPath;
     use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
     use application_kernel::CommandDecoder;
     use std::cell::Cell;
@@ -701,7 +705,7 @@ mod tests {
         assert!(
             matches!(
                 outcomes.as_slice(),
-                [(id, Err(OutboxError::Retry { .. }))] if id == &root
+                [(message, Err(OutboxError::Retry { .. }))] if message.id == root
             ),
             "ein gescheiterter Commit muss zu Retry führen: {outcomes:?}"
         );
@@ -755,7 +759,7 @@ mod tests {
         assert!(
             matches!(
                 erster_lauf.as_slice(),
-                [(id, Err(OutboxError::Retry { .. }))] if id == &root
+                [(message, Err(OutboxError::Retry { .. }))] if message.id == root
             ),
             "der abgestürzte Versuch muss als Retry erscheinen: {erster_lauf:?}"
         );
@@ -768,7 +772,7 @@ mod tests {
         // Lauf 2 (Resume): dieselbe offene Nachricht wird **erneut** zugestellt und diesmal geackt.
         let zweiter_lauf = outbox.deliver_open(&dispatcher)?;
         assert!(
-            matches!(zweiter_lauf.as_slice(), [(id, Ok(()))] if id == &root),
+            matches!(zweiter_lauf.as_slice(), [(message, Ok(()))] if message.id == root),
             "der Resume-Lauf muss dieselbe Nachricht erneut zustellen und ackt sie: {zweiter_lauf:?}"
         );
         assert_eq!(
@@ -793,34 +797,6 @@ mod tests {
         Ok(())
     }
 
-    /// RAII-Wächter über einen eindeutigen temporären DB-Pfad: löscht die Datei beim Fallenlassen —
-    /// auch wenn ein `assert!` den Test abbricht.
-    struct TempDbPath(std::path::PathBuf);
-
-    impl TempDbPath {
-        fn new(tag: &str) -> Self {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|dauer| dauer.as_nanos())
-                .unwrap_or(0);
-            let mut pfad = std::env::temp_dir();
-            pfad.push(format!(
-                "bank_auswertung_outbox_{tag}_{}_{nanos}.sqlite",
-                std::process::id()
-            ));
-            Self(pfad)
-        }
-    }
-
-    impl Drop for TempDbPath {
-        fn drop(&mut self) {
-            // Best-effort-Aufräumen: eine bereits fehlende Datei ist kein Fehler.
-            match std::fs::remove_file(&self.0) {
-                Ok(()) | Err(_) => {}
-            }
-        }
-    }
-
     #[expect(
         clippy::panic_in_result_fn,
         reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
@@ -829,7 +805,7 @@ mod tests {
     fn eine_offene_nachricht_ueberlebt_einen_prozess_neustart() -> rusqlite::Result<()> {
         let db = TempDbPath::new("restart");
         // Der DB-Pfad kommt aus der App-Konfiguration, nicht aus dem Code.
-        let config = AppConfig::new(db.0.clone());
+        let config = AppConfig::new(db.path());
 
         // Erster Prozess: eine Nachricht einreihen, dann Verbindung schließen (= „Prozess-Ende").
         let root = {
@@ -861,7 +837,7 @@ mod tests {
         // Nach dem Neustart holt der Broker die offene Nachricht ab und ackt sie (resumierbar).
         let outcomes = outbox.deliver_open(&dispatcher)?;
         assert!(
-            matches!(outcomes.as_slice(), [(id, Ok(()))] if id == &root),
+            matches!(outcomes.as_slice(), [(message, Ok(()))] if message.id == root),
             "nach dem Neustart wird die offene Nachricht zugestellt: {outcomes:?}"
         );
         assert!(is_processed(&outbox, &root)?, "und ist nun geackt");

@@ -61,6 +61,15 @@ Slice nicht abschließbar.
       Eigen/Fremd-Frage als auch die Rollen-Frage — eine Quelle, keine zwei
       separaten Listen.
 
+> **Loader gebaut mit [0083](0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md).**
+> `io::config::EigeneKontenConfig` liest die `[[konto]]`-Blöcke, normalisiert die IBAN (kompakt,
+> groß), lehnt Form-/mod-97-Fehler, unbekannte Rollen, fehlende Pflichtfelder und Duplikate
+> **redigiert** ab (nie ein Zitat der IBAN) und gibt über `to_own_accounts_config(seed)` die
+> **token-orientierte** Config an `auswerten` — tokenisiert mit demselben Obfuskator und Seed wie die
+> Buchungen, Seed-Marker aus derselben Ableitung wie der Lese-Seam. Die rohe IBAN verlässt den Loader
+> nie (kein Getter, redigierte `Debug`). **Offen bleibt allein das HITL-Stück** unten: Markus' echte
+> IBANs + Rollen in der gitignorten `eigene-konten.toml`.
+
 ## Blockiert durch
 
 - Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)

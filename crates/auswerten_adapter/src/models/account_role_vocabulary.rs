@@ -44,3 +44,20 @@ pub(crate) fn parse_role(raw: &str) -> Option<AccountRole> {
     ALL.into_iter()
         .find(|&role| role_label(role).eq_ignore_ascii_case(raw))
 }
+
+/// Deutet eine rohe Rollen-Zelle und gibt ihre **kanonische Beschriftung** zurück — dieselbe
+/// Deutung wie das crate-interne `parse_role`, nur ohne den Domänen-Typ mitzugeben.
+///
+/// **Wofür.** Der Eigene-Konten-Loader in `io` schreibt die Rolle als Zeichenkette in die
+/// [`OwnAccountsConfig`](crate::OwnAccountsConfig) und soll eine **unbekannte** Rolle schon beim Laden
+/// laut ablehnen, statt sie bis in den Lauf zu tragen. Ohne diese Funktion müsste `io` das Vokabular
+/// nachbauen — und genau dann könnten die beiden Listen auseinanderlaufen, was dieses Modul
+/// ausschließt (siehe die Modul-Doku zu `role_label`). `None` heißt: keine der vier Rollen.
+///
+/// Zurückgegeben wird die **kanonische** Form (`giro` | `haushalt` | `spar` | `vorlauf`), nicht die
+/// Eingabe: was der Loader ablegt, ist damit per Konstruktion dasselbe Wort, das die Deutung später
+/// wiedererkennt.
+#[must_use]
+pub fn account_role_label(raw: &str) -> Option<&'static str> {
+    parse_role(raw).map(role_label)
+}

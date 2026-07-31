@@ -15,6 +15,7 @@ members = [
     "crates/auswerten_adapter",
     "crates/auswerten_specs",
     "crates/io",
+    "crates/lauf",
     "architecture",
 ]
 

@@ -76,7 +76,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
 
 **Cargo workspace** (edition 2024; every member inherits the strict
 `[workspace.lints.clippy]` "Don't Panic" set via `[lints] workspace = true`) —
-**fourteen crates under `crates/`** plus the top-level validator crate
+**fifteen crates under `crates/`** plus the top-level validator crate
 [`architecture`](architecture):
 
 - **one thin, interface-only kernel crate** ([ADR-0009](docs/adr/0009-kernel-split-und-idiomatische-outbox-vertraege.md),
@@ -99,8 +99,14 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   [ADR-0014](docs/adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)). Since
   [ADR-0015](docs/adr/0015-generischer-slice-store-ueber-storespec.md) the four result stores
   each stand as a `StoreSpec` `impl` on **one** generic `SliceStore` in
-  [`sqlite/slice_store.rs`](crates/io/src/sqlite/slice_store.rs). Still **without** a real
-  adapter: the Eigene-Konten loader, `Kategorisierer`/category register and the `report`;
+  [`sqlite/slice_store.rs`](crates/io/src/sqlite/slice_store.rs). Since
+  [Issue 0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)
+  it also holds [`io::run`](crates/io/src/run/mod.rs) — the wiring of **all** real adapters into one
+  program. Still **without** a real adapter: `Kategorisierer`/category register (answered empty today)
+  and the `report`;
+- [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: five mandatory
+  path options in, exit code out. Binds `io` as its **only** internal and **no** external dependency
+  (asserted by the `architecture` test);
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
   (outside `crates/`) asserting dependency direction over `cargo_metadata`.
 
@@ -243,11 +249,19 @@ test without a single fake; the three downstream wiring tests still drive fakes 
 work (their real building blocks are covered by the crate-internal store/source tests against
 real SQLite).
 
-**Still open (no real `io` adapter yet):** the Eigene-Konten config loader
-([Issue 0002](docs/issues/0002-eigene-konten-config-schema-und-loader.md)) — today the caller
-passes the config in as a value —, `Speicher` for DTOs/category register plus the
-`Kategorisierer` oracle (both still fakes in the tests), and the `report` presenter with its
-egress-DTO `Serialize` guard. Also deferred: `ObfuskierterText` scrubbing (only
+The **Eigene-Konten loader** is real too since issue 0083
+([Issue 0002](docs/issues/0002-eigene-konten-config-schema-und-loader.md), io side):
+`io::config::EigeneKontenConfig` reads `[[konto]]` (IBAN + role), rejects a bad form/mod-97 checksum,
+an unknown role, a missing field or a duplicate — **redacted**, never quoting the IBAN — and hands
+`auswerten` the **token-oriented** config, tokenised with the same obfuscator/seed as the bookings.
+The raw IBAN never leaves it (no getter, redacted `Debug`). Only 0002's **HITL** part is left: Markus'
+real IBANs in the gitignored `eigene-konten.toml`.
+
+**Still open (no real `io` adapter yet):** `Speicher` for DTOs/category register plus the
+`Kategorisierer` oracle — both **answered empty** today rather than faked
+(`io::auswerten::EmptyCategoryRegistry`/`UnansweredCategorizer`; issues 0009/0011), which is
+ADR-0004's litmus test in code: without the LLM the program still computes everything —, and the
+`report` presenter with its egress-DTO `Serialize` guard. Also deferred: `ObfuskierterText` scrubbing (only
 trims/rejects-empty today) and persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
 [Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
@@ -255,10 +269,13 @@ writing the seed **alongside each aggregate** is not).
 
 **Still open beyond the adapters** (issues filed 2026-07-29):
 
-- **No program at all** — the pipeline runs only in tests. There is no binary that enqueues the
-  `ReadTransactions` trigger and turns the broker loop
-  ([0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md),
-  incl. the redacted run log; the bin crate binds `io` only).
+- ~~**No program at all**~~ — **built** ([0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)):
+  `bank-auswertung` enqueues the triggers and turns the broker loop against the real adapters,
+  writing a redacted run log to stderr. Two gaps the ticket did not foresee, both resolved in
+  [`io::run`](crates/io/src/run/mod.rs) and documented there: (a) **import and analysis are not
+  message-coupled** — nobody consumes `Obfuscated`, nobody publishes `StartAnalysis` — so the run has
+  **two phases** and acks `Obfuscated` through an `AckSink`; (b) registry and oracle had no
+  fulfilment at all, hence the empty-answering adapters above.
 - **No schema owner, no version stamp** — every result store creates its own schema on
   construction, so any file found on disk is indistinguishable at version 0 and a later migration
   (e.g. the day-stamp axis) has nothing to hook onto
@@ -271,10 +288,10 @@ writing the seed **alongside each aggregate** is not).
 - Cosmetic: the `toml` dependency carries semver build metadata, so every workspace command
   prints a warning ([0086](docs/issues/0086-toml-abhaengigkeit-ohne-semver-metadaten.md)).
 
-**Next: the Eigene-Konten loader ([0002](docs/issues/0002-eigene-konten-config-schema-und-loader.md)),
-then the binary/run kick-off ([0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md))
-— the shortest path to pushing real data through the chain. `Kategorisierer`/`Speicher` and the
-`report` HTML presenter follow.**
+**Next: the schema owner + version stamp ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md))
+and the dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md))
+— now that runs happen, a file on disk and a poisoned message both need an owner. Then
+`Kategorisierer`/`Speicher` (0009/0011) and the `report` HTML presenter.**
 
 ## Commands
 
@@ -293,8 +310,16 @@ Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate),
 kanonisch über den Skill **`/cargo-six-gates`** — er führt alle sechs aus und meldet
 PASS/FAIL je Gate. Definition und Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
 
-No binary yet (library crates only, no `main.rs` anywhere), so `cargo run` does nothing useful —
-that is [Issue 0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md).
+A real run (issue 0083) — all five options are mandatory, the run log goes to stderr:
+
+```bash
+cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.toml --seed seed.toml --eigene-konten eigene-konten.toml
+```
+
+Exit code `0` = the outbox ran empty, `1` = a message failed terminally (named, redacted), `2` = the
+command line was wrong. The invented fixtures under
+[`crates/io/fixtures/lauf/`](crates/io/fixtures/lauf/) plus
+[`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example.
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 
 ## Architecture — the big picture
@@ -358,12 +383,12 @@ each step runnable/valuable against fakes, real `io` last:
    (on **one** generic `SliceStore`,
    [ADR-0015](docs/adr/0015-generischer-slice-store-ueber-storespec.md)), **every** read source
    of the chain and the `toml` loaders for window size and seed are real (issues 0050–0059,
-   0074–0077). **Open:** the Eigene-Konten loader (issue 0002), `Speicher` for DTOs + category
-   register, and the `Kategorisierer` oracle.
-7. **The run itself** — a binary that enqueues the trigger and turns the broker loop
-   (issue 0083), the one schema owner + version stamp (0084) and the dead-letter that keeps a
-   poisoned message from being redelivered forever (0085). Until this step exists, the pipeline
-   only ever runs inside tests.
+   0074–0077) — **and the Eigene-Konten loader** (issue 0002, io side, with issue 0083).
+   **Open:** `Speicher` for DTOs + category register, and the `Kategorisierer` oracle.
+7. **The run itself** — **done for the kick-off** (issue 0083): the `lauf` bin crate + `io::run`
+   enqueue the triggers and turn the broker loop against the real adapters; the pipeline now runs
+   outside tests. **Open in this step:** the one schema owner + version stamp (0084) and the
+   dead-letter that keeps a poisoned message from being redelivered forever (0085).
 8. **`report`** HTML output.
 9. **Iteration** — review together, learn corrections, name savings.
 

@@ -73,7 +73,7 @@ The skills live directly in `.claude/skills/` so this repo **loads its own skill
   to-prd/                                                 SKILL.md  assets/
   token-budget-audit/                                     SKILL.md  scripts/  assets/  config.json
   ubiquitous-language-doc/                                SKILL.md  assets/  config.json
-  validate-fix-loop/                                      SKILL.md  assets/  config.json
+  validate-fix-loop/                                      SKILL.md  scripts/  assets/  config.json
   verbessere-text/                                        SKILL.md  scripts/
   verifier-alternative-classes-with-different-interfaces/ SKILL.md
   verifier-audit/                                         SKILL.md  scripts/
@@ -208,7 +208,7 @@ Skills are grouped into the four buckets (see Design Contract below). Current in
 - `tdd` — test-driven development with red-green-refactor loop.
 - `to-issues` — breaks a plan/PRD into tracer-bullet issues, gates with `verify-issue-breakdown` before publish.
 - `ubiquitous-language-doc` — generates/refreshes a CONTEXT.md Ubiquitous-Language glossary derived from the code, wires it into CLAUDE.md, and quality-gates it by reviewing the glossary as source code.
-- `validate-fix-loop` — dispatches the 23 `verifier-<smell>` code-smell checks listed in `config.json` in parallel each iteration, each its own subagent on `config.json`'s `agent_model`, then routes each verifier's findings — via `fixer_map` — to its own `fixer-<smell>` subagent, in waves whose file sets `scripts/plan_iteration.py` proves disjoint (parallel within a wave, sequential across waves). The orchestrator gathers each fixer's input fresh before its wave and runs the test gate itself once per iteration, so fixers only edit; repeats until every verifier reports zero findings, total findings plateau, or `max_iterations` is hit.
+- `validate-fix-loop` — dispatches the 24 checks listed in `config.json` — the 23 `verifier-<smell>` code-smell checks plus `design-pattern-fit-check` — in parallel each iteration, each its own subagent on `config.json`'s `agent_model`, then routes each check's findings — via `fixer_map` — to its own paired fixer subagent, in waves whose file sets `scripts/plan_iteration.py` proves disjoint (parallel within a wave, sequential across waves). The orchestrator gathers each fixer's input fresh before its wave and runs the test gate itself once per iteration, so fixers only edit; repeats until every check reports zero findings, total findings plateau, or `max_iterations` full rounds of validate-plus-fix are done.
 <!-- END GENERATED: sync-skill-index -->
 
 When editing this repo you are almost always authoring or refining a skill, so the conventions below *are* the architecture.
