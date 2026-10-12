@@ -333,7 +333,7 @@ mod tests {
     use crate::pipeline_test_support::{
         SEED, Stage, assert_redacted_diagnosis, register_fresh, seed_through,
     };
-    use crate::sqlite::SqliteOutbox;
+    use crate::sqlite::{Delivery, SqliteOutbox};
     use application_kernel::PublishCommand;
     use obfuskierung_adapter::ObfuscatedMessage;
 
@@ -415,7 +415,7 @@ mod tests {
         obfuskierung_store: ObfuskierungSqliteStore,
         fixture: &str,
         seed: u64,
-    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Delivery)>> {
         // Vorstufe einlesen seeden: die reale einlesen-Zeile landet, `Ingested` wird publiziert.
         seed_through(outbox, Stage::Einlesen, fixture)?;
 
@@ -449,7 +449,7 @@ mod tests {
 
         // Die `Ingested`-Nachricht ist atomar verarbeitet (geackt) — genau ein Ok-Ausgang.
         assert!(
-            matches!(outcomes.as_slice(), [(_, Ok(()))]),
+            matches!(outcomes.as_slice(), [(_, Delivery::Processed)]),
             "die Ingested-Nachricht muss atomar verarbeitet werden: {outcomes:?}"
         );
 
@@ -552,7 +552,7 @@ mod tests {
 
         let outcomes = run_pipeline(&outbox, store.clone(), "gueltig.csv", u64::MAX)?;
         assert!(
-            matches!(outcomes.as_slice(), [(_, Ok(()))]),
+            matches!(outcomes.as_slice(), [(_, Delivery::Processed)]),
             "ein Seed jenseits von i64::MAX darf die Ablage nicht scheitern lassen: {outcomes:?}"
         );
 
@@ -639,7 +639,7 @@ mod tests {
         assert!(
             matches!(
                 outcomes.as_slice(),
-                [(_, Err(OutboxError::Warning { reason }))] if !reason.contains(ROH_IBAN)
+                [(_, Delivery::DeadLettered(OutboxError::Warning { reason }))] if !reason.contains(ROH_IBAN)
             ),
             "eine fehlende Quell-Zeile muss terminal + redigiert failen: {outcomes:?}"
         );

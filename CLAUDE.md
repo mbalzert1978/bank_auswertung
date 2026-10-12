@@ -39,7 +39,9 @@ Abschnitt **„Regeln & Konventionen"**. Regeln dort pflegen, nicht hier duplizi
 > korrigiert die Fehler-Taktik: die Pipeline ist **durchweg terminal** — **kein**
 > Dead-Letter, **kein** Retry im Slice (die frühere „`io` klassifiziert
 > Warning/Retry/Critical"-Erzählung war ein Missverständnis; wie `io` einen terminalen
-> Fehlschlag surfacet, ist vertagt). **Alle drei** I/O-Schritte jedes Slice — lesen, ablegen,
+> Fehlschlag surfacet, beantwortet seit
+> [Issue 0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)
+> der **Broker**: er sondert die Nachricht aus — Status-Spalte in der Outbox, der Slice merkt nichts). **Alle drei** I/O-Schritte jedes Slice — lesen, ablegen,
 > publizieren — sind **fehlbar**; der Slice gibt seinen **nackten, redigierten** terminalen
 > Domänen-Fehler zurück. Das **ID-Handoff ist uniform**: jeder Slice liest den Vorgänger per
 > ID, schreibt in seine **eigene** neue Tabelle (die Persistenz vergibt die ID) und
@@ -157,15 +159,16 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   fetched over the data-source port this run was wired with, so a redelivered trigger would read
   whatever file the *current* invocation points at. That is why `io::run` refuses to start when an
   open trigger names a *different* source (`RunError::PendingImport`) — without it, the leftover of
-  a failed run silently became a second import of the current file, at exit code 0. The handler
+  an aborted run silently became a second import of the current file, at exit code 0. (Since 0085 a
+  trigger that **failed** is dead-lettered, not left open — only a crashed run leaves one open.) The handler
   **fetches** the batch through the
   domain-required data-source port (`RawLineSource`, fallible + terminal), which the
   `SourceBridge` binds to the `SourceSeam` (`io`-fulfilled by the real `CsvCamtV8Source`).
   Fans out **one `Ingested` message per valid line**; read, store and publish are each **fallible +
   terminal**, and a terminal error (fetch/presence/decode, or a failing store/publish)
   surfaces as the slice's **naked, redacted terminal domain error** — the pipeline is
-  **durchweg terminal** (no dead-letter/retry in the slice; how `io` surfaces a terminal
-  failure is deferred, [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
+  **durchweg terminal** (no dead-letter/retry in the slice; `io`'s broker dead-letters the message,
+  [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md), issue 0085).
 - **`obfuskierung`** — second pipeline step and the **privacy boundary**: a consumer that
   reads the raw aggregate **by ID** from the `einlesen` store (`RawBookingSource`) and
   obfuscates it **seed-based** — a deterministic `KONTO_x`/`PERSON_x` token from
@@ -348,11 +351,16 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   ([0088](docs/issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md),
   [ADR-0016](docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)): row key, run-owned
   windows, `Umsatz vorgemerkt` skipped — see „Many runs, one `--db`" below.
-- **No dead-letter** — a terminally failing message stays **open** in the outbox and is
-  redelivered by every later run; nothing counts attempts. This is the question
-  [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) explicitly
-  deferred (*how* `io` surfaces a terminal failure)
-  ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)).
+- ~~**No dead-letter**~~ — **built**
+  ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)),
+  the answer to what [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
+  deferred: the outbox has a **`status` column** (`open`/`processed`/`dead_letter`, schema **v3**) and
+  counts attempts. The broker ([`sqlite/delivery.rs`](crates/io/src/sqlite/delivery.rs)) dead-letters
+  a **terminal** failure (`Warning`/`Critical`) at once and a **transient** one (`Retry`, a failed
+  commit) after `MAX_DELIVERY_ATTEMPTS` (3, a constant); the redacted reason stays on the row
+  (`SqliteOutbox::dead_letters`). The run drains the phase anyway, skips the analysis after an import
+  with dead letters, names them and ends with `RunError::DeadLettered` (exit 1); a later run is not
+  blocked and counts them as „früher ausgesondert". No slice changed.
 - Cosmetic: the `toml` dependency carries semver build metadata, so every workspace command
   prints a warning ([0086](docs/issues/0086-toml-abhaengigkeit-ohne-semver-metadaten.md)).
 
@@ -369,9 +377,9 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   realistic savings candidate; what the report should state). One **HITL** item is now open on 0006
   too: which booking texts his bank actually sets for fees.
 - **Towards a safe operation** — the schema owner + version stamp
-  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md), **built**) and the
-  dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
-  now that runs happen, a file on disk and a poisoned message both need an owner.
+  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)) and the
+  dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md))
+  are both **built**: a file on disk and a poisoned message each have an owner.
 
 Then the `Kategorisierer` chat export/import (0011) on top of the now real register (0009). The recurrence analyzer (0005) is built.
 
@@ -402,8 +410,8 @@ cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.tom
 `personen.example.toml`, gitignored). It is **mandatory even when empty** (`namen = []`): a forgotten
 list stops the run instead of silently scrubbing fewer names.
 
-Exit code `0` = the outbox ran empty, `1` = a message failed terminally (named, redacted), `2` = the
-command line was wrong. The invented fixtures under
+Exit code `0` = the outbox ran empty, `1` = this run dead-lettered a message (named, redacted — the
+message is out of delivery and does not block later runs), `2` = the command line was wrong. The invented fixtures under
 [`crates/io/fixtures/lauf/`](crates/io/fixtures/lauf/) plus
 [`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example.
 
@@ -503,8 +511,8 @@ each step runnable/valuable against fakes, real `io` last:
    oracle.
 7. **The run itself** — **done for the kick-off** (issue 0083): the `lauf` bin crate + `io::run`
    enqueue the triggers and turn the broker loop against the real adapters; the pipeline now runs
-   outside tests. The one schema owner + version stamp is **built** (0084). **Open in this
-   step:** the dead-letter that keeps a poisoned message from being redelivered forever (0085).
+   outside tests. The one schema owner + version stamp is **built** (0084), and so is the
+   dead-letter that keeps a poisoned message from being redelivered forever (0085).
 8. **`report`** HTML output.
 9. **Iteration** — review together, learn corrections, name savings.
 

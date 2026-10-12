@@ -26,13 +26,33 @@
 //!   spätere Lauf stellte sie erneut zu. Der [`AckSink`] räumt sie darum ab — er ist kein Slice und
 //!   tut nichts als quittieren.
 //!
+//! ## Eine vergiftete Nachricht hält keinen Lauf auf
+//!
+//! Scheitert eine Nachricht, nimmt der Broker sie aus der Zustellung — terminal sofort, transient nach
+//! [`MAX_DELIVERY_ATTEMPTS`](crate::sqlite::MAX_DELIVERY_ATTEMPTS) Versuchen
+//! ([Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)).
+//! Der Lauf zieht daraus drei Folgen:
+//!
+//! - **Die Phase läuft zu Ende.** Die gesunden Nachrichten hinter der vergifteten werden weiter
+//!   zugestellt; die Kette bleibt nicht stehen.
+//! - **Nach einem Import mit ausgesonderten Nachrichten startet keine Analyse** — sie rechnete auf
+//!   einem Bestand, dem etwas fehlt.
+//! - **Der Lauf endet mit [`RunError::DeadLettered`]** und nennt jede in ihm ausgesonderte Nachricht
+//!   (redigiert); die Bin-Crate macht daraus Exit 1. Nichts wird still verschluckt.
+//!
+//! Ein **späterer** Lauf ist davon nicht betroffen: eine ausgesonderte Nachricht ist nicht mehr offen,
+//! also wird sie weder erneut zugestellt noch hält sie als [`RunError::PendingImport`] einen neuen
+//! Import auf. Die Schlussbilanz zählt sie als „früher ausgesondert" weiter mit, damit sie nicht in
+//! Vergessenheit gerät.
+//!
 //! ## Das Lauf-Protokoll ist redigiert
 //!
 //! Geschrieben wird je verarbeiteter Nachricht ihr **`message_type`** — ein statischer Dispatch-Key
-//! —, am Ende die Zahl je Typ, und bei einem terminalen Fehlschlag dessen **`Display`** (der nackte,
-//! bereits redigierte Domänen-Fehler des Slice). **Nie** ein Rohwert, **nie** Freitext, **nie** eine
-//! IBAN, **nie** der Seed. Der `partition_key` bleibt bewusst draußen: er ist zwar nur ein opaker
-//! io-Zeiger, aber die Ausgabe braucht ihn nicht, und was nicht gedruckt wird, kann nicht lecken.
+//! —, am Ende die Zahl je Typ, und bei einem Fehlschlag dessen **`Display`** (der nackte, bereits
+//! redigierte Domänen-Fehler des Slice bzw. die Transaktions-Diagnose des Commits). **Nie** ein
+//! Rohwert, **nie** Freitext, **nie** eine IBAN, **nie** der Seed. Der `partition_key` bleibt bewusst
+//! draußen: er ist zwar nur ein opaker io-Zeiger, aber die Ausgabe braucht ihn nicht, und was nicht
+//! gedruckt wird, kann nicht lecken.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -63,9 +83,9 @@ use crate::obfuskierung::{
     CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, KnownPersonNames,
     ObfuskierungSqliteStore, SeededObfuscator, consumer as obfuskierung_consumer,
 };
-use crate::outbox::OutboxHandler;
+use crate::outbox::{OutboxHandler, OutboxMessage};
 use crate::schema::{self, SchemaError, VersionMismatch};
-use crate::sqlite::SqliteOutbox;
+use crate::sqlite::{DeadLetter, Delivery, SqliteOutbox};
 
 mod ack_sink;
 mod history_sink;
@@ -119,6 +139,9 @@ pub struct RunPaths {
 pub struct RunReport {
     processed: BTreeMap<String, usize>,
     occurrences: usize,
+    /// Die in **diesem** Lauf ausgesonderten Nachrichten. Ist die Liste nicht leer, endet der Lauf mit
+    /// [`RunError::DeadLettered`] — ein gelungener [`RunReport`] trägt sie darum stets leer.
+    dead_lettered: Vec<DeadLetter>,
 }
 
 impl RunReport {
@@ -163,12 +186,11 @@ pub enum RunError {
     /// Zwei Consumer auf demselben Dispatch-Key — ein Verdrahtungsfehler, der nicht still verschluckt
     /// wird. Der Key ist statisch.
     DuplicateConsumer { message_type: String },
-    /// Eine Nachricht ist **terminal** gescheitert. `reason` ist die redigierte `Display` des
-    /// Slice-Fehlers, wie `io` sie surfacet (ADR-0012).
-    Message {
-        message_type: String,
-        reason: String,
-    },
+    /// In diesem Lauf wurden Nachrichten **aus der Zustellung genommen** — terminal gescheitert oder
+    /// nach [`MAX_DELIVERY_ATTEMPTS`](crate::sqlite::MAX_DELIVERY_ATTEMPTS) transienten Versuchen
+    /// (Issue 0085). Jede trägt ihren Dispatch-Key und den redigierten Grund, wie `io` ihn surfacet (ADR-0012). Die Nachrichten sind **nicht mehr
+    /// offen**: ein späterer Lauf stellt sie nicht erneut zu und wird von ihnen nicht aufgehalten.
+    DeadLettered(Vec<DeadLetter>),
     /// In der Outbox liegt noch ein **unerledigter Import-Auslöser einer anderen Quelle**. Ihn
     /// zuzustellen hieße, die *jetzt* übergebene Datei ein zweites Mal einzulesen — der Auslöser
     /// benennt seine Quelle zwar, aber beschafft wird sie über den Datenquellen-Port dieses Laufs
@@ -191,10 +213,12 @@ impl std::fmt::Display for RunError {
             Self::DuplicateConsumer { message_type } => {
                 write!(f, "doppelte Registrierung für {message_type}")
             }
-            Self::Message {
-                message_type,
-                reason,
-            } => write!(f, "{message_type} — {reason}"),
+            Self::DeadLettered(dead_letters) => {
+                write!(f, "{} Nachricht(en) ausgesondert", dead_letters.len())?;
+                dead_letters
+                    .iter()
+                    .try_for_each(|dead_letter| write!(f, "; {dead_letter}"))
+            }
             Self::PendingImport { pending, requested } => write!(
                 f,
                 "unerledigter Import-Auslöser für {pending} — ein Lauf mit {requested} würde diese \
@@ -227,10 +251,10 @@ impl From<SchemaError> for RunError {
 /// Fährt **einen vollständigen Pipeline-Lauf** gegen die realen `io`-Adapter und schreibt dabei das
 /// redigierte Lauf-Protokoll nach `protocol`.
 ///
-/// Gelingt der Lauf, ist die Outbox leer und der [`RunReport`] sagt, was verarbeitet wurde. Scheitert
-/// **eine** Nachricht terminal, bricht der Lauf mit ihrem redigierten Fehler ab — die Nachricht bleibt
-/// offen, der nächste Lauf nimmt sie wieder auf (at-least-once, resumierbar; die Versuchszählung ist
-/// [Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)).
+/// Gelingt der Lauf, ist die Outbox leer und der [`RunReport`] sagt, was verarbeitet wurde. Wird in
+/// ihm eine Nachricht ausgesondert, läuft die Phase trotzdem zu Ende, eine Analyse nach einem solchen
+/// Import entfällt, und der Lauf endet mit [`RunError::DeadLettered`] (siehe Modul-Doku). Die
+/// ausgesonderte Nachricht ist danach nicht mehr offen — ein späterer Lauf geht an ihr vorbei.
 pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunError> {
     let window_days = FensterConfig::load(&paths.window_config)?.window_days();
     let seed = SeedConfig::load(&paths.seed_config)?.seed();
@@ -259,6 +283,14 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     write_line(protocol, "Lauf: Import")?;
     enqueue_import(&outbox, &SourceKey::of(&paths.transactions))?;
     drain(&outbox, &dispatcher, protocol, &mut report)?;
+    if !report.dead_lettered.is_empty() {
+        // Eine Analyse über einen Bestand, dem ausgesonderte Buchungen fehlen, rechnete still falsch.
+        write_line(
+            protocol,
+            "Lauf: Analyse entfällt — der Import hat Nachrichten ausgesondert",
+        )?;
+        return finish(&outbox, protocol, report);
+    }
 
     // Phase 2 — Analyse. **Erst jetzt**: der Anstoß liest den Initial-Anker aus dem obfuskierten
     // Bestand, den Phase 1 gerade erst aufgebaut hat (siehe Modul-Doku).
@@ -276,8 +308,23 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     drain(&outbox, &dispatcher, protocol, &mut report)?;
 
     report.occurrences = occurrences.count().saturating_sub(occurrences_before);
-    write_summary(protocol, &report)?;
-    Ok(report)
+    finish(&outbox, protocol, report)
+}
+
+/// Schließt den Lauf ab: schreibt die Schlussbilanz und entscheidet den Ausgang — gelungen nur ohne
+/// eine in diesem Lauf ausgesonderte Nachricht.
+fn finish(
+    outbox: &SqliteOutbox,
+    protocol: &mut dyn Write,
+    report: RunReport,
+) -> Result<RunReport, RunError> {
+    let in_file = outbox.dead_letters().map_err(backbone)?.len();
+    write_summary(protocol, &report, in_file)?;
+    if report.dead_lettered.is_empty() {
+        Ok(report)
+    } else {
+        Err(RunError::DeadLettered(report.dead_lettered))
+    }
 }
 
 /// Die realen Seams, die die Consumer nur **borrowen**, nicht besitzen — eigens gehalten, weil der
@@ -552,9 +599,9 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
 /// sich selbst fortsetzt (`fenstern` reiht je Seite die nächste Seite ein) und weil eine in dieser
 /// Runde publizierte Nachricht erst die nächste Runde abholt (Schnappschuss-Semantik).
 ///
-/// **Bricht beim ersten terminalen Fehlschlag ab**, statt ihn zu wiederholen: die gescheiterte
-/// Nachricht bleibt offen, und eine halb fortgesetzte Kette weiterzudrehen hieße, auf einem
-/// unvollständigen Bestand zu rechnen.
+/// **Ein Fehlschlag hält die Schleife nicht an**: der Broker hat die gescheiterte Nachricht schon
+/// verbucht — ausgesondert oder zur erneuten Zustellung offen gelassen —, und die übrigen Nachrichten
+/// laufen weiter. Was ausgesondert wurde, sammelt der [`RunReport`] für den Abschluss.
 fn drain(
     outbox: &SqliteOutbox,
     dispatcher: &Dispatcher<'_>,
@@ -566,16 +613,40 @@ fn drain(
         if batch.is_empty() {
             return Ok(());
         }
-        for (message, outcome) in batch {
-            write_line(protocol, &format!("  {}", message.message_type))?;
-            outcome.map_err(|error| RunError::Message {
-                message_type: message.message_type.clone(),
-                reason: error.to_string(),
-            })?;
-            report.count(&message.message_type);
-        }
+        batch
+            .into_iter()
+            .try_for_each(|(message, delivery)| record(protocol, report, &message, delivery))?;
     }
     Err(RunError::NotConverging)
+}
+
+/// Protokolliert **einen** Zustell-Ausgang und zählt ihn in den Bericht — redigiert: der Dispatch-Key
+/// und, bei einem Fehlschlag, die `Display` des [`OutboxError`](crate::outbox::OutboxError).
+fn record(
+    protocol: &mut dyn Write,
+    report: &mut RunReport,
+    message: &OutboxMessage,
+    delivery: Delivery,
+) -> Result<(), RunError> {
+    let message_type = &message.message_type;
+    match delivery {
+        Delivery::Processed => {
+            write_line(protocol, &format!("  {message_type}"))?;
+            report.count(message_type);
+        }
+        Delivery::Redelivery(error) => write_line(
+            protocol,
+            &format!("  {message_type} — wird erneut zugestellt: {error}"),
+        )?,
+        Delivery::DeadLettered(error) => {
+            write_line(
+                protocol,
+                &format!("  {message_type} — ausgesondert: {error}"),
+            )?;
+            report.dead_lettered.push(DeadLetter::of(message, &error));
+        }
+    }
+    Ok(())
 }
 
 /// Registriert einen Consumer und macht eine **Doppel-Registrierung** zum Fehler, statt den
@@ -704,8 +775,14 @@ fn write_line(protocol: &mut dyn Write, line: &str) -> Result<(), RunError> {
     writeln!(protocol, "{line}").map_err(|error| RunError::Protocol(error.to_string()))
 }
 
-/// Die Schlussbilanz: die Zahl je Typ und die Gesamtzahl — beides reine Zählwerte.
-fn write_summary(protocol: &mut dyn Write, report: &RunReport) -> Result<(), RunError> {
+/// Die Schlussbilanz: die Zahl je Typ und die Gesamtzahl — beides reine Zählwerte —, dazu die in
+/// diesem Lauf ausgesonderten Nachrichten (redigiert) und wie viele die Datei schon von **früheren**
+/// Läufen trägt (`in_file` zählt alle).
+fn write_summary(
+    protocol: &mut dyn Write,
+    report: &RunReport,
+    in_file: usize,
+) -> Result<(), RunError> {
     write_line(protocol, "Lauf: verarbeitet")?;
     for (message_type, count) in report.processed() {
         write_line(protocol, &format!("  {message_type}: {count}"))?;
@@ -717,7 +794,16 @@ fn write_summary(protocol: &mut dyn Write, report: &RunReport) -> Result<(), Run
             report.total(),
             report.occurrences()
         ),
-    )
+    )?;
+    let earlier = in_file.saturating_sub(report.dead_lettered.len());
+    if in_file == 0 {
+        return Ok(());
+    }
+    write_line(protocol, "Lauf: ausgesondert")?;
+    for dead_letter in &report.dead_lettered {
+        write_line(protocol, &format!("  {dead_letter}"))?;
+    }
+    write_line(protocol, &format!("  früher ausgesondert: {earlier}"))
 }
 
 /// Die durchgereichte io-Diagnose eines Rückgrat-Fehlers (Zugriffs-Mechanik, nie Zeileninhalt).

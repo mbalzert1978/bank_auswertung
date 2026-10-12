@@ -13,8 +13,9 @@
 //!   `TransactionalHandler`, der **eine** `UnitOfWork` öffnet, den Slice-Handler **aus ihr** baut
 //!   (Store und Publish sind dieselbe committende Unit — eine gestagete Schreibung committet mit
 //!   der Nachricht oder gar nicht) und committet. Jeder Handler-Fehler ist **terminal** und
-//!   wird über sein **`Display`** gemeldet (nie `Debug`); einen Dead-Letter gibt es noch nicht —
-//!   die Nachricht bleibt offen (Issue 0085). Den `OutboxError` der
+//!   wird über sein **`Display`** gemeldet (nie `Debug`); der Broker sondert die Nachricht dann
+//!   sofort aus, einen gescheiterten Commit erst nach der Höchstzahl an Versuchen
+//!   ([`sqlite::Delivery`], Issue 0085). Den `OutboxError` der
 //!   Nachrichtenverarbeitung baut der Consumer (Retry entsteht ausschließlich io-intern beim
 //!   Commit); die Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`].
 //! - [`PublishingPort`] macht den **letzten Outbox-Hop**: es bindet

@@ -3,6 +3,12 @@
 > **Verfeinert durch [ADR-0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md):** neben der von
 > der Persistenz vergebenen ID trägt jede eingelesene Zeile einen fachlichen **Zeilen-Schlüssel**; eine
 > schon bekannte Zeile wird weder erneut abgelegt noch publiziert. Das ID-Handoff selbst bleibt.
+>
+> **Die vertagte Frage ist beantwortet** durch
+> [Issue 0085](../issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)
+> (Abschnitt „Wie es gebaut wurde"): `io` surfacet einen terminalen Fehlschlag, indem der **Broker**
+> die Nachricht aussondert — Status-Spalte `dead_letter` in der Outbox samt redigiertem Grund; ein
+> gescheiterter Commit wird bis zu einer Höchstzahl wiederholt. Der Slice-Vertrag bleibt unverändert.
 
 Dieses ADR **verfeinert/supersedet in Teilen** [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
 (§ „Der Handler arbeitet auf Domänen-Typen", Envelope-Konvention) und

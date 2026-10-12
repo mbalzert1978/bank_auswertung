@@ -191,7 +191,11 @@ fn gefragte_arten(paths: &RunPaths) -> Result<Vec<String>, Box<dyn std::error::E
         outbox.enqueue(AUSWERTEN_CONSUMED, id)?;
     }
     let ergebnisse: Vec<(OutboxMessage, _)> = outbox.deliver_open(&dispatcher)?;
-    if ergebnisse.len() != fenster.len() || ergebnisse.iter().any(|(_, ok)| ok.is_err()) {
+    if ergebnisse.len() != fenster.len()
+        || ergebnisse
+            .iter()
+            .any(|(_, ausgang)| !matches!(ausgang, Delivery::Processed))
+    {
         return Err("die erneute Auswertung der Fenster ist gescheitert".into());
     }
     let mut gefragt = orakel.gefragt.take();

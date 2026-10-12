@@ -17,7 +17,7 @@ use std::process::ExitCode;
 
 use io::run::{RunPaths, run};
 
-/// Exit-Code eines terminal gescheiterten Laufs.
+/// Exit-Code eines gescheiterten Laufs — auch eines, der eine Nachricht aussondern musste.
 const FEHLGESCHLAGEN: u8 = 1;
 /// Exit-Code einer unbrauchbaren Kommandozeile — bewusst ein **anderer** als der des gescheiterten
 /// Laufs: „falsch aufgerufen" ist kein Befund über die Daten.
@@ -58,6 +58,10 @@ Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <dat
                     Namen wirken nicht rückwirkend. Vorlage: personen.example.toml
 
 Alle sechs sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
+
+Scheitert eine Nachricht, wird sie ausgesondert: der Lauf nennt sie am Ende und endet mit
+Exit 1, die übrigen laufen weiter. Ein späterer Lauf wird von ihr nicht aufgehalten; seine
+Schlussbilanz zählt sie als „früher ausgesondert“.
 
 Der Verwendungszweck wird vor der Weitergabe gescrubbt: IBANs, BICs und bekannte Namen
 (die vollständigen Namen aller Empfänger ohne Gläubiger-ID plus --personen) werden ersetzt. Das ist heuristisch und

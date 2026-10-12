@@ -75,16 +75,12 @@ pub enum TransactionError<E> {
     /// Der **Commit** ist gescheitert → io-interner Retry (nie aus einem Handler-Fehler). Trägt
     /// den bereits stringifizierten Grund (der Commit-Fehlertyp lebt nicht über diese Grenze).
     ///
-    /// **Heute bedeutet Retry unbegrenzte erneute Zustellung:** der Broker
-    /// ([`SqliteOutbox`](crate::sqlite::SqliteOutbox)) stellt eine offene Nachricht beim nächsten Lauf
-    /// erneut zu; eine **attempt-basierte Eskalation Retry → Dead-Letter** ist **noch nicht gebaut**
-    /// (Build-Order Schritt 5, außerhalb des Fundament-Scopes von Issue 0052; wie `io` einen
-    /// terminalen Fehlschlag surfacet, ist per
-    /// [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
-    /// vertagt). **Sobald** sie gebaut ist, wird dieser Grund nach erschöpften Versuchen als
-    /// Dead-Letter-Grund persistiert.
+    /// **Retry ist begrenzt** ([Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
+    /// der Broker ([`SqliteOutbox`](crate::sqlite::SqliteOutbox)) stellt die offene Nachricht erneut zu,
+    /// bis [`MAX_DELIVERY_ATTEMPTS`](crate::sqlite::MAX_DELIVERY_ATTEMPTS) Versuche verbraucht sind, und
+    /// sondert sie dann mit diesem Grund aus.
     ///
-    /// **Redaktions-Pflicht (wenn der echte `io`-Commit fällt):** wie die io-Diagnose des Quell-Seams
+    /// **Redaktions-Pflicht:** wie die io-Diagnose des Quell-Seams
     /// beschreibt er **Transaktions-Mechanik** (Broker/DB), **nie** einen Roh-Zeilenwert — die reale
     /// `UnitOfWork::Error`-`Display` muss das einhalten (siehe
     /// [`SqliteCommitError`](crate::sqlite::SqliteCommitError)). Der `obfuskierung`-Integrationstest
@@ -112,10 +108,10 @@ pub enum TransactionError<E> {
 /// **`Display`** des Fehlers (nie `Debug`), dessen redigierten Meldungssatz allein der Slice
 /// besitzt; ein Commit-Fehler → `Retry`, der **einzige** io-interne Retry-Ursprung. (Die
 /// Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`](crate::Dispatcher), wenn kein
-/// Consumer zum `message_type` passt.) Die attempt-basierte Eskalation Retry → Dead-Letter nach
-/// erschöpften Versuchen gehört dem Broker (`OutboxMessage::attempt`, Build-Order Schritt 5) und ist
-/// **noch nicht gebaut** — heute wird eine per Retry offen gebliebene Nachricht **unbegrenzt** erneut
-/// zugestellt (s. [`TransactionError::Commit`]).
+/// Consumer zum `message_type` passt.) Was danach mit der Nachricht geschieht — sofort aussondern
+/// oder bis zur Höchstzahl erneut zustellen —, entscheidet der Broker
+/// ([`SqliteOutbox::deliver_open`](crate::sqlite::SqliteOutbox::deliver_open), Issue 0085), nicht
+/// dieser Consumer und erst recht nicht der Slice.
 pub struct OutboxConsumer<T> {
     transaction: T,
 }

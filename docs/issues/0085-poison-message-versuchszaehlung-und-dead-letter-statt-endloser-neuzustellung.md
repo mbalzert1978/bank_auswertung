@@ -33,12 +33,53 @@ weder Retry noch Dead-Letter.
 
 ## Acceptance criteria
 
-- [ ] Ein terminal scheiternder Handler nimmt seine Nachricht beim ersten Fehlschlag aus der Zustellung; ein Folgelauf stellt sie nicht erneut zu.
-- [ ] Ein transient scheiternder Commit wird bis zur konfigurierten Höchstzahl erneut zugestellt und danach aus der Zustellung genommen.
-- [ ] Die aus der Zustellung genommenen Nachrichten sind mit ihrem Grund abfragbar; ein Test nagelt fest, dass der Grund keinen Rohwert und keinen Freitext trägt.
-- [ ] Eine gesunde Nachricht hinter einer vergifteten wird weiterhin zugestellt — die Kette bleibt nicht stehen.
-- [ ] Der öffentliche Vertrag Richtung Slice bleibt unverändert (kein Slice lernt Retry oder Dead-Letter kennen).
-- [ ] Die sechs Gates sind grün (`/cargo-six-gates`).
+- [x] Ein terminal scheiternder Handler nimmt seine Nachricht beim ersten Fehlschlag aus der Zustellung; ein Folgelauf stellt sie nicht erneut zu.
+- [x] Ein transient scheiternder Commit wird bis zur konfigurierten Höchstzahl erneut zugestellt und danach aus der Zustellung genommen.
+- [x] Die aus der Zustellung genommenen Nachrichten sind mit ihrem Grund abfragbar; ein Test nagelt fest, dass der Grund keinen Rohwert und keinen Freitext trägt.
+- [x] Eine gesunde Nachricht hinter einer vergifteten wird weiterhin zugestellt — die Kette bleibt nicht stehen.
+- [x] Der öffentliche Vertrag Richtung Slice bleibt unverändert (kein Slice lernt Retry oder Dead-Letter kennen).
+- [x] Die sechs Gates sind grün (`/cargo-six-gates`).
+
+## Wie es gebaut wurde
+
+**Die Antwort auf ADR-0012s vertagte Frage:** `io` surfacet einen terminalen Fehlschlag, indem der
+**Broker** die Nachricht **aussondert** — sie bleibt als Outbox-Zeile liegen, wird aber nie wieder
+zugestellt, und ihr redigierter Grund ist abfragbar. Der Slice-Vertrag (`application_kernel`, jeder
+`_domain`/`_adapter`) ist unverändert; kein Slice kennt Retry oder Dead-Letter.
+
+- **Form: Status-Spalte in der Outbox** (Plan, Schritt 4c), keine eigene Tabelle. `status` ∈
+  `open`/`processed`/`dead_letter`, dazu `dead_letter_reason`. Zwei Tabellen-`CHECK`s machen die
+  illegalen Kombinationen unkonstruierbar (`processed` ⇔ Ack-Stempel, `dead_letter` ⇔ Grund).
+  `attempt` zählt jetzt jeden Versuch, auch den gelungenen.
+- **Entscheidung im Broker** (`crates/io/src/sqlite/delivery.rs`, `SqliteOutbox::deliver_open`):
+  nach jedem Versuch verbucht er den Ausgang (`Delivery::Processed`/`Redelivery`/`DeadLettered`).
+  `Warning` (Slice) und `Critical` (Hülle) → sofort ausgesondert; `Retry` (Commit) → offen, bis
+  `MAX_DELIVERY_ATTEMPTS` Versuche verbraucht sind.
+- **Höchstzahl = Konstante `MAX_DELIVERY_ATTEMPTS = 3`**, keine Config-Datei (YAGNI): kein
+  Fachparameter, sondern Broker-Mechanik. Ein Commit scheitert an der Datenbank selbst; hält das drei
+  Versuche an, ist es nicht mehr vorübergehend.
+- **Abfrage:** `SqliteOutbox::dead_letters()` → `DeadLetter` (Dispatch-Key, Versuche, Grund). Der Grund
+  ist die `Display` des `OutboxError` — nie `partition_key` oder `content`.
+- **Lauf:** eine Phase läuft trotz Aussonderung zu Ende (die gesunden Nachrichten fließen weiter);
+  nach einem Import mit Aussonderungen entfällt die Analyse; am Ende nennt die Schlussbilanz die
+  Aussonderungen dieses Laufs und zählt frühere mit („früher ausgesondert: n"). Ein Lauf mit
+  Aussonderung endet mit `RunError::DeadLettered` → **Exit 1**. Ein **späterer** Lauf wird nicht
+  aufgehalten: die ausgesonderte Nachricht ist nicht offen, also auch kein `RunError::PendingImport` —
+  das greift nur noch bei einem wirklich offenen Auslöser (abgestürzter Lauf).
+- **Schema v3** (`crates/io/src/schema.rs`): Arm 2 → 3 baut die Outbox um und übernimmt den Bestand
+  (`processed_on_utc` gesetzt → `processed`, sonst `open`; `rowid` bleibt). Eine v1-Datei durchläuft
+  1 → 2 → 3, gestempelt wird am Ende.
+
+**Belegende Tests** (crate-intern in `io`, echtes SQLite):
+
+| AK | Test |
+|---|---|
+| terminal → sofort raus, kein Folge-Zustellen | `sqlite::delivery::tests::ein_terminal_scheiternder_handler_wird_beim_ersten_fehlschlag_ausgesondert_und_nie_wieder_zugestellt`, `…eine_hoffnungslose_huelle_wird_als_critical_sofort_ausgesondert` |
+| transient bis Höchstzahl, dann raus | `…ein_transient_scheiternder_commit_wird_bis_zur_hoechstzahl_zugestellt_und_dann_ausgesondert` (+ `…ein_commit_der_beim_zweiten_versuch_gelingt_…`) |
+| abfragbar, Grund ohne Rohwert/Freitext | `…ausgesonderte_nachrichten_sind_mit_grund_abfragbar_und_der_grund_traegt_keinen_rohwert_und_keinen_freitext`, `run::tests::der_aussonderungs_grund_eines_echten_laufs_traegt_keinen_rohwert_und_keinen_freitext` |
+| gesunde Nachricht hinter vergifteter | `…eine_gesunde_nachricht_hinter_einer_vergifteten_wird_weiter_zugestellt`, `run::tests::ein_ausgesonderter_ausloeser_haelt_den_naechsten_lauf_nicht_auf` |
+| Slice-Vertrag unverändert | Diff berührt nur `crates/io`, `crates/lauf` und Doku — kein `_domain`/`_adapter`/`_specs`, kein `application_kernel` |
+| Migration | `schema::tests::eine_version_2_datei_mit_bestand_bekommt_die_status_spalte_und_behaelt_jede_nachricht` |
 
 ## Blocked by
 

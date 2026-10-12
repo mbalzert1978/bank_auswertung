@@ -958,7 +958,7 @@ mod tests {
         let outcomes = drain(&outbox, &dispatcher)?;
 
         assert!(
-            outcomes.iter().all(|(_, outcome)| outcome.is_ok()),
+            outcomes.iter().all(|(_, outcome)| outcome.is_processed()),
             "die volle Pipeline muss ohne Fehler durchlaufen: {outcomes:?}"
         );
 
