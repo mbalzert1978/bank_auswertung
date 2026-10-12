@@ -67,10 +67,8 @@
 
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
-use auswerten_adapter::{OwnAccountsConfig, SavingsThresholdConfig};
 use obfuskierung_adapter::ObfuscatedMessage;
 
 use crate::Dispatcher;
@@ -96,15 +94,17 @@ use crate::obfuskierung::{
     CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, KnownPersonNames,
     ObfuskierungSqliteStore, SeededObfuscator, consumer as obfuskierung_consumer,
 };
-use crate::outbox::{OutboxHandler, OutboxMessage};
+use crate::outbox::OutboxMessage;
 use crate::schema::{self, SchemaError, VersionMismatch};
 use crate::sqlite::{DeadLetter, Delivery, SqliteOutbox};
 
 mod ack_sink;
+mod dispatcher;
 mod history_sink;
 mod kategorien;
 
 pub use ack_sink::AckSink;
+use dispatcher::DispatcherBuilder;
 pub use history_sink::RecordingHistorySink;
 pub use kategorien::{ImportPaths, import_categories};
 
@@ -384,15 +384,6 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     report.occurrences = evaluation.occurrences.len();
     report.savings_candidates = evaluation.savings_candidates.len();
     let report = finish(&outbox, protocol, report, dead_lettered)?;
-    // Erst nach einem **gelungenen** Lauf (ADR-0016 C): kein Export eines halben Laufs.
-    if let Some(target) = &paths.category_export {
-        kategorien::export(
-            target,
-            &adapters.registry,
-            &adapters.categorizer.take(),
-            protocol,
-        )?;
-    }
     // Der Bericht des gelungenen Laufs — gescopt über **seine** Lauf-Identität (ADR-0016, ADR-0018).
     let facts = crate::report::RunFacts {
         run_id: report.run_id(),
@@ -403,6 +394,16 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     crate::report::write(&outbox, &paths.report, facts)
         .map_err(|crate::report::ReportError(diagnosis)| RunError::Report(diagnosis))?;
     write_line(protocol, "Lauf: Bericht geschrieben")?;
+    // Erst nach einem **gelungenen** Lauf (ADR-0016 C): kein Export eines halben Laufs —
+    // und erst nach dem Bericht: scheitert er, entsteht auch kein Export.
+    if let Some(target) = &paths.category_export {
+        kategorien::export(
+            target,
+            &adapters.registry,
+            &adapters.categorizer.take(),
+            protocol,
+        )?;
+    }
     Ok(report)
 }
 
@@ -486,251 +487,6 @@ impl Stores {
     }
 }
 
-/// Baut den [`Dispatcher`] mit allen sieben Consumern — die eine Stelle, an der die Seams
-/// ([`Adapters`]), die Ergebnis-Stores ([`Stores`]) und die geladenen Config-Werte zu den realen
-/// Consumern der Kette zusammenlaufen. [`run`] selbst bleibt dadurch die Zusammenfassung: Configs
-/// laden, Rückgrat öffnen, Dispatcher bauen, beide Phasen fahren, Bilanz schreiben.
-///
-/// Die drei strukturellen Bündel — Rückgrat, Seams, Stores — verlangt `new`: ohne sie lässt sich kein
-/// einziger Consumer verdrahten, und `adapters` bindet ohnehin die Lebenszeit `'a`, die der fertige
-/// [`Dispatcher`] trägt. Die geladenen Config-Werte und die Senke kommen je über eine verkettete, `self`
-/// konsumierende Methode dazu — dieselbe Reihenfolge, in der [`run`] sie lädt.
-///
-/// Der Typparameter `C` ist der **Typestate**: er trägt die bereits gesetzten Config-Werte und wächst
-/// mit jedem Schritt ([`Empty`] → [`WithWindowDays`] → [`WithSeed`] → [`WithOwnAccounts`] →
-/// [`WithSavingsThreshold`] → [`Complete`]). Jede Methode existiert nur auf ihrem Zustand, und `build` nur auf [`Complete`] —
-/// einen unvollständigen Builder abzuschließen ist damit ein **Compile-Fehler** statt einer
-/// Laufzeitprüfung (ADR-0005: illegale Zustände unkonstruierbar, nicht „geprüft"). Deshalb trägt
-/// keines der Config-Felder ein `Option`.
-struct DispatcherBuilder<'a, C> {
-    outbox: &'a SqliteOutbox,
-    adapters: &'a Adapters,
-    stores: Stores,
-    config: C,
-}
-
-/// Typestate: noch kein Config-Wert gesetzt.
-struct Empty;
-
-/// Typestate: die Fenstergröße steht.
-struct WithWindowDays {
-    window_days: NonZeroU32,
-}
-
-/// Typestate: Fenstergröße und Seed stehen.
-struct WithSeed {
-    window_days: NonZeroU32,
-    seed: u64,
-}
-
-/// Typestate: dazu die tokenisierte Eigene-Konten-Config.
-struct WithOwnAccounts {
-    window_days: NonZeroU32,
-    seed: u64,
-    own_accounts: OwnAccountsConfig,
-}
-
-/// Typestate: dazu die Spar-Schwelle.
-struct WithSavingsThreshold {
-    window_days: NonZeroU32,
-    seed: u64,
-    own_accounts: OwnAccountsConfig,
-    savings_threshold: SavingsThresholdConfig,
-}
-
-/// Typestate: alle Werte stehen — allein auf diesem Zustand gibt es `build`.
-struct Complete<'a> {
-    window_days: NonZeroU32,
-    seed: u64,
-    own_accounts: OwnAccountsConfig,
-    savings_threshold: SavingsThresholdConfig,
-    history: &'a RecordingHistorySink,
-}
-
-impl<'a, C> DispatcherBuilder<'a, C> {
-    /// Trägt die drei strukturellen Bündel in den nächsten Zustand, während `next` den bisherigen
-    /// Config-Stand um den neuen Wert erweitert — die eine Stelle, die den Zustandsübergang vollzieht,
-    /// damit die Setter je eine Zeile bleiben.
-    fn advance<N>(self, next: impl FnOnce(C) -> N) -> DispatcherBuilder<'a, N> {
-        DispatcherBuilder {
-            outbox: self.outbox,
-            adapters: self.adapters,
-            stores: self.stores,
-            config: next(self.config),
-        }
-    }
-}
-
-impl<'a> DispatcherBuilder<'a, Empty> {
-    /// Öffnet den Builder mit den drei strukturellen Bündeln — Rückgrat, Seams, Stores —, ohne die kein
-    /// Consumer entsteht.
-    fn new(outbox: &'a SqliteOutbox, adapters: &'a Adapters, stores: Stores) -> Self {
-        Self {
-            outbox,
-            adapters,
-            stores,
-            config: Empty,
-        }
-    }
-
-    /// Die Fenstergröße für `fenstern`.
-    fn window_days(self, window_days: NonZeroU32) -> DispatcherBuilder<'a, WithWindowDays> {
-        self.advance(|Empty| WithWindowDays { window_days })
-    }
-}
-
-impl<'a> DispatcherBuilder<'a, WithWindowDays> {
-    /// Der Seed, mit dem `obfuskieren` seine Tokens ableitet.
-    fn seed(self, seed: u64) -> DispatcherBuilder<'a, WithSeed> {
-        self.advance(|WithWindowDays { window_days }| WithSeed { window_days, seed })
-    }
-}
-
-impl<'a> DispatcherBuilder<'a, WithSeed> {
-    /// Die tokenisierte Eigene-Konten-Config für `auswerten`.
-    fn own_accounts(
-        self,
-        own_accounts: OwnAccountsConfig,
-    ) -> DispatcherBuilder<'a, WithOwnAccounts> {
-        self.advance(|WithSeed { window_days, seed }| WithOwnAccounts {
-            window_days,
-            seed,
-            own_accounts,
-        })
-    }
-}
-
-impl<'a> DispatcherBuilder<'a, WithOwnAccounts> {
-    /// Die Spar-Schwelle für die fenster-übergreifende Reichweite von `auswerten`.
-    fn savings_threshold(
-        self,
-        savings_threshold: SavingsThresholdConfig,
-    ) -> DispatcherBuilder<'a, WithSavingsThreshold> {
-        self.advance(
-            |WithOwnAccounts {
-                 window_days,
-                 seed,
-                 own_accounts,
-             }| WithSavingsThreshold {
-                window_days,
-                seed,
-                own_accounts,
-                savings_threshold,
-            },
-        )
-    }
-}
-
-impl<'a> DispatcherBuilder<'a, WithSavingsThreshold> {
-    /// Der Abnehmer, der das Ergebnis der fenster-übergreifenden Reichweite für den Bericht festhält.
-    fn history_sink(
-        self,
-        history: &'a RecordingHistorySink,
-    ) -> DispatcherBuilder<'a, Complete<'a>> {
-        self.advance(
-            |WithSavingsThreshold {
-                 window_days,
-                 seed,
-                 own_accounts,
-                 savings_threshold,
-             }| Complete {
-                window_days,
-                seed,
-                own_accounts,
-                savings_threshold,
-                history,
-            },
-        )
-    }
-}
-
-impl<'a> DispatcherBuilder<'a, Complete<'a>> {
-    /// Registriert alle sieben Consumer und schließt den Builder ab. Scheitern kann hier nur noch die
-    /// Registrierung selbst ([`RunError::DuplicateConsumer`]) — dass alle Werte vorliegen,
-    /// hat der Typ bereits bewiesen.
-    fn build(self) -> Result<Dispatcher<'a>, RunError> {
-        let Complete {
-            window_days,
-            seed,
-            own_accounts,
-            savings_threshold,
-            history,
-        } = self.config;
-        let outbox = self.outbox;
-        let adapters = self.adapters;
-        let stores = self.stores;
-
-        let mut dispatcher = Dispatcher::new();
-        register(
-            &mut dispatcher,
-            EINLESEN_CONSUMED,
-            Box::new(einlesen_consumer(
-                &adapters.transactions,
-                &GermanCalendar,
-                &GermanMoney,
-                &IsoCurrencies,
-                stores.einlesen,
-            )),
-        )?;
-        register(
-            &mut dispatcher,
-            OBFUSKIERUNG_CONSUMED,
-            Box::new(obfuskierung_consumer(
-                &adapters.ingested_rows,
-                &SeededObfuscator,
-                &adapters.person_names,
-                seed,
-                stores.obfuskierung,
-            )),
-        )?;
-        register(
-            &mut dispatcher,
-            OBFUSCATED_MESSAGE_TYPE,
-            Box::new(AckSink::new(outbox.clone())),
-        )?;
-        register(
-            &mut dispatcher,
-            START_MESSAGE_TYPE,
-            Box::new(start_consumer(
-                &adapters.obfuskiert_windows,
-                stores.fenstern.clone(),
-            )),
-        )?;
-        register(
-            &mut dispatcher,
-            FENSTERN_CONSUMED,
-            Box::new(fenstern_consumer(
-                window_days,
-                &adapters.obfuskiert_windows,
-                stores.fenstern,
-            )),
-        )?;
-        register(
-            &mut dispatcher,
-            AUSWERTEN_CONSUMED,
-            Box::new(auswerten_consumer(
-                &adapters.analysis_windows,
-                &adapters.registry,
-                &adapters.categorizer,
-                own_accounts.clone(),
-                stores.auswerten.clone(),
-            )),
-        )?;
-        register(
-            &mut dispatcher,
-            CONSUMED_HISTORY_MESSAGE_TYPE,
-            Box::new(history_consumer(
-                &adapters.analysis_windows,
-                own_accounts,
-                savings_threshold,
-                history.clone(),
-                stores.auswerten,
-            )),
-        )?;
-        Ok(dispatcher)
-    }
-}
-
 /// Dreht die Broker-Schleife, bis keine offene Nachricht mehr übrig ist — nötig, weil ein Consumer
 /// sich selbst fortsetzt (`fenstern` reiht je Seite die nächste Seite ein) und weil eine in dieser
 /// Runde publizierte Nachricht erst die nächste Runde abholt (Schnappschuss-Semantik).
@@ -802,21 +558,6 @@ fn record(
             )?;
             Err(RunError::Backbone(diagnosis))
         }
-    }
-}
-
-/// Registriert einen Consumer und macht eine **Doppel-Registrierung** zum Fehler, statt den
-/// verdrängten Consumer still fallen zu lassen.
-fn register<'a>(
-    dispatcher: &mut Dispatcher<'a>,
-    message_type: &str,
-    consumer: Box<dyn OutboxHandler + 'a>,
-) -> Result<(), RunError> {
-    match dispatcher.register(message_type, consumer) {
-        None => Ok(()),
-        Some(_displaced) => Err(RunError::DuplicateConsumer {
-            message_type: message_type.to_string(),
-        }),
     }
 }
 

@@ -13,7 +13,7 @@
 //!   `Konto ohne Rolle`; tragen mehrere Konten dieselbe Beschriftung, werden sie durchnummeriert.
 //! - **Firmen** erscheinen über ihren **gescrubbten Firmennamen**, wie `obfuskieren` ihn abgelegt hat
 //!   (er ist ein bewusster Analyse-Anker) — aber nur, wenn er **keinen** Namen der lokalen Namensliste
-//!   nennt (dieselbe Erkennung wie beim Scrubbing); sonst und ohne Namen über die öffentliche
+//!   nennt (dieselbe Erkennung wie beim Scrubbing) und keinen Scrub-Platzhalter trägt; sonst und ohne Namen über die öffentliche
 //!   **Gläubiger-ID**. Ein Händler-Token hinter einem Zahlungsdienst steht daneben — so stehen die
 //!   Händler getrennt. Gelesen wird all das aus dem **Anker** der Art (`KindAnchorRow`), den die Domäne
 //!   ausgibt — der Fingerabdruck-Schlüssel wird nie zerlegt.
@@ -26,7 +26,7 @@ use auswerten_adapter::{
     CategoryAnswerRow, CostDriverRow, HistoryEvaluationRow, KindAnchorRow, PriceIncreaseRow,
     RecurrenceRhythm,
 };
-use obfuskierung_adapter::names_known_person;
+use obfuskierung_adapter::{is_scrubbed, names_known_person};
 use rusty_money::iso;
 
 use crate::common::calendar;
@@ -369,9 +369,12 @@ impl AccountLabels {
 /// Kostentreiber → lesbare Beschriftung und Kategorie aus dem Register.
 struct DriverLabels<'a> {
     accounts: &'a AccountLabels,
-    /// Nur die Firmennamen, die **keinen** Namen der lokalen Namensliste nennen.
+    /// Nur die Firmennamen, die **keinen** Namen der lokalen Namensliste nennen und in denen beim
+    /// Obfuskieren nichts ersetzt wurde (ein `[PERSON]` darin heißt: hier stand ein Personen-Name).
     company_names: BTreeMap<&'a str, &'a str>,
     categories: BTreeMap<&'a str, &'a str>,
+    /// Pseudonym → sein Endstück, so lang wie nötig, damit keine zwei Personen gleich heißen.
+    person_tails: BTreeMap<&'a str, String>,
 }
 
 impl<'a> DriverLabels<'a> {
@@ -381,7 +384,9 @@ impl<'a> DriverLabels<'a> {
             company_names: inputs
                 .company_names
                 .iter()
-                .filter(|(_, name)| !names_known_person(name, &inputs.persons))
+                .filter(|(_, name)| {
+                    !is_scrubbed(name) && !names_known_person(name, &inputs.persons)
+                })
                 .map(|(creditor_id, name)| (creditor_id.as_str(), name.as_str()))
                 .collect(),
             categories: inputs
@@ -389,6 +394,7 @@ impl<'a> DriverLabels<'a> {
                 .iter()
                 .map(|answer| (answer.fingerprint.as_str(), answer.category.as_str()))
                 .collect(),
+            person_tails: person_tails(&inputs.history),
         }
     }
 
@@ -432,16 +438,67 @@ impl<'a> DriverLabels<'a> {
             }
             // Das **Ende** des Pseudonyms: es ist der seed-basierte Hash-Teil, dessen Form am Anfang
             // (einem festen Präfix) hier niemand kennen muss.
-            KindAnchorRow::Person { pseudonym } => {
-                let tail = pseudonym
-                    .chars()
-                    .rev()
-                    .take(PSEUDONYM_SHOWN)
-                    .collect::<Vec<_>>();
-                format!("Person {}", tail.into_iter().rev().collect::<String>())
-            }
+            KindAnchorRow::Person { pseudonym } => format!(
+                "Person {}",
+                self.person_tails
+                    .get(pseudonym.as_str())
+                    .map_or_else(|| tail(pseudonym, PSEUDONYM_SHOWN), Clone::clone)
+            ),
         }
     }
+}
+
+/// Die Endstücke aller Pseudonyme, die der Bericht zeigt: je mindestens [`PSEUDONYM_SHOWN`] Zeichen,
+/// und so viele mehr, bis es sich von jedem anderen Endstück unterscheidet (höchstens das ganze
+/// Pseudonym).
+fn person_tails(history: &HistoryEvaluationRow) -> BTreeMap<&str, String> {
+    let pseudonyms = history
+        .ranking
+        .iter()
+        .map(|ranked| &ranked.driver)
+        .chain(
+            history
+                .recurrences
+                .iter()
+                .map(|recurrence| &recurrence.driver),
+        )
+        .chain(
+            history
+                .savings_candidates
+                .iter()
+                .map(|candidate| &candidate.ranked.driver),
+        )
+        .filter_map(|driver| match driver {
+            CostDriverRow::Kind {
+                anchor: KindAnchorRow::Person { pseudonym },
+                ..
+            } => Some(pseudonym.as_str()),
+            CostDriverRow::Kind { .. }
+            | CostDriverRow::Fee { .. }
+            | CostDriverRow::Unattributed => None,
+        })
+        .collect::<BTreeSet<_>>();
+    pseudonyms
+        .iter()
+        .map(|&pseudonym| {
+            let length = (PSEUDONYM_SHOWN..pseudonym.chars().count())
+                .find(|&length| {
+                    let own = tail(pseudonym, length);
+                    pseudonyms
+                        .iter()
+                        .all(|&other| other == pseudonym || tail(other, length) != own)
+                })
+                .unwrap_or_else(|| pseudonym.chars().count());
+            (pseudonym, tail(pseudonym, length))
+        })
+        .collect()
+}
+
+/// Die letzten `length` Zeichen eines Pseudonyms — der seed-basierte Hash-Teil; ein festes Präfix
+/// muss der Bericht so nicht kennen.
+fn tail(pseudonym: &str, length: usize) -> String {
+    let skip = pseudonym.chars().count().saturating_sub(length);
+    pseudonym.chars().skip(skip).collect()
 }
 
 /// Beträge in der Schreibweise der Währung: Tausenderpunkt, Dezimalkomma, Nachkommastellen nach

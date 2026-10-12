@@ -105,11 +105,14 @@ Firmennamen), `file.rs` (Nachbar-Datei + `sync_all` + Umbenennen). Das Bericht-D
   derselben Beschriftung werden durchnummeriert (`Giro 1`, `Giro 2`).
 - **Firmen** über ihren **gescrubbten Firmennamen** aus `obfuskiert` — aber **nur, wenn er keinen Namen
   der lokalen Namensliste (`personen.toml`) nennt**. Verglichen wird mit derselben Erkennung wie beim
-  Scrubbing (`obfuskierung_adapter::names_known_person`, eine Regel statt zwei Kopien). Sonst, und ohne
-  Namen, über die öffentliche **Gläubiger-ID**. Ein Händler-Token hinter einem Zahlungsdienst steht
+  Scrubbing (`obfuskierung_adapter::names_known_person`, eine Regel statt zwei Kopien) — und nur, wenn
+  er **keinen Scrub-Platzhalter** trägt (`obfuskierung_adapter::is_scrubbed`: stand der Name schon
+  beim Obfuskieren auf der Liste, liegt er als `[PERSON]` bzw. `PRAXIS [PERSON]` in der Datei). Sonst,
+  und ohne Namen, über die öffentliche **Gläubiger-ID**. Ein Händler-Token hinter einem Zahlungsdienst steht
   daneben (`ZAHLDIENST › HÄNDLER`).
 - **Personen** nur über das Ende ihres Pseudonyms (`Person f30ee3`, sechs Zeichen — der
-  seed-basierte Hash-Teil; ein festes Präfix muss der Bericht so nicht kennen).
+  seed-basierte Hash-Teil; ein festes Präfix muss der Bericht so nicht kennen). Teilen zwei Personen
+  das Endstück, wird es verlängert, bis die Beschriftungen eindeutig sind.
 - Beschriftet wird eine Buchungsart aus ihrem **Anker**: die Domäne gibt neben dem
   Fingerabdruck-Schlüssel die Struktur aus, aus der er entstand (`auswerten_domain::KindAnchor`:
   Firma mit Gläubiger-ID und optionalem Händler-Token / Person mit Pseudonym, gebildet aus der
@@ -118,7 +121,9 @@ Firmennamen), `file.rs` (Nachbar-Datei + `sync_all` + Umbenennen). Das Bericht-D
 - **Jeder** Text geht durch `escape` (`& < > " '`), Kategorie-Etiketten und Firmennamen eingeschlossen.
 - Beträge in der Schreibweise der Währung (`1.234,56 €`, Nachkommastellen und Symbol nach ISO 4217),
   Monate ausgeschrieben (`März 2026`), Anteile in Prozent mit zwei Stellen; „—" als Währung bei leerer
-  Historie. Wiederkehr nach Jahresbetrag absteigend; „Platz im Ranking" als letzte Spalte. Eine
+  Historie. Wiederkehr nach Jahresbetrag absteigend; „Platz im Ranking" im Ranking vorn, bei den
+  Spar-Kandidaten hinten. Der Bericht entsteht vor dem Kategorie-Export: scheitert er, gibt es keinen
+  Export. Eine
   eigenständige Seite: CSS inline, keine externe Ressource, kein JavaScript.
 
 **Belegt durch** (`crates/io/src/report/tests.rs` aus reinen Fixture-DTOs, `crates/io/src/run/bericht_tests.rs`
@@ -140,7 +145,9 @@ Firmennamen), `file.rs` (Nachbar-Datei + `sync_all` + Umbenennen). Das Bericht-D
 - Datenschutz: `ein_echter_lauf_schreibt_einen_bericht_ohne_iban_bic_klarname_token_und_seed` (liest
   IBANs, BICs und Personen-Namen aus der Lauf-CSV selbst), `konten_erscheinen_ueber_ihre_rolle_nie_als_token`,
   `ein_firmenname_der_eine_person_der_namensliste_nennt_erscheint_nur_als_glaeubiger_id`,
-  `die_beschriftung_kommt_aus_dem_anker_nicht_aus_dem_schluessel`. Den Anker selbst halten die
+  `die_beschriftung_kommt_aus_dem_anker_nicht_aus_dem_schluessel`,
+  `ein_bereits_gescrubbter_firmenname_erscheint_nur_als_glaeubiger_id`,
+  `zwei_pseudonyme_mit_gleichem_endstueck_werden_laenger_beschriftet`. Den Anker selbst halten die
   `auswerten_specs` fest (jeder erwartete Treiber trägt ihn, darunter Händler hinter einem Durchleiter
   und Personen).
 - ADR-0016: `der_bericht_zeigt_genau_den_eigenen_lauf_auch_neben_einem_frueheren`,

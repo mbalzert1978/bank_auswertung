@@ -63,7 +63,7 @@ pub use models::{
     AccountId, CONSUMED_MESSAGE_TYPE, IngestedRow, ObfuscateCommand, ObfuscateCommandDecoder,
     ObfuscatedBooking, ObfuscatedMessage, ObfuscatedText, Pseudonym, Recipient,
 };
-pub use person_names::names_known_person;
+pub use person_names::{is_scrubbed, names_known_person};
 pub use testapi::ObfuscationTestApi;
 
 /// Der **nackte Domänen-Fehler** des Slice, re-exportiert: der [`ObfuscatingHandler`] gibt ihn 1:1

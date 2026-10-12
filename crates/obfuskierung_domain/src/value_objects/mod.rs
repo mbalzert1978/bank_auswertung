@@ -25,4 +25,5 @@ pub use pass_through::PassThrough;
 pub use raw_counterparty::RawCounterparty;
 pub use recipient::Recipient;
 pub use replacement::{AccountToken, ObfuscatedText, Pseudonym, Replacement};
+pub use scrubbing::is_scrubbed;
 pub use seed::Seed;

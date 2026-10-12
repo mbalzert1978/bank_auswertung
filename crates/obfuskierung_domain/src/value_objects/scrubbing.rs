@@ -101,6 +101,16 @@ pub(crate) fn scrub(text: &str, persons: &KnownPersons) -> String {
         .collect::<String>()
 }
 
+/// Trägt der Text einen **Platzhalter** des Scrubbers (`[IBAN]`, `[BIC]`, `[PERSON]`) — wurde in ihm
+/// also schon etwas ersetzt? Die Platzhalter stehen nur hier; wer gescrubbten Text wiedererkennen
+/// will, fragt diese Funktion, statt sie nachzubauen.
+#[must_use]
+pub fn is_scrubbed(text: &str) -> bool {
+    [Identifier::Iban, Identifier::Bic, Identifier::Person]
+        .into_iter()
+        .any(|identifier| text.contains(identifier.placeholder()))
+}
+
 /// Nennt der Text einen bekannten Personen-Namen? **Dieselbe** Erkennung wie [`scrub`] — derselbe
 /// Lexer, dieselben Regeln —, nur ohne zu ersetzen.
 pub(crate) fn names_person(text: &str, persons: &KnownPersons) -> bool {

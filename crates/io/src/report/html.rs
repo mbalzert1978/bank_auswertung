@@ -104,6 +104,7 @@ impl TableRow<9> for RankLine {
     const INTRO: &'static str = "Die größten Abflüsse zuerst. Der kumulierte Anteil zeigt, wie wenige \
         Treiber den Großteil ausmachen.";
     const COLUMNS: [Column; 9] = [
+        number("Platz im Ranking"),
         text("Treiber"),
         text("Kategorie"),
         number("Abfluss"),
@@ -112,11 +113,11 @@ impl TableRow<9> for RankLine {
         number("Kumuliert"),
         number("Jahresbetrag"),
         text("Takt"),
-        number("Platz im Ranking"),
     ];
 
     fn cells(&self) -> [&str; 9] {
         [
+            &self.rank,
             &self.driver,
             &self.category,
             &self.outflow,
@@ -125,7 +126,6 @@ impl TableRow<9> for RankLine {
             &self.cumulative_share,
             &self.annual,
             &self.rhythm,
-            &self.rank,
         ]
     }
 }

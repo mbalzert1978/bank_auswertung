@@ -31,3 +31,15 @@ fn ein_firmenname_ohne_listennamen_wird_nicht_erkannt() {
 fn eine_leere_liste_erkennt_nichts() {
     assert!(!names_known_person("Erika Beispiel", &[]));
 }
+
+#[test]
+fn ein_gescrubbter_text_wird_an_seinem_platzhalter_erkannt() {
+    use obfuskierung_adapter::is_scrubbed;
+
+    for text in ["[PERSON]", "PRAXIS [PERSON]", "Miete [IBAN]", "BIC [BIC]"] {
+        assert!(is_scrubbed(text), "{text}");
+    }
+    for text in ["STROMWERK NORD AG", "PERSON", "[PRAXIS]"] {
+        assert!(!is_scrubbed(text), "{text}");
+    }
+}

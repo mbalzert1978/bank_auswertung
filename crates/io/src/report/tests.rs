@@ -471,11 +471,67 @@ fn eine_jaehrliche_wiederkehr_steht_als_jaehrlich_und_die_teuerste_zuerst() {
 }
 
 #[test]
-fn der_platz_im_ranking_steht_als_letzte_spalte() {
+fn der_platz_steht_im_ranking_vorn_und_bei_den_spar_kandidaten_hinten() {
     let html = Bericht::compose(&eingaben()).render();
 
-    assert!(html.contains("<th class=\"num\">Platz im Ranking</th></tr>"));
+    // Ranking: die erste Spalte. Spar-Kandidaten: die letzte.
+    assert!(html.contains("<thead><tr><th class=\"num\">Platz im Ranking</th><th>Treiber</th>"));
+    assert!(html.contains("<th>Preissteigerung</th><th class=\"num\">Platz im Ranking</th></tr>"));
     assert!(!html.contains(">Platz<"));
+}
+
+#[test]
+fn ein_bereits_gescrubbter_firmenname_erscheint_nur_als_glaeubiger_id() {
+    // Stand der Name beim Obfuskieren schon auf der Liste, liegt der Firmenname gescrubbt in der
+    // Datei — der Normalfall bei richtiger Bedienung. Der Platzhalter ist kein Name.
+    for gescrubbt in ["[PERSON]", "PRAXIS [PERSON]"] {
+        let mut eingaben = eingaben();
+        eingaben.persons = Vec::new();
+        eingaben
+            .company_names
+            .insert("DE00ZZZ00000000001".to_string(), gescrubbt.to_string());
+
+        let bericht = Bericht::compose(&eingaben);
+
+        assert_eq!(
+            bericht.ranking.first().map(|line| line.driver.as_str()),
+            Some("Gläubiger-ID DE00ZZZ00000000001"),
+            "{gescrubbt}"
+        );
+        assert!(!bericht.render().contains("[PERSON]"), "{gescrubbt}");
+    }
+}
+
+#[test]
+fn zwei_pseudonyme_mit_gleichem_endstueck_werden_laenger_beschriftet() {
+    let person = |pseudonym: &str| CostDriverRow::Kind {
+        fingerprint: format!("PERSON:{pseudonym}"),
+        anchor: KindAnchorRow::Person {
+            pseudonym: pseudonym.to_string(),
+        },
+    };
+    let mut eingaben = eingaben();
+    eingaben.history.ranking = vec![
+        platz(person("PERSON_aa11c0ffee"), 300, 5_000, 5_000),
+        platz(person("PERSON_bb22c0ffee"), 200, 3_000, 8_000),
+        platz(person("PERSON_cc33d00d42"), 100, 2_000, 10_000),
+    ];
+
+    let treiber = Bericht::compose(&eingaben)
+        .ranking
+        .into_iter()
+        .map(|line| line.driver)
+        .collect::<Vec<_>>();
+
+    // Die beiden gleichen Endstücke wachsen, bis sie sich unterscheiden; das dritte bleibt kurz.
+    assert_eq!(
+        treiber,
+        vec![
+            "Person 1c0ffee".to_string(),
+            "Person 2c0ffee".to_string(),
+            "Person d00d42".to_string(),
+        ]
+    );
 }
 
 #[test]
