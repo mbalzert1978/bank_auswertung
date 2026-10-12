@@ -12,7 +12,7 @@
 //! - **Namenswörter** — jedes Wort ab vier Zeichen aus diesen Namen, als ganzes Wort und ohne Rücksicht
 //!   auf Groß-/Kleinschreibung. So fällt auch ein halb gescrubbter Name auf („PRAXIS [PERSON]
 //!   ERFUNDEN"). Ausgenommen sind `FIKTIV` (steht in jedem erfundenen Namen, auch in Firmennamen) und
-//!   Rechtsformen.
+//!   `GMBH`; kürzere Rechtsformen fallen schon unter die Mindestlänge.
 //! - **Kontonummern** — die Kontonummer jeder IBAN (ab Zeichen 13, ohne führende Nullen, ab vier
 //!   Ziffern), als ganze Ziffernfolge. Normalisiert verglichen träfe sie jeden Betrag mit denselben
 //!   Ziffern.
@@ -44,7 +44,7 @@ const MINDESTLAENGE: usize = 4;
 /// Platzhalter der Bank, kein Rohwert.
 const PLATZHALTER: [&str; 1] = ["NOTPROVIDED"];
 /// Namenswörter, die keine Person verraten.
-const KEIN_NAMENSWORT: [&str; 6] = ["FIKTIV", "GMBH", "AG", "EG", "SE", "MBH"];
+const KEIN_NAMENSWORT: [&str; 2] = ["FIKTIV", "GMBH"];
 
 /// Die verbotenen Werte eines oder mehrerer Läufe (siehe Modul-Doku).
 #[derive(Debug, Default)]
@@ -96,38 +96,48 @@ impl VerboteneWerte {
         self.ganze.len() + self.namenswoerter.len() + self.kontonummern.len()
     }
 
-    /// Prüft eine Ausgabe (`ausgabe` benennt sie in der Meldung): kein verbotener Wert, kein
-    /// Konto-Token.
+    /// Prüft eine Ausgabe (`ausgabe` benennt sie in der Meldung): kein Fund (siehe [`Self::funde`]).
     pub(crate) fn pruefe(&self, ausgabe: &str, text: &str) {
+        let funde = self.funde(text);
+        assert!(funde.is_empty(), "{ausgabe} trägt: {funde:?}");
+    }
+
+    /// Jeder verbotene Wert, den `text` trägt — leer, wenn keiner. Die reine Prüfung hinter
+    /// [`Self::pruefe`], damit sich zeigen lässt, dass sie anschlägt.
+    fn funde(&self, text: &str) -> Vec<String> {
         let text = dekodiert(text);
-        // Ein Konto-Token ist kein Rohwert, aber auch er bleibt drinnen — nur roh geprüft:
-        // normalisiert träfe „KONTO" schon jede Spaltenüberschrift.
-        assert!(!text.contains("KONTO_"), "{ausgabe} trägt ein Konto-Token");
         let normal = normalisiert(&text);
-        for wert in &self.ganze {
-            assert!(!text.contains(wert.as_str()), "{ausgabe} trägt {wert}");
-            assert!(
-                !normal.contains(&normalisiert(wert)),
-                "{ausgabe} trägt {wert} (normalisiert)"
-            );
-        }
         let woerter = woerter(&text).collect::<BTreeSet<_>>();
-        for wort in &self.namenswoerter {
-            assert!(
-                !woerter.contains(wort),
-                "{ausgabe} trägt das Namenswort {wort}"
-            );
-        }
         let ziffernfolgen = text
             .split(|zeichen: char| !zeichen.is_ascii_digit())
             .map(|folge| folge.trim_start_matches('0'))
             .collect::<BTreeSet<_>>();
-        for nummer in &self.kontonummern {
-            assert!(
-                !ziffernfolgen.contains(nummer.as_str()),
-                "{ausgabe} trägt die Kontonummer {nummer}"
-            );
-        }
+        // Ein Konto-Token ist kein Rohwert, aber auch er bleibt drinnen — nur roh geprüft:
+        // normalisiert träfe „KONTO" schon jede Spaltenüberschrift.
+        let token = text
+            .contains("KONTO_")
+            .then(|| "ein Konto-Token".to_string());
+        let ganze = self
+            .ganze
+            .iter()
+            .filter(|wert| text.contains(wert.as_str()) || normal.contains(&normalisiert(wert)))
+            .map(|wert| format!("den Wert {wert}"));
+        let namenswoerter = self
+            .namenswoerter
+            .iter()
+            .filter(|wort| woerter.contains(*wort))
+            .map(|wort| format!("das Namenswort {wort}"));
+        let kontonummern = self
+            .kontonummern
+            .iter()
+            .filter(|nummer| ziffernfolgen.contains(nummer.as_str()))
+            .map(|nummer| format!("die Kontonummer {nummer}"));
+        token
+            .into_iter()
+            .chain(ganze)
+            .chain(namenswoerter)
+            .chain(kontonummern)
+            .collect()
     }
 
     fn aus_auszug(&mut self, csv: &Path) {
@@ -255,4 +265,50 @@ fn ohne_json_escapes(text: &str) -> String {
     }
     ergebnis.push_str(rest);
     ergebnis
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Eine kleine Liste aus Werten der e2e-Fixtures: zwei Personen, ein Name der Namensliste, eine
+    /// Gegen-IBAN mit langer Kontonummer, eine eigene IBAN in Leerzeichen-Schreibweise.
+    fn liste() -> VerboteneWerte {
+        let mut werte = VerboteneWerte::default();
+        [
+            "ERWIN BEISPIELMANN",
+            "GÄRTNEREI GRÜN & SÖHNE",
+            "Tilda Erfunden",
+        ]
+        .iter()
+        .for_each(|name| werte.name(name));
+        ["DE00300000000057381946", "DE27 1000 0000 0000 0041 01"]
+            .iter()
+            .for_each(|iban| werte.iban(iban));
+        werte
+    }
+
+    #[test]
+    fn die_pruefung_schlaegt_bei_jeder_wertklasse_an() {
+        let liste = liste();
+        for (text, erwartet) in [
+            ("Erstattung an Beispielmann", "Namenswort BEISPIELMANN"),
+            ("PRAXIS [PERSON] ERFUNDEN", "Namenswort ERFUNDEN"),
+            ("GR&#39;N &amp; SÖHNE", "Namenswort SÖHNE"),
+            ("S\\u00d6HNE", "Namenswort SÖHNE"),
+            ("Konto 0057381946", "Kontonummer 57381946"),
+            ("de27 1000 0000 0000 0041 01", "DE27100000000000004101"),
+        ] {
+            let funde = liste.funde(text);
+            assert!(
+                funde.iter().any(|fund| fund.contains(erwartet)),
+                "{text}: {funde:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ein_betrag_mit_den_ziffern_einer_kontonummer_ist_kein_fund() {
+        assert_eq!(liste().funde("4.101,00 €"), Vec::<String>::new());
+    }
 }

@@ -366,5 +366,18 @@ fn bericht_und_export_von_vier_konten_tragen_keine_iban_keine_bic_keinen_klarnam
     // eine reine Kontonummer.
     verboten.pruefe("Bericht", &html);
     verboten.pruefe("Export", &inhalt);
+    // … und sie kommen gescrubbt an, statt ganz wegzufallen (sonst bliebe die Prüfung oben grün,
+    // ohne etwas zu belegen).
+    for gescrubbt in [
+        "\". Erstattung an [IBAN] BIC [BIC]\"",
+        "\". Geschenk fuer [PERSON]\"",
+        "\". Rueckgabe Konto\"",
+    ] {
+        assert!(inhalt.contains(gescrubbt), "der Export trägt {gescrubbt}");
+    }
+    assert!(
+        html.contains("PAYPAL FIKTIV ZAHLDIENST › GESCHENK-FUER-PERSON"),
+        "der Bericht trägt den gescrubbten Treiber"
+    );
     assert!(!inhalt.contains("PERSON:"), "keine Person geht hinaus");
 }

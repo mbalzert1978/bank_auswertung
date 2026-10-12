@@ -40,6 +40,10 @@ Ein Konto je Lauf, eine Datenbank für alle: vier CSV-CAMT-v8-Auszüge (`giro.cs
 | Scrubbing-Proben (Durchleiter, gehen in den Export) | Zweck mit IBAN in Leerzeichen-Schreibweise + BIC (12.01.2026), mit dem vollen Namen des bekannten Empfängers `Erwin Beispielmann` (14.03.2026), mit seiner reinen Kontonummer (10.06.2026) |
 | Name mit Umlaut und `&` | `GÄRTNEREI GRÜN & SÖHNE` (Haushalt, ohne Gläubiger-ID, also Person) |
 
+Kontonummern prüft der Leak-Test nur ab vier Ziffern (ohne führende Nullen): eine kürzere, wie die
+der meisten Gegenkonten hier, träfe jeden Betrag mit denselben Ziffern. Darum trägt
+`ERWIN BEISPIELMANN` eine lange Kontonummer.
+
 Bewusst **nicht** dabei: ein bloßer Nachname oder Vorname eines Empfängers im Zweck. Dass er stehen
 bleibt, ist eine dokumentierte Grenze des Scrubbings (Kurzformen gehören in `personen.toml`).
 
