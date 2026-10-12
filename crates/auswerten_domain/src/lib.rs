@@ -64,11 +64,17 @@
 //! Wahrheit. Seine Idempotenz folgt daraus, nicht aus Dedupe-Logik: eine Query über unveränderliche
 //! Snapshots antwortet auf erneute Zustellung identisch.
 //!
-//! **Noch nicht hier** (je eigenes Folge-Issue): die **Wiederkehr-Erkennung** selbst (Issue 0005,
-//! die auf den Vorkommen oben aufsetzt), die beiden übrigen Fach-Analyzer (Gebühren-Klassifikation
-//! Issue 0006, Pareto Issue 0007), die gelernten Korrekturen und das `Kategorisierer`-Orakel. Dieser
-//! Stand ist das **Gerüst plus die beiden Reichweiten, der genettete Cashflow und der Schlüssel** —
-//! der Pfad, an dem sie andocken.
+//! **Auf diesen Vorkommen sitzt die Wiederkehr-Erkennung** (Issue 0005): je Fingerabdruck prüft sie
+//! die Abflüsse auf einen festen [`Rhythm`] (monatlich, jährlich) bei ähnlichem Betrag und weist eine
+//! [`PriceIncrease`] ab einem Stichtag aus. Heraus kommt je Buchungsart ein [`Recurrence`] mit dem
+//! **Jahresbetrag** als Bezugsgröße für spätere Spar-Kandidaten. Sie arbeitet auf **genetteten**
+//! Abflüssen: ein Dauerauftrag aufs eigene Konto ist eine Umbuchung, kein Kosten-Treiber — dieselbe
+//! Token-Regel wie beim Cashflow, und darum prüft auch diese Reichweite den [`SeedMarker`]. Ihr
+//! Ergebnis, die [`HistoryEvaluation`], wird **zurückgegeben**, nie abgelegt.
+//!
+//! **Noch nicht hier** (je eigenes Folge-Issue): das Pareto-Ranking und die Spar-Kandidaten (Issue
+//! 0007, die auf dem Jahresbetrag der Wiederkehr aufsetzen), die gelernten Korrekturen und ein echtes
+//! `Kategorisierer`-Orakel.
 
 mod entities;
 mod error;
@@ -89,6 +95,7 @@ pub use ports::{
 pub use value_objects::{
     AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer, CategoryRequest,
     CounterAccount, Counterparty, Currency, DayStamp, Direction, Fee, Fingerprint,
-    InternalTransfer, Month, MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts, Recipient,
-    RunSpan, SeedMarker, WindowId, WindowedBooking,
+    HistoryEvaluation, InternalTransfer, Month, MonthlyCashflow, NonEmptyString, Occurrence,
+    OwnAccounts, PriceIncrease, Recipient, Recurrence, Rhythm, RunHistory, RunSpan, SeedMarker,
+    WindowId, WindowedBooking,
 };

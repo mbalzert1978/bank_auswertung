@@ -38,7 +38,7 @@
 
 use auswerten_adapter::{
     AnalysisWindowRow, AnalysisWindowSeam, BookingDirection, BookingRecipient, OccurrenceSeam,
-    SourceUnavailable, WindowBookingRow,
+    RunHistoryRow, SourceUnavailable, WindowBookingRow,
 };
 use rusqlite::{OptionalExtension, params};
 
@@ -115,16 +115,27 @@ impl AnalysisWindowSeam for AuswertungsfensterSource {
 }
 
 impl OccurrenceSeam for AuswertungsfensterSource {
-    /// Liest die Buchungen **aller** Fenster **innerhalb** der Lauf-Spanne `[from … to]` (beide
+    /// Liest die Historie **aller** Fenster **innerhalb** der Lauf-Spanne `[from … to]` (beide
     /// Grenzen einschließlich) in **einer** Query über die Fenster-Tabellen im Join auf `obfuskiert`.
-    /// Ein **leerer** Vektor ist kein Fehler, sondern die gültige Auskunft „in dieser Spanne liegt
-    /// nichts"; `Err` = die Beschaffung misslang (terminal). **Kein Seed-Marker** — die
-    /// fenster-übergreifende Reichweite ordnet keine Gegenkonten ein, sie sammelt Vorkommen.
-    fn bookings_in(&self, from: i64, to: i64) -> Result<Vec<WindowBookingRow>, SourceUnavailable> {
-        self.raw_bookings(SELECT_RUN_BOOKINGS, &[&from, &to])?
-            .iter()
-            .map(RawBooking::to_booking)
-            .collect()
+    /// Eine Historie **ohne** Buchungen ist kein Fehler, sondern die gültige Auskunft „in dieser
+    /// Spanne liegt nichts"; `Err` = die Beschaffung misslang (terminal).
+    ///
+    /// **Mit Seed-Marker** (Issue 0005): die Wiederkehr-Erkennung nettet Umbuchungen auf Token heraus
+    /// und muss dafür wissen, unter welcher Tokenisierung die Gegenkonto-Token entstanden. Gelesen
+    /// wird er wie beim Einzel-Fenster — über dieselbe Funktion, die auch hier erzwingt, dass **alle**
+    /// Buchungen denselben tragen.
+    fn history_in(&self, from: i64, to: i64) -> Result<RunHistoryRow, SourceUnavailable> {
+        let raw = self.raw_bookings(SELECT_RUN_BOOKINGS, &[&from, &to])?;
+        let seed_marker = window_seed_marker(&raw)?;
+        Ok(RunHistoryRow {
+            // Wie beim Einzel-Fenster: „kein Marker" wird erst hier zur leeren Zelle — und die ACL
+            // verlangt ihn nur, wenn auch Buchungen da sind.
+            seed_marker: seed_marker.map_or_else(String::new, SeedMarker::into_string),
+            bookings: raw
+                .iter()
+                .map(RawBooking::to_booking)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 }
 
@@ -225,9 +236,9 @@ impl RawBooking {
     }
 }
 
-/// Leitet den **einen** Seed-Marker des Fensters aus seinen Zeilen ab und **erzwingt dabei die
-/// Fenster-Invariante**: alle Buchungen eines Fensters stammen aus **einer** Tokenisierung, tragen
-/// also denselben Marker. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
+/// Leitet den **einen** Seed-Marker des Fensters — bzw. der Lauf-Historie — aus seinen Zeilen ab
+/// und **erzwingt dabei die Invariante**: alle Buchungen eines Fensters (und eines Laufs) stammen aus
+/// **einer** Tokenisierung, tragen also denselben Marker. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
 /// **terminal + redigiert** statt still einen Marker der ersten Zeile zu wählen — sonst könnte die
 /// `SeedMarker`-Schranke der Domäne stillschweigend verfälscht werden.
 ///
@@ -245,7 +256,7 @@ fn window_seed_marker(raw: &[RawBooking]) -> Result<Option<SeedMarker>, SourceUn
         .any(|booking| booking.seed_marker != first.seed_marker)
     {
         return Err(unavailable_message(
-            "Fenster trägt Buchungen aus unterschiedlichen Tokenisierungen",
+            "Buchungen aus unterschiedlichen Tokenisierungen",
         ));
     }
     Ok(Some(first.seed_marker()))
@@ -317,7 +328,7 @@ const SELECT_RUN_BOOKINGS: &str = concat!(
 mod tests {
     use super::*;
     use crate::fenstern::FensternSqliteStore;
-    use crate::obfuskierung::seed_marker;
+    use crate::obfuskierung::{ObfuskierungSqliteStore, seed_marker};
 
     /// Der reale Marker ist deterministisch und **nicht** der Seed: gleicher Seed → gleicher Marker,
     /// aber der Seed selbst steckt nicht drin (keyed Hash über ein festes Etikett).
@@ -356,13 +367,96 @@ mod tests {
 
     /// Ebenso terminal failt die fenster-übergreifende Query ohne die Fenster-Tabellen.
     #[test]
-    fn bookings_in_ohne_fenster_tabelle_failt_terminal() -> rusqlite::Result<()> {
+    fn history_in_ohne_fenster_tabelle_failt_terminal() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         let source = AuswertungsfensterSource::new(outbox);
 
         source
-            .bookings_in(0, 1_000_000)
+            .history_in(0, 1_000_000)
             .expect_err("ohne Fenster-Tabellen muss die Query terminal failen");
+        Ok(())
+    }
+
+    /// Legt **zwei Fenster** eines Laufs real an — je eines mit **einer** obfuskierten Buchung,
+    /// deren Seed-Marker aus dem gegebenen Seed stammt. Juni und Juli 2024, Tag-Stamps 19 884 und
+    /// 19 914.
+    fn zwei_fenster_mit_seeds(
+        outbox: &SqliteOutbox,
+        seed_juni: u64,
+        seed_juli: u64,
+    ) -> rusqlite::Result<()> {
+        ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
+        FensternSqliteStore::with_own_tables(outbox.clone())?;
+        outbox.with_connection(|conn| {
+            for (id, day, stamp, seed) in [
+                ("juni", "2024-06-10", 19_884_i64, seed_juni),
+                ("juli", "2024-07-10", 19_914_i64, seed_juli),
+            ] {
+                conn.execute(
+                    "INSERT INTO obfuskiert (id, source_id, ordering_account, amount_minor_units, \
+                     currency, direction, recipient_kind, booking_day, value_date, seed_marker) \
+                     VALUES (?1, ?1, 'KONTO_1', 1299, 'EUR', 'outgoing', 'absent', ?2, ?2, ?3);",
+                    params![id, day, seed_marker(seed).as_str()],
+                )?;
+                conn.execute(
+                    "INSERT INTO auswertungsfenster (id, from_day, to_day, currency) \
+                     VALUES (?1, ?2, ?2, 'EUR');",
+                    params![id, stamp],
+                )?;
+                conn.execute(
+                    "INSERT INTO auswertungsfenster_buchungen (window_id, position, booking_id) \
+                     VALUES (?1, 0, ?1);",
+                    params![id],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Die Lauf-Historie über **zwei** Fenster aus **verschiedenen** Tokenisierungen ist ein
+    /// korrupter Bestand: die Query failt terminal + redigiert, statt still den Marker der ersten
+    /// Zeile zu nehmen — sonst würde die Seed-Marker-Prüfung der Wiederkehr-Erkennung (Issue 0005)
+    /// gegen einen Wert geführt, der nur für einen Teil der Buchungen gilt.
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! ist die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn history_in_ueber_fenster_mit_verschiedenen_seeds_failt_terminal() -> rusqlite::Result<()> {
+        let outbox = SqliteOutbox::open_in_memory()?;
+        zwei_fenster_mit_seeds(&outbox, 42, 43)?;
+        let source = AuswertungsfensterSource::new(outbox);
+
+        let fehler = source
+            .history_in(19_884, 19_914)
+            .expect_err("gemischte Tokenisierungen im Lauf müssen terminal failen");
+        assert!(
+            !fehler.message.contains(seed_marker(42).as_str())
+                && !fehler.message.contains(seed_marker(43).as_str()),
+            "die Diagnose nennt keinen der Marker"
+        );
+        Ok(())
+    }
+
+    /// Die Gegenprobe: tragen beide Fenster **denselben** Marker, liefert die Query beide Buchungen
+    /// samt diesem einen Marker.
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! ist die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn history_in_ueber_fenster_einer_tokenisierung_traegt_deren_marker() -> rusqlite::Result<()> {
+        let outbox = SqliteOutbox::open_in_memory()?;
+        zwei_fenster_mit_seeds(&outbox, 42, 42)?;
+        let source = AuswertungsfensterSource::new(outbox);
+
+        let historie = source.history_in(19_884, 19_914);
+        assert_eq!(
+            historie
+                .as_ref()
+                .map(|h| (h.seed_marker.clone(), h.bookings.len())),
+            Ok((seed_marker(42).as_str().to_string(), 2))
+        );
         Ok(())
     }
 

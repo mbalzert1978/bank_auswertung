@@ -11,7 +11,8 @@ auswerten_domain = { path = "../auswerten_domain" }
 application_kernel = { path = "../application_kernel" }
 
 [dev-dependencies]
-# Nur für den compilergeprüften „kein Serialize"-Guard auf `CategoryRequestRow` (das Egress-DTO
-# leitet bewusst kein `Serialize`/`Deserialize` ab) — kein Laufzeit-serde im Slice.
+# Nur für den compilergeprüften „kein Serialize"-Guard auf den Egress-DTOs (`CategoryRequestRow`,
+# `HistoryEvaluationRow` samt Teilen — sie leiten bewusst kein `Serialize`/`Deserialize` ab) —
+# kein Laufzeit-serde im Slice.
 serde = "1"
 static_assertions = "1.1.0"

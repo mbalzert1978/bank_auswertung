@@ -1,5 +1,6 @@
 use crate::value_objects::{
-    AccountToken, Amount, BookingKind, Counterparty, DayStamp, Direction, NonEmptyString,
+    AccountRole, AccountToken, Amount, BookingKind, CounterAccount, Counterparty, DayStamp,
+    Direction, NonEmptyString, VerifiedOwnAccounts,
 };
 
 /// Eine **Buchung des eingefrorenen Fensters**, wie der Lese-Port
@@ -58,6 +59,39 @@ impl WindowedBooking {
 
     pub(crate) fn counter_account(&self) -> Option<&AccountToken> {
         self.counter_account.as_ref()
+    }
+
+    /// Entscheidet für **eine** Buchung, ob sie eine Umbuchung ist: `Some(role)`, wenn ihr
+    /// Gegenkonto in der Eigen-Menge liegt — dann trägt sie die Rolle **dieses Gegenkontos** —, sonst
+    /// `None`.
+    ///
+    /// **Eine Regel für beide Reichweiten:** die pro-Fenster-Reichweite nettet damit den Cashflow
+    /// (Issue 0004), die fenster-übergreifende die Wiederkehr (Issue 0005). Stünde sie zweimal da,
+    /// könnte ein Dauerauftrag aufs Sparkonto im Cashflow fehlen und trotzdem als Abo auftauchen.
+    ///
+    /// **Ein einzelnes Bein genügt als Nachweis.** Man könnte auf das *Paar* warten (Abgang hier,
+    /// Zugang dort) und nur netten, wenn beide vorliegen. Genau das wäre aber nur richtig, wenn beide
+    /// Konten im selben Lauf und im selben Fenster stünden: bei nur einem eingelesenen Auszug, an einer
+    /// Fenstergrenze oder bei einer Umbuchung über den Monatswechsel bliebe das Gegenstück aus, und die
+    /// Umbuchung zählte wieder als Ausgabe. Seit die Auflösung **auf Token** arbeitet (ADR-0013,
+    /// Entscheidung F), ist das Paar auch nicht nötig: „das Gegenkonto ist meines" steht schon an der
+    /// einen Zeile.
+    ///
+    /// **Keine Gegenseite ist keine eigene.** Eine Entgeltzeile hat gar kein Gegenkonto — sie ist echter
+    /// Abfluss und bleibt im Cashflow (CONTEXT.md, „Umbuchungskosten": die Gebühr *für* eine Umbuchung
+    /// ist selbst keine). Genau daran hängt, dass beide Analyzer koexistieren: die Umbuchung fällt
+    /// heraus, die Gebühr für sie bleibt und wird von [`Fee`](crate::Fee) zusätzlich herausgehoben.
+    pub(crate) fn transfer_role(
+        &self,
+        own_accounts: &VerifiedOwnAccounts<'_>,
+    ) -> Option<AccountRole> {
+        match self
+            .counter_account()
+            .map(|token| own_accounts.resolve(token))
+        {
+            Some(CounterAccount::Own(role)) => Some(role),
+            Some(CounterAccount::Foreign) | None => None,
+        }
     }
 
     pub(crate) fn ordering_account(&self) -> &AccountToken {

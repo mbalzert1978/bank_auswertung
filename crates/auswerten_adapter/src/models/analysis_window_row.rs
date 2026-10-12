@@ -163,6 +163,11 @@ pub(crate) struct MissingMandatoryField {
 }
 
 impl MissingMandatoryField {
+    /// Benennt das fehlende Pflichtfeld — **nur** über seinen statischen Namen.
+    pub(crate) const fn named(field: &'static str) -> Self {
+        Self { field }
+    }
+
     /// Der (statische, unsensible) Name des fehlenden Pflichtfelds — für den redigierten terminalen
     /// Fehlergrund.
     pub(crate) fn field(&self) -> &'static str {
@@ -173,5 +178,5 @@ impl MissingMandatoryField {
 /// Erzwingt ein Pflichtfeld: reicht die Zelle als `NonEmptyString` an die Domänengrenze, oder —
 /// fehlt/leer sie — den redigierten [`MissingMandatoryField`] mit nur dem Feldnamen.
 fn mandatory(raw: &str, field: &'static str) -> Result<NonEmptyString, MissingMandatoryField> {
-    NonEmptyString::new(raw).ok_or(MissingMandatoryField { field })
+    NonEmptyString::new(raw).ok_or(MissingMandatoryField::named(field))
 }

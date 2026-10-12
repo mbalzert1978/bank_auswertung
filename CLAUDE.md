@@ -205,9 +205,17 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   window's **distinct fingerprints**, and stores the result. The **window-spanning** reach
   (`HistoryEvaluationHandler`, consuming `HistorieVollständig` — a **different** dispatch key, scoped
   to the run by the run span in the `partition_key`) runs **one** read-port query over **all** windows
-  of the run and **returns** the occurrences of the whole timeline — it **stores nothing** (the
-  aggregates are the sole truth; idempotence follows from querying immutable snapshots, not dedupe
-  logic). The **`Fingerabdruck`** is a **pure domain function** (company via `GläubigerId`, payment
+  of the run and **returns** the occurrences of the whole timeline **plus the recurring outflows**
+  in them — it **stores nothing** (the aggregates are the sole truth; idempotence follows from
+  querying immutable snapshots, not dedupe logic). The **recurrence detection**
+  ([Issue 0005](docs/issues/0005-wiederkehr-erkennung.md), **built**) is pure domain logic: per
+  fingerprint, **outflows only** and **netted** (a standing order onto an own account is a transfer,
+  not a cost driver — same token rule and `SeedMarker` guard as the cashflow), it finds a monthly
+  (gap 25–35 days, ≥ 3 charges) or yearly (350–380 days, ≥ 2) rhythm at a similar amount (±5 % per
+  price level) and reports the latest **price increase** (cut-off day, old/new). Result per group:
+  `RecurrenceRow` (fingerprint, rhythm, typical amount, **annual amount** — the yardstick for 0007 —,
+  price increase, charged account token) inside the returned `HistoryEvaluationRow`, guarded
+  no-`Serialize` as an egress candidate for report/export. The **`Fingerabdruck`** is a **pure domain function** (company via `GläubigerId`, payment
   intermediary additionally via the merchant token, private person via the seed-based pseudonym) —
   domain, not adapter or `io`. **`Gegenkonto::Eigen|Fremd` is resolved on tokens** against the
   token-oriented own-accounts config passed in as a value (`io` wires it; the slice reads no file, no
@@ -228,7 +236,7 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   statements. Calls `Kategorisierer` only for **unknown**
   fingerprints; its egress DTO carries the no-`Serialize` guard. Read/store/query each **fallible +
   terminal**, **no** publish seam (it is the pipeline tail until `report`). Still to come on top of
-  these reaches: the Pareto and recurrence analyzers (building blocks 0005/0007).
+  these reaches: the Pareto analyzer and savings candidates (building block 0007).
 
 (An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
 `Gegenkonto::Eigen|Fremd` resolution into the **`auswerten`** slice, done **on
@@ -330,7 +338,7 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
   now that runs happen, a file on disk and a poisoned message both need an owner.
 
-Then `Kategorisierer`/`Speicher` (0009/0011) and the recurrence analyzer (0005).
+Then `Kategorisierer`/`Speicher` (0009/0011). The recurrence analyzer (0005) is built.
 
 ## Commands
 
@@ -428,7 +436,10 @@ each step runnable/valuable against fakes, real `io` last:
    stands next to it in `window_evaluation_transfers`. The **second**, the **fee classification**
    (0006), is built too and pulls the other way: a fee is real lost money, so it **stays** in the
    cashflow and is only lifted out alongside it into `window_evaluation_fees`, per month and charged
-   account. The Pareto and recurrence analyzers (building blocks 0005/0007) are still to come.
+   account. The **third**, the **recurrence detection** (0005), is built on the window-spanning
+   reach: netted outflows per fingerprint → monthly/yearly rhythm, price increase, annual amount,
+   returned (never stored) as `RecurrenceRow`s. The Pareto analyzer (building block 0007) is still to
+   come.
    `Kategorisierer` still comes in from the caller as a fake.
 6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
    fulfilling the seams — **largely built**: the SQLite Outbox broker/`UnitOfWork`, the

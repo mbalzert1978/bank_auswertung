@@ -11,8 +11,8 @@
 //! liefert deren **Vorkommen** (Fingerabdruck, Richtung, Betrag, Tag) über die ganze Zeitachse
 //! zurück — **synchron und terminal**. Er legt dabei **nichts** ab: es gibt kein Vorkommens-/
 //! Fold-Log und keine zweite persistierte Sicht; die Aggregate sind die alleinige Wahrheit. Die
-//! Rhythmus-/Wiederkehr-Logik darauf ist [0005](../../../docs/issues/0005-wiederkehr-erkennung.md)
-//! und **nicht** Gegenstand dieses Specs.
+//! Rhythmus-/Wiederkehr-Logik darauf ([0005](../../../docs/issues/0005-wiederkehr-erkennung.md))
+//! spezifiziert `wiederkehr.rs`; dieser Spec hält die **Vorkommen** fest, auf denen sie aufsetzt.
 
 use auswerten_adapter::{
     BookingDirection, CONSUMED_HISTORY_MESSAGE_TYPE, CONSUMED_MESSAGE_TYPE, EvaluationError,
@@ -22,7 +22,7 @@ use auswerten_adapter::{
 mod fixtures;
 use fixtures::{
     FEB_01, FEB_29, HAENDLER, JAN_15, JAN_31, MAR_05, ausgang, eingang, eingang_wiederkehrend,
-    historie_api, vorkommen, wiederkehrend,
+    fenster, historie_api, vorkommen, wiederkehrend,
 };
 
 // --- Die Reichweite: über alle Fenster des Laufs, nicht über eines -------------
@@ -34,10 +34,12 @@ fn ein_historie_vollstaendig_liefert_die_vorkommen_ueber_alle_fenster_des_laufs(
     // fertig. Erst diese Query legt die beiden Vorkommen auf **eine** Zeitachse — die Voraussetzung
     // dafür, dass 0005 später einen Rhythmus darin erkennen kann.
     let api = historie_api()
-        .with_window_bookings("fenster-1", &[wiederkehrend(JAN_15, 1_999)])
-        .with_window_bookings("fenster-2", &[wiederkehrend(FEB_29, 1_999)]);
+        .with_window("fenster-1", fenster(&[wiederkehrend(JAN_15, 1_999)]))
+        .with_window("fenster-2", fenster(&[wiederkehrend(FEB_29, 1_999)]));
 
-    let vorkommen_der_historie = api.run_history(JAN_15, MAR_05);
+    let vorkommen_der_historie = api
+        .run_history(JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     // Beide Fenster fließen ein, chronologisch geordnet, und jedes Vorkommen trägt genug für
     // Rhythmus **und** Betragsvergleich: Fingerabdruck, Richtung, Betrag, Tag.
@@ -72,10 +74,12 @@ fn die_lauf_spanne_grenzt_den_lauf_gegen_frueher_ab() {
     // das falsche. Genau darum trägt `fenstern` die Spanne mit — `auswerten` kann sie nicht selbst
     // kennen, weil der Pager neu→alt läuft.
     let api = historie_api()
-        .with_window_bookings("lauf-davor", &[wiederkehrend(JAN_15, 999)])
-        .with_window_bookings("dieser-lauf", &[wiederkehrend(FEB_29, 1_999)]);
+        .with_window("lauf-davor", fenster(&[wiederkehrend(JAN_15, 999)]))
+        .with_window("dieser-lauf", fenster(&[wiederkehrend(FEB_29, 1_999)]));
 
-    let vorkommen_der_historie = api.run_history(FEB_01, MAR_05);
+    let vorkommen_der_historie = api
+        .run_history(FEB_01, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     // Nur das Fenster **dieses** Laufs fließt ein.
     assert_eq!(
@@ -93,12 +97,14 @@ fn die_lauf_spanne_grenzt_den_lauf_gegen_frueher_ab() {
 fn beide_grenzen_der_lauf_spanne_zaehlen_mit() {
     // Die Spanne ist **einschließlich** — so setzt `fenstern` sie, und eine Buchung genau auf der
     // Kante gehört zum Lauf. Ein `<`/`<=`-Fehler an dieser Stelle verlöre still den Rand-Tag.
-    let api = historie_api().with_window_bookings(
+    let api = historie_api().with_window(
         "fenster-1",
-        &[wiederkehrend(JAN_15, 100), wiederkehrend(MAR_05, 300)],
+        fenster(&[wiederkehrend(JAN_15, 100), wiederkehrend(MAR_05, 300)]),
     );
 
-    let vorkommen_der_historie = api.run_history(JAN_15, MAR_05);
+    let vorkommen_der_historie = api
+        .run_history(JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     assert_eq!(
         vorkommen_der_historie,
@@ -128,11 +134,15 @@ fn erneute_zustellung_desselben_signals_liefert_dasselbe_ergebnis() {
     // zu deduplizieren, weil nichts akkumuliert wird. Die Query läuft über **unveränderliche**
     // Snapshots und ist damit von Natur aus deterministisch.
     let api = historie_api()
-        .with_window_bookings("fenster-1", &[wiederkehrend(JAN_15, 1_999)])
-        .with_window_bookings("fenster-2", &[wiederkehrend(FEB_29, 1_999)]);
+        .with_window("fenster-1", fenster(&[wiederkehrend(JAN_15, 1_999)]))
+        .with_window("fenster-2", fenster(&[wiederkehrend(FEB_29, 1_999)]));
 
-    let erste_zustellung = api.run_history(JAN_15, MAR_05);
-    let zweite_zustellung = api.run_history(JAN_15, MAR_05);
+    let erste_zustellung = api
+        .run_history(JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
+    let zweite_zustellung = api
+        .run_history(JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     // Identisch — und **nicht verdoppelt**. Genau das belegt zugleich, dass keine zweite
     // persistierte Sicht mitwächst: gäbe es ein Vorkommens-/Fold-Log, stünden nach dem zweiten Lauf
@@ -164,16 +174,18 @@ fn ein_vorkommen_traegt_richtung_und_betrag_fuer_den_vergleich() {
     // einmal in der Gegenrichtung (eine Rückerstattung). Beides muss am Vorkommen ablesbar sein —
     // sonst könnte 0005 weder eine Preiserhöhung erkennen noch eine Gutschrift von einer Zahlung
     // unterscheiden.
-    let api = historie_api().with_window_bookings(
+    let api = historie_api().with_window(
         "fenster-1",
-        &[
+        fenster(&[
             wiederkehrend(JAN_15, 1_999),
             wiederkehrend(FEB_29, 2_499),
             eingang_wiederkehrend(MAR_05, 2_499),
-        ],
+        ]),
     );
 
-    let vorkommen_der_historie = api.run_history(JAN_15, MAR_05);
+    let vorkommen_der_historie = api
+        .run_history(JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     let schluessel = format!("COMPANY:{HAENDLER}");
     assert_eq!(
@@ -194,16 +206,18 @@ fn eine_entgeltzeile_ohne_gegenpartei_traegt_kein_vorkommen_bei() {
     // Eine Zeile ohne Gegenpartei hat keinen Schlüssel, über den ihre *Art* unterscheidbar wäre. Ein
     // Platzhalter-Schlüssel verklumpte alle Entgeltzeilen zu einer scheinbar wiederkehrenden Art —
     // die Wiederkehr-Erkennung meldete dann einen Rhythmus, den es nicht gibt.
-    let api = historie_api().with_window_bookings(
+    let api = historie_api().with_window(
         "fenster-1",
-        &[
+        fenster(&[
             ausgang(JAN_15, 4_200),
             eingang(JAN_31, 250_000),
             wiederkehrend(FEB_29, 1_999),
-        ],
+        ]),
     );
 
-    let vorkommen_der_historie = api.run_history(JAN_15, MAR_05);
+    let vorkommen_der_historie = api
+        .run_history(JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     // Nur die Buchung **mit** Gegenpartei trägt bei.
     assert_eq!(
@@ -224,9 +238,11 @@ fn eine_leere_lauf_spanne_ist_kein_fehler_sondern_eine_leere_sicht() {
     // Ein Lauf, in dessen Spanne nichts liegt, ist eine **gültige Auskunft** — anders als beim Lesen
     // *eines* Fensters per ID gibt es hier keinen Zeiger, der ins Leere zeigen könnte. „Nichts
     // vorhanden" und „Beschaffung misslungen" auseinanderzuhalten ist der Punkt.
-    let api = historie_api().with_window_bookings("lauf-davor", &[wiederkehrend(JAN_15, 999)]);
+    let api = historie_api().with_window("lauf-davor", fenster(&[wiederkehrend(JAN_15, 999)]));
 
-    let vorkommen_der_historie = api.run_history(FEB_01, MAR_05);
+    let vorkommen_der_historie = api
+        .run_history(FEB_01, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     assert_eq!(vorkommen_der_historie, Ok(vec![]));
 }
@@ -236,10 +252,12 @@ fn ein_fehlschlag_der_beschaffung_endet_den_lauf_terminal() {
     // Der eine fehlbare I/O-Schritt dieser Reichweite. Er endet **terminal** — kein Dead-Letter,
     // kein Retry im Slice (ADR-0012); die io-Diagnose wird durchgereicht, ohne Zeilen-/Feldinhalt.
     let api = historie_api()
-        .with_window_bookings("fenster-1", &[wiederkehrend(JAN_15, 1_999)])
+        .with_window("fenster-1", fenster(&[wiederkehrend(JAN_15, 1_999)]))
         .with_failing_source("query timed out");
 
-    let vorkommen_der_historie = api.run_history(JAN_15, MAR_05);
+    let vorkommen_der_historie = api
+        .run_history(JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
 
     assert_eq!(
         vorkommen_der_historie,

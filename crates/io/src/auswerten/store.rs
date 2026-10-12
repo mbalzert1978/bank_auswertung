@@ -665,8 +665,8 @@ mod tests {
     use application_kernel::PublishCommand;
     use auswerten_adapter::{
         BookingDirection, CategorizerSeam, CategorizerUnavailable, CategoryAnswerRow,
-        CategoryRegistrySeam, CategoryRequestRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig,
-        RegistryUnavailable,
+        CategoryRegistrySeam, CategoryRequestRow, HistoryEvaluationRow, OccurrenceRow,
+        OwnAccountRow, OwnAccountsConfig, RegistryUnavailable,
     };
     use obfuskierung_adapter::ObfuscatedMessage;
     use rusqlite::params;
@@ -674,7 +674,7 @@ mod tests {
     use super::*;
     use crate::auswerten::{
         AuswertungsfensterSource, CONSUMED_HISTORY_MESSAGE_TYPE,
-        CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, OccurrenceSink,
+        CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, HistoryEvaluationSink,
         consumer as auswerten_consumer, history_consumer,
     };
     use crate::fenstern::{
@@ -717,15 +717,15 @@ mod tests {
         }
     }
 
-    /// Der Abnehmer der fenster-übergreifenden Reichweite: sammelt jede Lieferung (der reale ist der
-    /// Wiederkehr-Analyzer, Issue 0005). `Clone` teilt denselben Puffer.
+    /// Der Abnehmer der fenster-übergreifenden Reichweite: sammelt die Vorkommen jeder Lieferung.
+    /// `Clone` teilt denselben Puffer.
     #[derive(Clone, Default)]
     struct CollectingSink {
         deliveries: Rc<RefCell<Vec<Vec<OccurrenceRow>>>>,
     }
-    impl OccurrenceSink for CollectingSink {
-        fn receive(&self, occurrences: Vec<OccurrenceRow>) {
-            self.deliveries.borrow_mut().push(occurrences);
+    impl HistoryEvaluationSink for CollectingSink {
+        fn receive(&self, evaluation: HistoryEvaluationRow) {
+            self.deliveries.borrow_mut().push(evaluation.occurrences);
         }
     }
 
@@ -939,7 +939,7 @@ mod tests {
                 &auswerten_source,
                 &registry,
                 &categorizer,
-                own_accounts,
+                own_accounts.clone(),
                 auswerten_store.clone(),
             )),
         );
@@ -948,6 +948,7 @@ mod tests {
             CONSUMED_HISTORY_MESSAGE_TYPE,
             Box::new(history_consumer(
                 &auswerten_source,
+                own_accounts,
                 sink.clone(),
                 auswerten_store,
             )),

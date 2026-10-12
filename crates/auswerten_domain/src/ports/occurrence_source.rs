@@ -1,9 +1,14 @@
 use crate::error::EvaluationError;
-use crate::value_objects::{RunSpan, WindowedBooking};
+use crate::value_objects::{RunHistory, RunSpan};
 
 /// Der von der Domäne **verlangte** Lese-Port der **fenster-übergreifenden** Reichweite: er liefert
-/// die Buchungen **aller** Auswertungsfenster **eines** Laufs, gescopt über die [`RunSpan`]
-/// (ADR-0013, Entscheidung E, Reichweite 2).
+/// die [`RunHistory`] — die Buchungen **aller** Auswertungsfenster **eines** Laufs samt dem
+/// Seed-Marker ihrer Tokenisierung —, gescopt über die [`RunSpan`] (ADR-0013, Entscheidung E,
+/// Reichweite 2).
+///
+/// **Der Seed-Marker reist mit**, weil die Wiederkehr-Erkennung Umbuchungen auf Token herausnettet
+/// und dafür — wie die pro-Fenster-Reichweite — prüfen muss, dass Historie und Eigene-Konten-Config
+/// aus derselben Tokenisierung stammen (ADR-0010).
 ///
 /// **Eine Query, nicht N+1:** die Domäne verlangt *eine* Sicht über die ganze Zeitachse; dass io sie
 /// aus vielen Fenster-Zeilen und ihrem Join auf die `obfuskiert`-Ablage zusammensetzt, ist
@@ -20,6 +25,6 @@ use crate::value_objects::{RunSpan, WindowedBooking};
 /// Ein **leeres** Ergebnis ist dagegen kein Fehler — ein Lauf ohne Buchung in der Spanne ist eine
 /// gültige Auskunft, nicht ein Fehlschlag.
 pub trait OccurrenceSource {
-    /// Liest die Buchungen aller Fenster **innerhalb** der Lauf-Spanne, oder scheitert terminal.
-    fn bookings_in(&self, span: RunSpan) -> Result<Vec<WindowedBooking>, EvaluationError>;
+    /// Liest die Historie aller Fenster **innerhalb** der Lauf-Spanne, oder scheitert terminal.
+    fn history_in(&self, span: RunSpan) -> Result<RunHistory, EvaluationError>;
 }

@@ -68,16 +68,15 @@ impl<'a> WindowEvaluationHandler<'a> {
     pub fn handle(&self, command: EvaluateWindow) -> Result<(), EvaluationError> {
         let window = self.source.read(command.window())?;
         // **Vor** der Auswertung: stammen Fenster und Eigen-Menge aus derselben Tokenisierung?
-        // Nur dann trägt der Token-Vergleich. Stimmen die Marker nicht überein, ist das terminal —
-        // sonst liefe jede Umbuchung lautlos als „fremd" durch (ADR-0010).
-        if window.seed_marker() != self.own_accounts.marker() {
-            return Err(EvaluationError::SeedMismatch);
-        }
+        // Nur dann trägt der Token-Vergleich — und nur dann gibt es überhaupt eine Eigen-Menge, die
+        // einordnen kann. Stimmen die Marker nicht überein, ist das terminal — sonst liefe jede
+        // Umbuchung lautlos als „fremd" durch (ADR-0010).
+        let own_accounts = self.own_accounts.verified_for(window.seed_marker())?;
         let categories = self.categorise(&window)?;
         self.repository.save(&WindowEvaluation::of(
             command.into_window(),
             &window,
-            self.own_accounts,
+            own_accounts,
             categories,
         ))
     }

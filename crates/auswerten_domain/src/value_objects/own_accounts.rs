@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::error::EvaluationError;
 use crate::value_objects::{AccountRole, AccountToken, CounterAccount, SeedMarker};
 
 /// Die **Eigene-Konten-Config, token-orientiert** — die eine Auskunft, die dieser Slice braucht, um
@@ -39,17 +40,37 @@ impl OwnAccounts {
         }
     }
 
-    /// Das Kennzeichen der Tokenisierung, aus der diese Eigen-Menge stammt.
-    pub(crate) fn marker(&self) -> &SeedMarker {
-        &self.marker
+    /// **Weist nach**, dass diese Eigen-Menge aus derselben Tokenisierung stammt wie die Buchungen,
+    /// deren Seed-Marker hereinkommt — und gibt sie erst dann als [`VerifiedOwnAccounts`] heraus.
+    ///
+    /// _Parse, don't validate_: nur die nachgewiesene Eigen-Menge kann ein Gegenkonto einordnen.
+    /// Wer die Prüfung vergäße, bekäme gar nichts, womit er einordnen könnte — der stille Fehler
+    /// („jede Umbuchung läuft als fremd durch") ist damit unkonstruierbar, nicht bloß geprüft.
+    pub(crate) fn verified_for(
+        &self,
+        marker: &SeedMarker,
+    ) -> Result<VerifiedOwnAccounts<'_>, EvaluationError> {
+        match &self.marker == marker {
+            true => Ok(VerifiedOwnAccounts(self)),
+            false => Err(EvaluationError::SeedMismatch),
+        }
     }
+}
 
-    /// **Ordnet ein Gegenkonto ein** — der fachliche Kern dieses Tickets, eine reine Funktion auf
-    /// Token: liegt das Token in der Eigen-Menge, ist es [`CounterAccount::Own`] **samt der dort
-    /// hinterlegten Rolle**; jedes andere ist [`CounterAccount::Foreign`].
+/// Die Eigene-Konten-Config, **nachgewiesen** für die Tokenisierung der Buchungen, die gerade
+/// ausgewertet werden — der einzige Weg, ein Gegenkonto einzuordnen. Entsteht allein über
+/// [`OwnAccounts::verified_for`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct VerifiedOwnAccounts<'a>(&'a OwnAccounts);
+
+impl VerifiedOwnAccounts<'_> {
+    /// **Ordnet ein Gegenkonto ein** — eine reine Funktion auf Token: liegt das Token in der
+    /// Eigen-Menge, ist es [`CounterAccount::Own`] **samt der dort hinterlegten Rolle**; jedes andere
+    /// ist [`CounterAccount::Foreign`].
     #[must_use]
     pub(crate) fn resolve(&self, token: &AccountToken) -> CounterAccount {
-        self.roles
+        self.0
+            .roles
             .get(token)
             .map_or(CounterAccount::Foreign, |role| CounterAccount::Own(*role))
     }

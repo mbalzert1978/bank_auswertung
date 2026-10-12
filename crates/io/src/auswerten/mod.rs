@@ -23,15 +23,16 @@
 //! **Die Eigene-Konten-Config reicht der Aufrufer als Wert herein** (io liest sie aus der Config —
 //! der Slice liest keine Datei, ADR-0013 Entscheidung F), heute der Integrationstest mit Fakes,
 //! später der reale Loader ([Issue 0002](../../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)).
-//! Sie geht **nur** die pro-Fenster-Reichweite an: die fenster-übergreifende ordnet keine
-//! Gegenkonten ein, sie sammelt Vorkommen ein.
+//! Sie geht **beide** Reichweiten an: die pro-Fenster-Reichweite nettet damit den Cashflow, die
+//! fenster-übergreifende die Wiederkehr (Issue 0005) — ein Dauerauftrag aufs eigene Konto ist kein
+//! wiederkehrender Kosten-Treiber.
 
 use application_kernel::Handler;
 use auswerten_adapter::{
     AnalysisWindowSeam, CategorizerSeam, CategoryRegistrySeam, EvaluateHistoryCommand,
     EvaluateHistoryCommandDecoder, EvaluateWindowCommand, EvaluateWindowCommandDecoder,
-    EvaluationError, EvaluationStoreSeam, HistoryEvaluationHandler, OccurrenceRow, OccurrenceSeam,
-    OwnAccountsConfig, WindowEvaluationHandler,
+    EvaluationError, EvaluationStoreSeam, HistoryEvaluationHandler, HistoryEvaluationRow,
+    OccurrenceSeam, OwnAccountsConfig, WindowEvaluationHandler,
 };
 
 use crate::{
@@ -71,9 +72,10 @@ pub const CONSUMED_HISTORY_MESSAGE_TYPE: &str = auswerten_adapter::CONSUMED_HIST
 /// daraus statt aus Dedupe-Logik). Der Consumer-Vertrag ist aber `Result<(), _>`: ohne einen
 /// Abnehmer verpuffte die Response schlicht. Statt den **generischen** Vertrag aller vier Consumer
 /// um einen Rückgabewert wachsen zu lassen — den drei von ihnen nie füllten — bekommt **diese eine**
-/// Reichweite ihren direkten Abnehmer, genau so, wie der Slice-Adapter es vorzeichnet. Der reale
-/// Abnehmer ist der Wiederkehr-Analyzer
-/// ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)).
+/// Reichweite ihren direkten Abnehmer, genau so, wie der Slice-Adapter es vorzeichnet. Er bekommt
+/// die ganze [`HistoryEvaluationRow`] — die Vorkommen der Zeitachse **und** die darin erkannten
+/// wiederkehrenden Abflüsse ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)); ihr
+/// späterer Leser ist der Bericht bzw. das Pareto-Ranking (Issues 0012/0007).
 ///
 /// **Unfehlbar, wie [`OutboxPublisher::publish`](crate::outbox::OutboxPublisher::publish):** ein
 /// fehlbarer Abnehmer bräuchte eine Abbildung
@@ -84,9 +86,9 @@ pub const CONSUMED_HISTORY_MESSAGE_TYPE: &str = auswerten_adapter::CONSUMED_HIST
 /// Nachricht erneut zugestellt und der Abnehmer sieht dasselbe Ergebnis noch einmal. Das ist
 /// at-least-once und hier unschädlich — die Query über unveränderliche Snapshots antwortet auf
 /// erneute Zustellung identisch.
-pub trait OccurrenceSink {
-    /// Nimmt die Vorkommen der ganzen Zeitachse des Laufs entgegen.
-    fn receive(&self, occurrences: Vec<OccurrenceRow>);
+pub trait HistoryEvaluationSink {
+    /// Nimmt die Auswertung der ganzen Zeitachse des Laufs entgegen.
+    fn receive(&self, evaluation: HistoryEvaluationRow);
 }
 
 /// Der [`TransactionalHandler`] der **pro-Fenster**-Reichweite: hält die message-unabhängigen Seams
@@ -137,16 +139,18 @@ where
 }
 
 /// Der [`TransactionalHandler`] der **fenster-übergreifenden** Reichweite: derselbe Commit-Rand, nur
-/// mit dem einzweckigen `HistoryEvaluationHandler` darin. Er kennt **weder Ablage noch Config** — er
-/// führt eine Query über alle Fenster des Laufs und reicht ihr Ergebnis an den [`OccurrenceSink`]
-/// weiter. Seine Arbeitseinheit umspannt darum allein den Ack.
-pub struct HistoryEvaluationTransactionalHandler<'a, F: UnitFactory, S: OccurrenceSink> {
+/// mit dem einzweckigen `HistoryEvaluationHandler` darin. Er kennt **keine Ablage** — er führt eine
+/// Query über alle Fenster des Laufs und reicht ihr Ergebnis an den [`HistoryEvaluationSink`] weiter; die
+/// Eigene-Konten-Config hält er für das Netting der Wiederkehr. Seine Arbeitseinheit umspannt darum
+/// allein den Ack.
+pub struct HistoryEvaluationTransactionalHandler<'a, F: UnitFactory, S: HistoryEvaluationSink> {
     source: &'a dyn OccurrenceSeam,
+    own_accounts: OwnAccountsConfig,
     sink: S,
     units: F,
 }
 
-impl<F: UnitFactory, S: OccurrenceSink> TransactionalHandler
+impl<F: UnitFactory, S: HistoryEvaluationSink> TransactionalHandler
     for HistoryEvaluationTransactionalHandler<'_, F, S>
 {
     type Command = EvaluateHistoryCommand;
@@ -159,9 +163,9 @@ impl<F: UnitFactory, S: OccurrenceSink> TransactionalHandler
         command: EvaluateHistoryCommand,
     ) -> Result<(), TransactionError<EvaluationError>> {
         run_in_unit(self.units.begin(ack), |_unit, _publishing| {
-            HistoryEvaluationHandler::new(self.source)
+            HistoryEvaluationHandler::new(self.source, self.own_accounts.clone())
                 .handle(command)
-                .map(|occurrences| self.sink.receive(occurrences))
+                .map(|evaluation| self.sink.receive(evaluation))
         })
     }
 }
@@ -196,13 +200,15 @@ where
 /// eines fremden Slice-Stores; das ist der Preis dafür, den Bound dort zu verlangen, wo er benutzt
 /// wird, statt ihn jeder Unit-Quelle aufzuzwingen. Er kostet keine Garantie: die Einheit wird allein
 /// zum Committen des Acks geöffnet, und der Ack-Pfad ist slice-unabhängig.
-pub fn history_consumer<'a, F: UnitFactory, S: OccurrenceSink>(
+pub fn history_consumer<'a, F: UnitFactory, S: HistoryEvaluationSink>(
     source: &'a dyn OccurrenceSeam,
+    own_accounts: OwnAccountsConfig,
     sink: S,
     units: F,
 ) -> OutboxConsumer<HistoryEvaluationTransactionalHandler<'a, F, S>> {
     OutboxConsumer::new(HistoryEvaluationTransactionalHandler {
         source,
+        own_accounts,
         sink,
         units,
     })
