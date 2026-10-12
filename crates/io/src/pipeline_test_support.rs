@@ -98,7 +98,7 @@ pub(crate) const SEED: u64 = 42;
 /// betrachten: kein Treiber erreicht sie, die Kandidaten-Liste bleibt leer.
 pub(crate) const NO_SAVINGS: auswerten_adapter::SavingsThresholdConfig =
     auswerten_adapter::SavingsThresholdConfig {
-        annual_minor_units: u64::MAX,
+        annual_minor_units: std::num::NonZeroU64::MAX,
     };
 
 /// Baut den echten CSV-CAMT-v8-Reader auf die benannte `einlesen`-Fixture (Pfad relativ zum

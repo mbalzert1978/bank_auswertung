@@ -11,10 +11,10 @@ status: open
 > GitHub-Issue: [#95](https://github.com/mbalzert1978/bank_auswertung/issues/95)
 
 > **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
-> Analyzer-Baustein **unter dem `auswerten`-Slice**, die **pro-Fenster**-Reichweite: Cashflow/Pareto/
-> Spar-Kandidaten **innerhalb** eines `Auswertungsfenster`s (Handler auf `FensterGeschlossen`). Der
-> Pareto-Top-N darf optional den **Kostentreiber-Filter** der fenster-übergreifenden Wiederkehr-Query
-> ([0005](0005-wiederkehr-erkennung.md)) speisen.
+> Analyzer-Baustein **unter dem `auswerten`-Slice**, gebaut in der **fenster-übergreifenden**
+> Reichweite (Handler auf `HistorieVollständig`, Ergebnis als Rückgabewert, nichts abgelegt) — nicht,
+> wie ursprünglich geplant, pro Fenster. Begründung und Details: Abschnitt
+> [„Wie es gebaut wurde"](#wie-es-gebaut-wurde).
 
 ## Was zu bauen ist
 
@@ -65,15 +65,31 @@ nichts und verlöre Abos unterhalb der Spitze.
   chronologisch. Die **Rolle** kommt aus der Eigene-Konten-Config und ist `None`, wenn die Config das
   Konto nicht führt.
 - **Kostentreiber** (`CostDriver`, Summentyp): `Kind(Fingerabdruck)` | `Fee(belastetes Konto)` |
-  `Unattributed`. Eine Gebühr (Buchungstext, 0006) geht **vor** dem Fingerabdruck. Abflüsse ohne
+  `Unattributed`. Eine Gebühr (Buchungstext, 0006) geht **vor** dem Fingerabdruck.
+- **Eine Gruppierung** (Review-Runde 1): die genetteten Abflüsse werden **einmal** nach `CostDriver`
+  gruppiert (`DriverGroups`); daraus kommen die Wiederkehr je bestimmtem Treiber — **auch für
+  `Fee`**: eine monatliche Kontoführung ist wiederkehrend und trägt ihren vollen Jahresbetrag;
+  `Unattributed` bekommt keine — und die Summe je Treiber fürs Ranking. Zwei Gruppierungen
+  (Fingerabdruck für die Wiederkehr, Treiber fürs Ranking) ließen eine einzelne Entgeltzeile mit
+  Gegenpartei die Abo-Reihe des Händlers zerreißen. `RecurrenceRow` trägt darum den Treiber
+  (`driver: CostDriverRow`) statt eines Fingerabdrucks.
+- **Pipeline** in `HistoryEvaluation::of`: `netted_outflows → DriverGroups → {recurrences, rank} →
+  savings_candidates`, daneben `account_cashflows` und `occurrences`; die genetteten Abflüsse werden
+  einmal durchlaufen.
+- **Eine Währung je Lauf** (Review-Runde 1): diese Reichweite summiert über alle Fenster. Der Lese-Seam
+  liefert darum die Währungen der beteiligten Fenster (`RunHistoryRow::currencies`, io:
+  `SELECT DISTINCT currency …`), die Domäne baut `RunHistory` nur über **genau eine**
+  (`EvaluationError::MixedCurrencies`, terminal, ohne die Werte). Die `HistoryEvaluationRow` trägt die
+  eine `currency` (für den Bericht). Abflüsse ohne
   Gegenpartei, die keine Gebühr sind (z. B. Barabhebung), werden **zu einem Sammel-Treiber
   zusammengefasst** statt weggelassen — sonst ergäben die Anteile nicht das Ganze und der Bericht
   verschwiege abgeflossenes Geld. Der Sammel-Treiber ist **nie** Spar-Kandidat (keine Art, auf die
   man handeln könnte).
 - **Pareto-Ranking** (`RankedDriver`): genettete Abflüsse je Treiber summiert, absteigend nach
   Betrag, Gleichstand nach Treiber (deterministisch). Anteil und kumulierter Anteil als `Share` in
-  **Basispunkten** (10 000 = 100 %, ganzzahlig abgerundet, kein `f64`); der kumulierte Anteil wird aus
-  der kumulierten Summe gerechnet und endet darum genau bei 10 000. Die Summe aller Treiber ist genau
+  **Basispunkten** (10 000 = 100 %, ganzzahlig, kein `f64`). Abgerundet wird **nur** der kumulierte
+  Anteil (aus der kumulierten Summe); der Einzelanteil ist die Differenz zum Vorplatz — so ergeben die
+  Einzelanteile **genau** 10 000 (getrennt gerundet waren es z. B. 9 998). Die Summe aller Treiber ist genau
   der Abfluss des genetteten Cashflows. Wiederkehrende Treiber (0005) tragen ihre `Recurrence` (Takt,
   Preissteigerung) im Ranking.
 - **Jahresbetrag** (Bezugsgröße, vom Orchestrator bestätigt): wiederkehrend → aus der Wiederkehr
@@ -84,7 +100,9 @@ nichts und verlöre Abos unterhalb der Spitze.
   zu vier Käufen. Preis der Vorsicht: eine Monatsgebühr in einem kurzen Auszug erscheint mit weniger
   als ihrem vollen Jahr.
 - **Spar-Kandidaten** (`SavingsCandidate`, Entscheidung V3): jeder Treiber außer dem Sammel-Treiber,
-  dessen Jahresbetrag die `SavingsThreshold` **erreicht** (einschließlich). Geordnet nach Jahresbetrag
+  dessen Jahresbetrag die `SavingsThreshold` **erreicht** (einschließlich). Die Schwelle ist
+  `NonZeroU64` von der Domäne bis zum Loader (`SavingsThreshold`, `SavingsThresholdConfig`,
+  `SparenConfig`) — eine Schwelle von 0 ist unkonstruierbar. Geordnet nach Jahresbetrag
   absteigend (nicht nach Ranking-Platz), mit `pareto_rank`, Anteil, Takt und **Preissteigerung** als
   Merkmal. Kein LLM.
 
@@ -98,15 +116,19 @@ gitignored — der Wert ist nicht vertraulich.
 **Ausgabe** (für Bericht 0012 / Export 0011), öffentliche Adapter-DTOs, alle mit
 `assert_not_impl_any!(…: Serialize, Deserialize)`: `HistoryEvaluationRow` trägt zusätzlich
 `account_cashflows: Vec<AccountCashflowRow>`, `ranking: Vec<DriverRankRow>` (mit `CostDriverRow`) und
-`savings_candidates: Vec<SavingsCandidateRow>`. Inhalt nur Token, Fingerabdrücke, Beträge, Monate,
+`savings_candidates: Vec<SavingsCandidateRow>` (`{ pareto_rank, ranked: DriverRankRow }` — eine
+Abbildung, keine doppelten Felder), dazu `currency: Option<String>`. Inhalt nur Token, Fingerabdrücke, Beträge, Monate,
 Tag-Stamps. Die Schwelle kommt als `SavingsThresholdConfig` herein
 (`HistoryEvaluationHandler::new(seam, own_accounts, savings_threshold)`, `io::auswerten::history_consumer`
 analog). Der Bericht bekommt die Zeile über den `HistoryEvaluationSink` des Laufs; heute zählt
 `io::run::CountingHistorySink` nur Vorkommen und Spar-Kandidaten (`RunReport::savings_candidates`,
 Protokollzeile „Spar-Kandidaten: n") — die Zeile für **seinen** Lauf festzuhalten ist Sache von 0012.
 
-**Tests:** `crates/auswerten_specs/tests/aderlass.rs` (11 Specs über die `HistoryTestApi`, u. a.
-genettete Umbuchung weder im Cashflow noch im Ranking, DTO-Vertrag ohne Datei/Netz),
+**Tests:** `crates/auswerten_specs/tests/aderlass.rs` (15 Specs über die `HistoryTestApi`, u. a.
+genettete Umbuchung weder im Cashflow noch im Ranking, DTO-Vertrag ohne Datei/Netz, Summe der Anteile
+= 10 000, monatliche Gebühr wiederkehrend, Gebühr mit Gegenpartei, gemischte Währungen),
+`io::run::aderlass_tests` (zwei echte Läufe, echt geladene Config: die Konto-Rolle kommt im
+`account_cashflows` an, Ranking- und Cashflow-Abfluss stimmen überein),
 `io::config::sparen` (Loader gegen Text und Fixture), `io::run::tests` (fehlende Spar-Config,
 Kandidaten im echten Lauf, Zahlen des wiederholten Laufs inkl. Kandidaten-Zahl gleich).
 
@@ -116,5 +138,6 @@ Kandidaten im echten Lauf, Zahlen des wiederholten Laufs inkl. Kandidaten-Zahl g
 - Blockiert durch [0004](0004-umbuchung-netting.md)
 - Blockiert durch [0005](0005-wiederkehr-erkennung.md)
 - Blockiert durch [0006](0006-gebuehren-klassifikation.md)
-- Blockiert durch [0040](0040-auswerten-triade-skelett-pro-fenster-reichweite.md) — Cashflow/Pareto
-  rechnen in der pro-Fenster-Reichweite; das Skelett liefert bereits den Monats-Cashflow.
+- Blockiert durch [0040](0040-auswerten-triade-skelett-pro-fenster-reichweite.md) — das Skelett der
+  `auswerten`-Triade (gebaut wurde der Aderlass dann auf der fenster-übergreifenden Reichweite, siehe
+  „Wie es gebaut wurde").

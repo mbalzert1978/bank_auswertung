@@ -210,6 +210,12 @@ impl OccurrenceSeam for FakeJoin<'_> {
             } else {
                 SEED_MARKER.to_string()
             },
+            // Jedes Fenster dieser Fixture ist in Euro — eine Währung je Lauf.
+            currencies: if bookings.is_empty() {
+                Vec::new()
+            } else {
+                vec!["EUR".to_string()]
+            },
             bookings,
         })
     }
@@ -483,7 +489,7 @@ pub(crate) fn dispatcher_mit<'a>(
                 eigene_konten(),
                 // Unerreichbar: dieser Verdrahtungstest betrachtet die Spar-Kandidaten nicht.
                 SavingsThresholdConfig {
-                    annual_minor_units: u64::MAX,
+                    annual_minor_units: std::num::NonZeroU64::MAX,
                 },
                 verdrahtung.senke.clone(),
                 db,

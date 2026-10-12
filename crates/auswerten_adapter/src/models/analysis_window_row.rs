@@ -1,6 +1,6 @@
 use auswerten_domain::{
     AccountToken, Amount, AnalysisWindow, Counterparty, Currency, DayStamp, Direction,
-    NonEmptyString, Recipient, SeedMarker, WindowedBooking,
+    EvaluationError, NonEmptyString, Recipient, SeedMarker, WindowedBooking,
 };
 
 /// Das **eingefrorene Auswertungsfenster**, wie der Lese-Seam es zu einer ID liefert: die eine
@@ -172,6 +172,15 @@ impl MissingMandatoryField {
     /// Fehlergrund.
     pub(crate) fn field(&self) -> &'static str {
         self.field
+    }
+}
+
+/// Die Präsenz-Verletzung wird zum terminalen Domänen-Fehler — **nur** mit dem statischen Feldnamen.
+impl From<MissingMandatoryField> for EvaluationError {
+    fn from(missing: MissingMandatoryField) -> Self {
+        EvaluationError::MissingMandatoryField {
+            field: missing.field(),
+        }
     }
 }
 

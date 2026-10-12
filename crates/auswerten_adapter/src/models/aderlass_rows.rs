@@ -1,5 +1,7 @@
+use std::num::NonZeroU64;
+
 use auswerten_domain::{
-    AccountCashflow, Amount, CostDriver, RankedDriver, SavingsCandidate, SavingsThreshold,
+    AccountCashflow, CostDriver, RankedDriver, SavingsCandidate, SavingsThreshold,
 };
 
 use crate::models::account_role_vocabulary::role_label;
@@ -11,17 +13,18 @@ use crate::models::{PriceIncreaseRow, RecurrenceRhythm};
 /// ([Issue 0007](../../../../docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)).
 ///
 /// Wie die [`OwnAccountsConfig`](crate::OwnAccountsConfig) ein **Wert**, den io beim Bau hereinreicht
-/// — der Slice liest keine Datei. Ihre Deutung ist infallibel: jede Zahl ist eine Schwelle; dass sie
-/// positiv ist, hat der Loader am Rand verlangt.
+/// — der Slice liest keine Datei. **Nie null, per Typ** ([`NonZeroU64`]): eine Schwelle von 0 machte
+/// jeden Treiber zum Kandidaten; der Loader hat sie am Rand abgewiesen, der Typ trägt den Beweis
+/// weiter, und die Deutung ist darum infallibel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SavingsThresholdConfig {
-    pub annual_minor_units: u64,
+    pub annual_minor_units: NonZeroU64,
 }
 
 impl SavingsThresholdConfig {
     /// Deutet das DTO in die Domänen-Schwelle (ACL, „außen → innen").
     pub(crate) fn to_threshold(self) -> SavingsThreshold {
-        SavingsThreshold::annual(Amount::from_minor_units(self.annual_minor_units))
+        SavingsThreshold::annual(self.annual_minor_units)
     }
 }
 
@@ -62,8 +65,9 @@ pub enum CostDriverRow {
 
 /// Ein **Platz im Pareto-Ranking** als Ausgangs-DTO.
 ///
-/// Anteile in **Basispunkten** (10 000 = 100 %), abgerundet; der kumulierte Anteil des letzten
-/// Platzes ist genau 10 000. Der **Jahresbetrag** kommt aus der Wiederkehr, wenn `rhythm` gesetzt
+/// Anteile in **Basispunkten** (10 000 = 100 %). Abgerundet wird nur der kumulierte Anteil; der
+/// Einzelanteil ist die Differenz zum Vorplatz. So ergeben die Einzelanteile aller Plätze **genau**
+/// 10 000, und der kumulierte Anteil des letzten Platzes ist es auch. Der **Jahresbetrag** kommt aus der Wiederkehr, wenn `rhythm` gesetzt
 /// ist, sonst ist er der Durchschnitt je Jahr über den beobachteten Zeitraum (bei weniger als einem
 /// Jahr die Summe — nie hochgerechnet).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,15 +88,12 @@ pub struct DriverRankRow {
 
 /// Ein **Spar-Kandidat** als Ausgangs-DTO: ein Treiber, dessen Jahresbetrag die Schwelle erreicht —
 /// ein Vorschlag, keine Entscheidung. Er nennt seinen Platz im Ranking (`pareto_rank`, ab 1), damit
-/// ein Bericht ihn dort wiederfindet, und trägt Takt und **Preissteigerung** als Merkmale.
+/// ein Bericht ihn dort wiederfindet, und trägt den **ganzen** Ranking-Platz (`ranked`) — darin
+/// Jahresbetrag, Anteil, Takt und **Preissteigerung**. Eine Abbildung, nicht zwei.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavingsCandidateRow {
     pub pareto_rank: usize,
-    pub driver: CostDriverRow,
-    pub annual_amount_minor_units: u64,
-    pub share_basis_points: u32,
-    pub rhythm: Option<RecurrenceRhythm>,
-    pub price_increase: Option<PriceIncreaseRow>,
+    pub ranked: DriverRankRow,
 }
 
 impl From<&AccountCashflow> for AccountCashflowRow {
@@ -144,14 +145,9 @@ impl From<&RankedDriver> for DriverRankRow {
 
 impl From<&SavingsCandidate> for SavingsCandidateRow {
     fn from(candidate: &SavingsCandidate) -> Self {
-        let ranked = DriverRankRow::from(candidate.driver());
         Self {
             pareto_rank: candidate.pareto_rank(),
-            driver: ranked.driver,
-            annual_amount_minor_units: ranked.annual_amount_minor_units,
-            share_basis_points: ranked.share_basis_points,
-            rhythm: ranked.rhythm,
-            price_increase: ranked.price_increase,
+            ranked: DriverRankRow::from(candidate.driver()),
         }
     }
 }

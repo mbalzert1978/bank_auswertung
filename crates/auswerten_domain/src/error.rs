@@ -50,6 +50,12 @@ pub enum EvaluationError {
     ///
     /// Trägt die io-Diagnose (Zugriffs-Mechanik, nie Zeilen-/Feldinhalt).
     RegistryUnavailable { reason: String },
+    /// Die Fenster **eines Laufs** tragen **mehr als eine Währung**. Terminal, weil die
+    /// fenster-übergreifende Reichweite über alle Fenster summiert — gemischt addierte sie Euro zu
+    /// Dollar, und das Ergebnis läse sich richtig.
+    ///
+    /// Trägt **keine** der Währungen — sie benennt die Lage, nicht die Werte.
+    MixedCurrencies,
     /// Das **Orakel** war nicht erreichbar oder hat nicht verwertbar geantwortet. Trägt die
     /// io-Diagnose der Zugriffs-Mechanik — **nie** den angefragten Text und nie die Antwort selbst.
     CategorizerUnavailable { reason: String },
@@ -79,6 +85,12 @@ impl fmt::Display for EvaluationError {
             ),
             EvaluationError::RegistryUnavailable { reason } => {
                 write!(f, "could not query the category register: {reason}")
+            }
+            EvaluationError::MixedCurrencies => {
+                write!(
+                    f,
+                    "the analysis windows of the run carry more than one currency"
+                )
             }
             EvaluationError::CategorizerUnavailable { reason } => {
                 write!(f, "could not ask the categorizer: {reason}")

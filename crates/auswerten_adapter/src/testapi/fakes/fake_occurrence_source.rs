@@ -58,6 +58,7 @@ impl OccurrenceSeam for FakeOccurrenceSource {
             .map(|(_, window)| {
                 (
                     window.seed_marker.as_str(),
+                    window.currency.clone(),
                     window
                         .bookings
                         .iter()
@@ -66,9 +67,9 @@ impl OccurrenceSeam for FakeOccurrenceSource {
                         .collect::<Vec<_>>(),
                 )
             })
-            .filter(|(_, bookings)| !bookings.is_empty())
+            .filter(|(_, _, bookings)| !bookings.is_empty())
             .collect::<Vec<_>>();
-        let mut markers = contributing.iter().map(|(marker, _)| *marker);
+        let mut markers = contributing.iter().map(|(marker, _, _)| *marker);
         let seed_marker = markers.next().unwrap_or_default();
         if markers.any(|marker| marker != seed_marker) {
             return Err(SourceUnavailable {
@@ -77,9 +78,14 @@ impl OccurrenceSeam for FakeOccurrenceSource {
         }
         Ok(RunHistoryRow {
             seed_marker: seed_marker.to_string(),
+            // Je beteiligtem Fenster seine Währung — ob es **eine** ist, prüft die Domäne.
+            currencies: contributing
+                .iter()
+                .map(|(_, currency, _)| currency.clone())
+                .collect(),
             bookings: contributing
                 .into_iter()
-                .flat_map(|(_, bookings)| bookings)
+                .flat_map(|(_, _, bookings)| bookings)
                 .collect(),
         })
     }

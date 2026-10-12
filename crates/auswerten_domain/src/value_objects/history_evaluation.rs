@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::value_objects::{
-    AccountCashflow, AccountToken, Charge, ChargeSeries, CostDriver, CounterAccount, Direction,
-    Fingerprint, Month, MonthlyCashflow, Occurrence, RankedDriver, Recurrence, SavingsCandidate,
-    SavingsThreshold, VerifiedOwnAccounts, WindowedBooking, rank_drivers, savings_candidates,
+    AccountCashflow, AccountToken, Currency, Direction, DriverGroups, Fingerprint, Month,
+    MonthlyCashflow, Occurrence, RankedDriver, Recurrence, SavingsCandidate, SavingsThreshold,
+    VerifiedOwnAccounts, WindowedBooking, savings_candidates,
 };
 
 /// Das **Ergebnis der fenster-übergreifenden Reichweite** (ADR-0013, Entscheidung E, Reichweite 2):
@@ -30,6 +30,8 @@ use crate::value_objects::{
 /// beide Richtungen ohne Umbuchungen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryEvaluation {
+    /// Die **eine** Währung aller Beträge des Laufs — `None` nur für die leere Historie.
+    currency: Option<Currency>,
     occurrences: Vec<Occurrence>,
     recurrences: Vec<Recurrence>,
     account_cashflows: Vec<AccountCashflow>,
@@ -38,82 +40,49 @@ pub struct HistoryEvaluation {
 }
 
 impl HistoryEvaluation {
-    /// **Wertet die Historie aus** — der einzige Konstruktor.
+    /// **Wertet die Historie aus** — der einzige Konstruktor, und eine kleine Pipeline aus benannten
+    /// reinen Schritten:
     ///
-    /// Für die Wiederkehr geht jede Buchung durch zwei Filter, und beide sind fachlich:
-    /// - **nur Abflüsse** — ein regelmäßiger Zufluss (das Gehalt) ist kein Kosten-Treiber;
-    /// - **genettet** ([Issue 0004](../../../../docs/issues/0004-umbuchung-netting.md)) — ein
-    ///   Dauerauftrag aufs eigene Sparkonto ist kein verlorenes Geld, sondern eine Umbuchung, und
-    ///   dieselbe Regel, die ihn aus dem Cashflow nimmt, nimmt ihn hier aus der Wiederkehr.
+    /// ```text
+    /// netted_outflows ─► DriverGroups ─┬─► recurrences
+    ///                                  └─► rank ─► savings_candidates
+    /// account_cashflows   occurrences   (daneben, über alle Buchungen)
+    /// ```
     ///
-    /// Was bleibt, wird **je Fingerabdruck** gruppiert — dem Schlüssel einer Buchungs*art*, der bei
-    /// einem Zahlungsintermediär schon den Händler-Token trägt. Zwei Händler hinter demselben
-    /// Durchleiter landen darum in zwei Gruppen, ohne dass hier etwas dafür geschieht. Eine Buchung
-    /// **ohne** Fingerabdruck (Entgeltzeile ohne Gegenpartei) gehört zu keiner Art und fällt heraus;
-    /// was die Bank regelmäßig einzieht, weist die Gebühren-Sicht der pro-Fenster-Reichweite aus.
-    ///
-    /// Auf denselben genetteten Abflüssen steht das **Pareto-Ranking** (siehe [`CostDriver`]: je Art,
-    /// je Gebühren-Konto, dazu ein Sammel-Treiber ohne Gegenpartei) und daraus die **Spar-Kandidaten**
-    /// über der `threshold`. Der Jahresbetrag eines wiederkehrenden Treibers kommt aus seiner
-    /// Wiederkehr; für jeden anderen ist er der Durchschnitt je Jahr über den **beobachteten
-    /// Zeitraum** — vom ersten bis zum letzten Buchungstag des Laufs, über alle Konten.
+    /// **Genettet** heißt: nur Abflüsse, die nicht auf ein eigenes Konto gingen ([Issue
+    /// 0004](../../../../docs/issues/0004-umbuchung-netting.md)) — ein Gehalt ist kein Kosten-Treiber,
+    /// ein Dauerauftrag aufs Sparkonto kein verlorenes Geld. Sie werden **einmal** nach
+    /// [`CostDriver`](crate::CostDriver) gruppiert (je Art, je Gebühren-Konto, dazu der Sammel-Treiber ohne
+    /// Gegenpartei); aus dieser **einen** Gruppierung kommen die Wiederkehr je bestimmtem Treiber
+    /// (auch eine monatliche Kontoführung) und das Pareto-Ranking. Der Jahresbetrag eines
+    /// wiederkehrenden Treibers kommt aus seiner Wiederkehr, für jeden anderen ist er der
+    /// Durchschnitt je Jahr über den **beobachteten Zeitraum** — vom ersten bis zum letzten
+    /// Buchungstag des Laufs, über alle Konten. Die Spar-Kandidaten sind die Treiber über der
+    /// `threshold`.
     #[must_use]
     pub(crate) fn of(
+        currency: &Currency,
         bookings: &[WindowedBooking],
         own_accounts: VerifiedOwnAccounts<'_>,
         threshold: SavingsThreshold,
     ) -> Self {
-        let mut occurrences = bookings
-            .iter()
-            .filter_map(occurrence_of)
-            .collect::<Vec<_>>();
-        // **Chronologisch** — die Zeitachse ist der Sinn dieser Sicht. Die Ordnung ist **total**
-        // (Tag, dann Schlüssel, dann Zahlen), die Sortierung also eingabe-unabhängig.
-        occurrences.sort();
-        // Die `BTreeMap` gruppiert je Art und legt die Gruppen zugleich in stabiler,
-        // eingabe-unabhängiger Reihenfolge ab — dieselben Aggregate ergeben dieselbe Liste.
-        let recurrences = netted_outflows(bookings, &own_accounts)
-            .filter_map(|booking| {
-                Some((
-                    Fingerprint::of(booking.counterparty())?,
-                    Charge::new(
-                        booking.day(),
-                        booking.amount(),
-                        booking.ordering_account().clone(),
-                    ),
-                ))
-            })
-            .fold(
-                BTreeMap::<Fingerprint, Vec<Charge>>::new(),
-                |mut by_kind, (fingerprint, charge)| {
-                    by_kind.entry(fingerprint).or_default().push(charge);
-                    by_kind
-                },
-            )
-            .into_iter()
-            .filter_map(|(fingerprint, charges)| {
-                Recurrence::detect(fingerprint, &ChargeSeries::of(charges)?)
-            })
-            .collect::<Vec<_>>();
-        let ranking = rank_drivers(
-            netted_outflows(bookings, &own_accounts)
-                .map(|booking| (CostDriver::of(booking), booking.amount())),
-            &recurrences,
-            observed_days(bookings),
-        );
+        let groups = DriverGroups::of(netted_outflows(bookings, &own_accounts));
+        let ranking = groups.rank(observed_days(bookings));
         Self {
-            occurrences,
+            currency: Some(currency.clone()),
+            occurrences: occurrences(bookings),
+            recurrences: groups.recurrences(),
             account_cashflows: account_cashflows(bookings, &own_accounts),
             savings_candidates: savings_candidates(&ranking, threshold),
             ranking,
-            recurrences,
         }
     }
 
-    /// Die Auswertung einer **leeren** Historie: keine Vorkommen, keine Wiederkehr.
+    /// Die Auswertung einer **leeren** Historie: keine Währung, keine Vorkommen, keine Wiederkehr.
     #[must_use]
     pub(crate) fn empty() -> Self {
         Self {
+            currency: None,
             occurrences: Vec::new(),
             recurrences: Vec::new(),
             account_cashflows: Vec::new(),
@@ -122,14 +91,20 @@ impl HistoryEvaluation {
         }
     }
 
+    /// Die **eine** Währung aller Beträge — `None` nur, wenn die Historie leer war.
+    #[must_use]
+    pub fn currency(&self) -> Option<&Currency> {
+        self.currency.as_ref()
+    }
+
     /// Die Vorkommen der ganzen Zeitachse, chronologisch — ungefiltert (siehe Typ-Doku).
     #[must_use]
     pub fn occurrences(&self) -> &[Occurrence] {
         &self.occurrences
     }
 
-    /// Die **wiederkehrenden Abflüsse** des Laufs, je Buchungsart einer, in stabiler Reihenfolge des
-    /// Fingerabdrucks. Wer am meisten kostet, sagt nicht diese Liste, sondern das
+    /// Die **wiederkehrenden Abflüsse** des Laufs, je Kostentreiber einer (Buchungsart oder Gebühren
+    /// eines Kontos), in der stabilen Ordnung des Treibers. Wer am meisten kostet, sagt nicht diese Liste, sondern das
     /// [`ranking`](Self::ranking) — dort steht jede Wiederkehr an ihrem Treiber.
     #[must_use]
     pub fn recurrences(&self) -> &[Recurrence] {
@@ -158,6 +133,17 @@ impl HistoryEvaluation {
     }
 }
 
+/// Die **Zeitachse**: je Buchung mit Gegenpartei ein Vorkommen, **chronologisch** — die Ordnung ist
+/// total (Tag, dann Schlüssel, dann Zahlen), die Sortierung also eingabe-unabhängig.
+fn occurrences(bookings: &[WindowedBooking]) -> Vec<Occurrence> {
+    let mut occurrences = bookings
+        .iter()
+        .filter_map(occurrence_of)
+        .collect::<Vec<_>>();
+    occurrences.sort();
+    occurrences
+}
+
 /// Verdichtet eine gelesene Buchung zu ihrem Vorkommen. Eine Buchung **ohne** Gegenpartei
 /// (Entgeltzeile) trägt **keines** bei: es gibt nichts, was ihre Art unterscheidbar machte, und ein
 /// Platzhalter-Schlüssel verklumpte alle Entgeltzeilen zu einer scheinbar wiederkehrenden Art.
@@ -173,8 +159,7 @@ fn occurrence_of(booking: &WindowedBooking) -> Option<Occurrence> {
 }
 
 /// Die **genetteten Abflüsse**: was abfloss und nicht auf ein eigenes Konto ging — die eine Menge,
-/// auf der Wiederkehr und Ranking stehen. Sie steht einmal da, damit die beiden nicht auseinanderlaufen
-/// können: ein Dauerauftrag aufs Sparkonto fehlt in beiden oder in keinem.
+/// auf der Wiederkehr und Ranking stehen (über [`DriverGroups`], einmal durchlaufen).
 fn netted_outflows<'a>(
     bookings: &'a [WindowedBooking],
     own_accounts: &'a VerifiedOwnAccounts<'_>,
@@ -208,10 +193,7 @@ fn account_cashflows(
         )
         .into_iter()
         .map(|((account, _month), flow)| {
-            let role = match own_accounts.resolve(&account) {
-                CounterAccount::Own(role) => Some(role),
-                CounterAccount::Foreign => None,
-            };
+            let role = own_accounts.resolve(&account).own_role();
             AccountCashflow::of(account, role, flow)
         })
         .collect()

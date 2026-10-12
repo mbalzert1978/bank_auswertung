@@ -2,7 +2,8 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use crate::value_objects::{
-    AccountToken, Amount, BookingKind, Fingerprint, Recurrence, Share, WindowedBooking,
+    AccountToken, Amount, BookingKind, Charge, ChargeSeries, Fingerprint, Recurrence, Share,
+    WindowedBooking,
 };
 
 /// Die Tage eines Jahres — die Bezugsgröße der Hochrechnung auf den **Jahresbetrag**.
@@ -14,8 +15,8 @@ const DAYS_PER_YEAR: u64 = 365;
 /// Ein **Summentyp** (ADR-0005), weil ein Abfluss auf genau drei Arten einem Treiber zufällt und
 /// jede ihren eigenen Schlüssel hat:
 ///
-/// - **eine Buchungsart** — über ihren [`Fingerprint`], den Schlüssel, unter dem auch die Wiederkehr
-///   gruppiert; ein Händler hinter einem Durchleiter ist darum ein eigener Treiber;
+/// - **eine Buchungsart** — über ihren [`Fingerprint`]; ein Händler hinter einem Durchleiter ist darum
+///   ein eigener Treiber;
 /// - **die Gebühren eines Kontos** — was die Bank auf **einem** Konto selbst einzieht
 ///   ([`BookingKind::Fee`](crate::BookingKind)), ein Treiber je belastetem Konto, wie in der
 ///   Gebühren-Sicht. Die Gebühr gewinnt vor dem Fingerabdruck: eine Entgeltzeile ist Geld, das die
@@ -23,6 +24,11 @@ const DAYS_PER_YEAR: u64 = 365;
 /// - **ohne Gegenpartei** — ein Abfluss, der weder eine Art noch eine Gebühr ist (etwa eine
 ///   Barabhebung). Er bekommt **einen** Sammel-Treiber statt keinen: fiele er weg, ergäben die
 ///   Anteile des Rankings nicht mehr das Ganze, und der Bericht verschwiege Geld, das abfloss.
+///
+/// **Der eine Gruppierungsschlüssel der genetteten Abflüsse:** Wiederkehr und Ranking gruppieren
+/// beide nach ihm (`DriverGroups`). Stünden zwei Schlüssel nebeneinander, könnte eine einzelne
+/// Entgeltzeile die Abo-Reihe ihrer Gegenpartei zerreißen, und eine monatliche Kontoführung verlöre
+/// ihren Takt. So ist auch eine Gebühr wiederkehrend, wenn sie im Takt abgeht.
 ///
 /// Die abgeleitete Ordnung (Art < Gebühr < Sammel-Treiber, darin nach Schlüssel) ist der stabile
 /// Gleichstand-Entscheider des Rankings.
@@ -45,11 +51,13 @@ impl CostDriver {
         }
     }
 
-    /// Kann dieser Treiber ein **Spar-Kandidat** sein? Der Sammel-Treiber nicht: er ist keine Art,
-    /// sondern der Rest — „spar an allem ohne Gegenpartei" ist kein Vorschlag, auf den man handeln
-    /// könnte.
+    /// Ist dieser Treiber **bestimmt** — eine Art oder die Gebühren eines Kontos —, nicht der Rest?
+    ///
+    /// Nur ein bestimmter Treiber hat einen Takt und kann Spar-Kandidat sein. Der Sammel-Treiber
+    /// fasst Unverwandtes zusammen: ein „Rhythmus" über Barabhebungen und Einzelposten wäre Zufall,
+    /// und „spar an allem ohne Gegenpartei" ist kein Vorschlag, auf den man handeln könnte.
     #[must_use]
-    pub(crate) fn is_actionable(&self) -> bool {
+    pub(crate) fn is_specific(&self) -> bool {
         !matches!(self, Self::Unattributed)
     }
 }
@@ -93,7 +101,8 @@ impl RankedDriver {
         self.bookings
     }
 
-    /// Sein Anteil an allen genetteten Abflüssen des Laufs.
+    /// Sein Anteil an allen genetteten Abflüssen des Laufs — als Differenz der kumulierten Anteile
+    /// zum Vorplatz, sodass die Anteile aller Plätze **genau** das Ganze ergeben.
     #[must_use]
     pub fn share(&self) -> Share {
         self.share
@@ -119,66 +128,112 @@ impl RankedDriver {
     }
 }
 
-/// **Rankt die Abflüsse** nach Treibern — die reine Kernfunktion des Pareto-Rankings.
+/// Die genetteten Abflüsse eines Laufs, **einmal** nach [`CostDriver`] gruppiert — die eine
+/// Gruppierung, aus der Wiederkehr **und** Ranking stammen.
 ///
-/// Je Treiber werden die Abflüsse summiert; sortiert wird **absteigend nach Betrag** und bei
-/// Gleichstand nach dem Treiber selbst, sodass dieselben Abflüsse in jeder Reihenfolge dasselbe
-/// Ranking ergeben. Der kumulierte Anteil wird aus der **kumulierten Summe** gerechnet, nicht aus
-/// den gerundeten Einzelanteilen: so endet er am letzten Platz genau beim Ganzen, statt an
-/// Rundungsresten unter 100 % hängen zu bleiben.
-///
-/// `observed_days` ist die Länge des beobachteten Zeitraums in Tagen — die Grundlage des
-/// Jahresbetrags aller nicht wiederkehrenden Treiber.
-pub(crate) fn rank(
-    outflows: impl Iterator<Item = (CostDriver, Amount)>,
-    recurrences: &[Recurrence],
-    observed_days: u64,
-) -> Vec<RankedDriver> {
-    let by_driver = outflows.fold(
-        BTreeMap::<CostDriver, (Amount, usize)>::new(),
-        |mut by_driver, (driver, amount)| {
-            let (sum, count) = by_driver.entry(driver).or_default();
-            *sum = sum.plus(amount);
-            *count = count.saturating_add(1);
-            by_driver
-        },
-    );
-    let total = by_driver
-        .values()
-        .fold(Amount::default(), |total, (sum, _)| total.plus(*sum));
-    let recurring = recurrences
-        .iter()
-        .map(|recurrence| (recurrence.fingerprint(), recurrence))
-        .collect::<BTreeMap<_, _>>();
-    let mut ranked = by_driver.into_iter().collect::<Vec<_>>();
-    ranked.sort_by(|(left, (left_sum, _)), (right, (right_sum, _))| {
-        (Reverse(left_sum), left).cmp(&(Reverse(right_sum), right))
-    });
-    ranked
-        .into_iter()
-        .scan(
-            Amount::default(),
-            |cumulative, (driver, (outflow, bookings))| {
-                *cumulative = cumulative.plus(outflow);
-                let recurrence = match &driver {
-                    CostDriver::Kind(fingerprint) => recurring.get(fingerprint).copied().cloned(),
-                    CostDriver::Fee(_) | CostDriver::Unattributed => None,
-                };
-                Some(RankedDriver {
-                    annual_amount: recurrence.as_ref().map_or_else(
-                        || annual_average(outflow, observed_days),
-                        Recurrence::annual_amount,
-                    ),
-                    driver,
-                    outflow,
-                    bookings,
-                    share: Share::of(outflow, total),
-                    cumulative_share: Share::of(*cumulative, total),
-                    recurrence,
-                })
+/// Je Treiber trägt sie, was das Ranking braucht (Summe und Zahl der Abflüsse), und die
+/// [`Recurrence`], falls die Abflüsse eines **bestimmten** Treibers im Takt abgehen — ein Abo, ein
+/// Dauerauftrag, eine monatliche Kontoführung. Der Sammel-Treiber bekommt keine. Geordnet nach dem
+/// Treiber, also stabil und eingabe-unabhängig.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DriverGroups(Vec<DriverGroup>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DriverGroup {
+    driver: CostDriver,
+    outflow: Amount,
+    bookings: usize,
+    recurrence: Option<Recurrence>,
+}
+
+impl DriverGroups {
+    /// Gruppiert die (schon genetteten) Abflüsse — **ein** Durchlauf über die Buchungen.
+    pub(crate) fn of<'a>(outflows: impl Iterator<Item = &'a WindowedBooking>) -> Self {
+        let by_driver = outflows.fold(
+            BTreeMap::<CostDriver, Vec<Charge>>::new(),
+            |mut by_driver, booking| {
+                by_driver
+                    .entry(CostDriver::of(booking))
+                    .or_default()
+                    .push(Charge::new(
+                        booking.day(),
+                        booking.amount(),
+                        booking.ordering_account().clone(),
+                    ));
+                by_driver
             },
+        );
+        Self(
+            by_driver
+                .into_iter()
+                .map(|(driver, charges)| DriverGroup {
+                    outflow: charges
+                        .iter()
+                        .fold(Amount::default(), |sum, charge| sum.plus(charge.amount())),
+                    bookings: charges.len(),
+                    recurrence: driver
+                        .is_specific()
+                        .then(|| ChargeSeries::of(charges))
+                        .flatten()
+                        .and_then(|series| Recurrence::detect(driver.clone(), &series)),
+                    driver,
+                })
+                .collect(),
         )
-        .collect()
+    }
+
+    /// Die **wiederkehrenden** Treiber, in der Ordnung des Treibers.
+    pub(crate) fn recurrences(&self) -> Vec<Recurrence> {
+        self.0
+            .iter()
+            .filter_map(|group| group.recurrence.clone())
+            .collect()
+    }
+
+    /// **Rankt die Treiber** — die reine Kernfunktion des Pareto-Rankings.
+    ///
+    /// Sortiert wird **absteigend nach Abfluss** und bei Gleichstand nach dem Treiber selbst, sodass
+    /// dieselben Abflüsse in jeder Reihenfolge dasselbe Ranking ergeben.
+    ///
+    /// **Anteile ohne Rundungsrest:** gerundet wird nur der **kumulierte** Anteil (aus der kumulierten
+    /// Summe); der Einzelanteil ist die Differenz zum kumulierten Anteil des Vorplatzes. So summieren
+    /// sich die Einzelanteile **genau** zum Ganzen (10 000), und der letzte kumulierte Anteil ist es
+    /// auch — getrennt abgerundete Einzelanteile verlören je Platz bis zu einen Basispunkt.
+    ///
+    /// `observed_days` ist die Länge des beobachteten Zeitraums in Tagen — die Grundlage des
+    /// Jahresbetrags aller nicht wiederkehrenden Treiber.
+    pub(crate) fn rank(&self, observed_days: u64) -> Vec<RankedDriver> {
+        let total = self
+            .0
+            .iter()
+            .fold(Amount::default(), |total, group| total.plus(group.outflow));
+        let mut ordered = self.0.iter().collect::<Vec<_>>();
+        ordered.sort_by_key(|group| (Reverse(group.outflow), &group.driver));
+        ordered
+            .into_iter()
+            .scan(
+                (Amount::default(), Share::of(Amount::default(), total)),
+                |(cumulative, previous_share), group| {
+                    *cumulative = cumulative.plus(group.outflow);
+                    let cumulative_share = Share::of(*cumulative, total);
+                    let share = cumulative_share.minus(*previous_share);
+                    *previous_share = cumulative_share;
+                    Some(RankedDriver {
+                        driver: group.driver.clone(),
+                        outflow: group.outflow,
+                        bookings: group.bookings,
+                        share,
+                        cumulative_share,
+                        annual_amount: group.recurrence.as_ref().map_or_else(
+                            || annual_average(group.outflow, observed_days),
+                            Recurrence::annual_amount,
+                        ),
+                        recurrence: group.recurrence.clone(),
+                    })
+                },
+            )
+            .collect()
+    }
 }
 
 /// Der **Durchschnitt je Jahr** eines Betrags, der über `observed_days` Tage abfloss — der

@@ -1,6 +1,8 @@
 use auswerten_domain::{HistoryEvaluation, PriceIncrease, Recurrence, Rhythm};
 
-use crate::models::{AccountCashflowRow, DriverRankRow, OccurrenceRow, SavingsCandidateRow};
+use crate::models::{
+    AccountCashflowRow, CostDriverRow, DriverRankRow, OccurrenceRow, SavingsCandidateRow,
+};
 
 /// Das **Ergebnis der fenster-übergreifenden Reichweite** als Ausgangs-DTO — die `Response` des
 /// [`HistoryEvaluationHandler`](crate::HistoryEvaluationHandler) (ADR-0013, Entscheidung E,
@@ -26,9 +28,11 @@ use crate::models::{AccountCashflowRow, DriverRankRow, OccurrenceRow, SavingsCan
 /// (siehe die Crate-Wurzel), dieselbe Linie wie die Anfrage ans Orakel.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HistoryEvaluationRow {
+    /// Die **eine** Währung aller Beträge des Laufs (ISO 4217) — `None` nur für die leere Historie.
+    pub currency: Option<String>,
     /// Die Vorkommen der ganzen Zeitachse, chronologisch.
     pub occurrences: Vec<OccurrenceRow>,
-    /// Die wiederkehrenden Abflüsse, je Buchungsart einer, nach Fingerabdruck geordnet.
+    /// Die wiederkehrenden Abflüsse, je Kostentreiber einer, in der Ordnung des Treibers.
     pub recurrences: Vec<RecurrenceRow>,
     /// Der genettete Cashflow je eigenem Konto und Monat — nach Konto, darin chronologisch.
     pub account_cashflows: Vec<AccountCashflowRow>,
@@ -40,16 +44,17 @@ pub struct HistoryEvaluationRow {
 
 /// Ein **wiederkehrender Abfluss** als Ausgangs-DTO
 /// ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)): ein Abo, ein Dauerauftrag,
-/// eine Versicherung — je Buchungsart eine Zeile.
+/// eine Versicherung, eine monatliche Kontoführung — je Kostentreiber eine Zeile.
 ///
-/// **Datenschutz:** sie trägt nur den Fingerabdruck (öffentliche Gläubiger-ID, seed-basiertes
-/// Pseudonym oder Händler-Token aus gescrubbtem Freitext), Beträge, einen Tag-Stamp und ein
-/// `KONTO_…`-Token — nie eine IBAN, nie einen Klartextnamen, nie den Seed.
+/// **Datenschutz:** sie trägt nur den Treiber (Fingerabdruck — öffentliche Gläubiger-ID,
+/// seed-basiertes Pseudonym oder Händler-Token aus gescrubbtem Freitext — oder ein `KONTO_…`-Token),
+/// Beträge, einen Tag-Stamp und ein `KONTO_…`-Token — nie eine IBAN, nie einen Klartextnamen, nie den
+/// Seed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecurrenceRow {
-    /// Der Fingerabdruck der Buchungs*art* — bei einem Zahlungsintermediär samt Händler-Token, sodass
-    /// zwei Händler hinter demselben Durchleiter zwei Zeilen ergeben.
-    pub fingerprint: String,
+    /// Der **Kostentreiber**, der wiederkehrt — derselbe Schlüssel wie im Ranking: eine Buchungsart
+    /// (bei einem Zahlungsintermediär samt Händler-Token) oder die Gebühren eines Kontos.
+    pub driver: CostDriverRow,
     pub rhythm: RecurrenceRhythm,
     /// Der typische Betrag **je Abbuchung**, zum aktuellen Preis (Minor Units).
     pub typical_amount_minor_units: u64,
@@ -86,6 +91,9 @@ impl From<&HistoryEvaluation> for HistoryEvaluationRow {
     /// Setzt das Domänen-Ergebnis auf die rohe Zeile um (ACL, „innen → außen").
     fn from(evaluation: &HistoryEvaluation) -> Self {
         Self {
+            currency: evaluation
+                .currency()
+                .map(|currency| currency.as_str().to_string()),
             occurrences: evaluation
                 .occurrences()
                 .iter()
@@ -118,7 +126,7 @@ impl From<&HistoryEvaluation> for HistoryEvaluationRow {
 impl From<&Recurrence> for RecurrenceRow {
     fn from(recurrence: &Recurrence) -> Self {
         Self {
-            fingerprint: recurrence.fingerprint().as_str().to_string(),
+            driver: CostDriverRow::from(recurrence.driver()),
             rhythm: rhythm_row(recurrence.rhythm()),
             typical_amount_minor_units: recurrence.typical_amount().minor_units(),
             annual_amount_minor_units: recurrence.annual_amount().minor_units(),

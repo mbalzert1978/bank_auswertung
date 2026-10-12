@@ -63,7 +63,8 @@ impl<'a> HistoryEvaluationHandler<'a> {
         // wiederkehrender Abfluss.
         match self.source.history_in(command.span())?.recorded() {
             None => Ok(HistoryEvaluation::empty()),
-            Some((marker, bookings)) => Ok(HistoryEvaluation::of(
+            Some((marker, currency, bookings)) => Ok(HistoryEvaluation::of(
+                currency,
                 bookings,
                 self.own_accounts.verified_for(marker)?,
                 self.savings_threshold,

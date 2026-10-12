@@ -64,9 +64,10 @@
 //! Wahrheit. Seine Idempotenz folgt daraus, nicht aus Dedupe-Logik: eine Query über unveränderliche
 //! Snapshots antwortet auf erneute Zustellung identisch.
 //!
-//! **Auf diesen Vorkommen sitzt die Wiederkehr-Erkennung** (Issue 0005): je Fingerabdruck prüft sie
-//! die Abflüsse auf einen festen [`Rhythm`] (monatlich, jährlich) bei ähnlichem Betrag und weist eine
-//! [`PriceIncrease`] ab einem Stichtag aus. Heraus kommt je Buchungsart ein [`Recurrence`] mit dem
+//! **Auf diesen Vorkommen sitzt die Wiederkehr-Erkennung** (Issue 0005): je Kostentreiber
+//! ([`CostDriver`]: Buchungsart oder Gebühren eines Kontos) prüft sie die Abflüsse auf einen festen
+//! [`Rhythm`] (monatlich, jährlich) bei ähnlichem Betrag und weist eine [`PriceIncrease`] ab einem
+//! Stichtag aus. Heraus kommt je Treiber ein [`Recurrence`] mit dem
 //! **Jahresbetrag** als Bezugsgröße für spätere Spar-Kandidaten. Sie arbeitet auf **genetteten**
 //! Abflüssen: ein Dauerauftrag aufs eigene Konto ist eine Umbuchung, kein Kosten-Treiber — dieselbe
 //! Token-Regel wie beim Cashflow, und darum prüft auch diese Reichweite den [`SeedMarker`]. Ihr
@@ -77,7 +78,10 @@
 //! **Pareto-Ranking** der Kostentreiber ([`CostDriver`] → [`RankedDriver`], mit [`Share`] und
 //! kumuliertem Anteil am genetteten Abfluss) und die **Spar-Kandidaten** ([`SavingsCandidate`]):
 //! jeder Treiber, dessen **Jahresbetrag** die als Wert hereingereichte [`SavingsThreshold`] erreicht
-//! — mit Takt und Preissteigerung, wenn er wiederkehrt. Kein LLM ist daran beteiligt.
+//! — mit Takt und Preissteigerung, wenn er wiederkehrt. Kein LLM ist daran beteiligt. Wiederkehr und
+//! Ranking stehen auf **einer** Gruppierung der genetteten Abflüsse nach Treiber. Weil diese
+//! Reichweite über alle Fenster summiert, verlangt sie **eine** Währung für den ganzen Lauf
+//! ([`RunHistory`], sonst terminal `MixedCurrencies`).
 //!
 //! **Noch nicht hier** (je eigenes Folge-Issue): die gelernten Korrekturen und ein echtes
 //! `Kategorisierer`-Orakel.

@@ -1,5 +1,5 @@
 use crate::value_objects::{
-    AccountToken, Amount, Charge, ChargeSeries, DayStamp, Fingerprint, PriceIncrease, Rhythm,
+    AccountToken, Amount, Charge, ChargeSeries, CostDriver, DayStamp, PriceIncrease, Rhythm,
 };
 
 /// Wie weit ein Betrag vom **Bezugsbetrag** seiner Preisstufe abweichen darf und noch als „ähnlich"
@@ -12,9 +12,10 @@ use crate::value_objects::{
 /// um weniger als fünf Prozent bleibt darum unerkannt — sie geht als Schwankung in der Stufe auf.
 const AMOUNT_TOLERANCE_PERCENT: u64 = 5;
 
-/// Ein **wiederkehrender Abfluss** — eine Buchungs*art*, die im festen Takt zu einem ähnlichen
-/// Betrag abgebucht wird ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)): ein Abo,
-/// ein Dauerauftrag, eine Versicherung.
+/// Ein **wiederkehrender Abfluss** — ein Kostentreiber ([`CostDriver`]: eine Buchungs*art* oder die
+/// Gebühren eines Kontos), der im festen Takt zu einem ähnlichen Betrag abgebucht wird
+/// ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)): ein Abo, ein Dauerauftrag,
+/// eine Versicherung, eine monatliche Kontoführung.
 ///
 /// **Ein Wert, keine Entität, und nie abgelegt:** er entsteht bei jedem Lauf der
 /// fenster-übergreifenden Reichweite neu aus den unveränderlichen Aggregaten (ADR-0013, Entscheidung
@@ -25,12 +26,12 @@ const AMOUNT_TOLERANCE_PERCENT: u64 = 5;
 /// Monatsabo zu 13 € und ein Jahresabo zu 150 € sind erst über ihn vergleichbar. Er rechnet mit dem
 /// **aktuellen** Betrag — nach einer Preissteigerung zählt, was künftig abgeht, nicht, was früher abging.
 ///
-/// **Datenschutz:** er trägt den [`Fingerprint`] (öffentliche Gläubiger-ID, seed-basiertes Pseudonym
-/// oder Händler-Token aus gescrubbtem Freitext), Beträge, einen Tag-Stamp und ein `KONTO_…`-Token —
+/// **Datenschutz:** er trägt den Treiber (Fingerabdruck — öffentliche Gläubiger-ID, seed-basiertes
+/// Pseudonym oder Händler-Token aus gescrubbtem Freitext — oder ein `KONTO_…`-Token), Beträge, einen Tag-Stamp und ein `KONTO_…`-Token —
 /// nie einen Rohwert, nie den Seed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recurrence {
-    fingerprint: Fingerprint,
+    driver: CostDriver,
     rhythm: Rhythm,
     typical_amount: Amount,
     price_increase: Option<PriceIncrease>,
@@ -67,7 +68,7 @@ impl PriceLevel {
 }
 
 impl Recurrence {
-    /// **Erkennt** die Wiederkehr in den Abbuchungen **einer** Buchungsart — oder `None`, wenn sie
+    /// **Erkennt** die Wiederkehr in den Abbuchungen **eines** Treibers — oder `None`, wenn sie
     /// keine ist. Die reine Kernfunktion der Wiederkehr-Erkennung; die Abbuchungen kommen schon
     /// genettet (keine Umbuchung) und nur als Abfluss herein (siehe `HistoryEvaluation`).
     ///
@@ -85,7 +86,7 @@ impl Recurrence {
     ///
     /// Gibt es **mehr als eine** Stufe, ist die **jüngste** Stufung die ausgewiesene Preissteigerung:
     /// sie erklärt den heutigen Betrag.
-    pub(crate) fn detect(fingerprint: Fingerprint, series: &ChargeSeries) -> Option<Self> {
+    pub(crate) fn detect(driver: CostDriver, series: &ChargeSeries) -> Option<Self> {
         let rhythm = Rhythm::of(series)?;
         let levels = price_levels(series)?;
         let (current, price_increase) = match levels.as_slice() {
@@ -101,7 +102,7 @@ impl Recurrence {
             [] => return None,
         };
         Some(Self {
-            fingerprint,
+            driver,
             rhythm,
             typical_amount: current.typical(),
             price_increase,
@@ -111,9 +112,11 @@ impl Recurrence {
         })
     }
 
+    /// Der **Kostentreiber**, der wiederkehrt — eine Buchungsart oder die Gebühren eines Kontos
+    /// (eine monatliche Kontoführung ist so wiederkehrend wie ein Abo).
     #[must_use]
-    pub fn fingerprint(&self) -> &Fingerprint {
-        &self.fingerprint
+    pub fn driver(&self) -> &CostDriver {
+        &self.driver
     }
 
     #[must_use]

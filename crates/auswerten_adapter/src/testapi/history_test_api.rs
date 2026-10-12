@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use application_kernel::{CommandDecoder, Handler};
 use auswerten_domain::EvaluationError;
 
@@ -58,12 +60,12 @@ impl HistoryTestApi {
     /// Kandidat wird. Wer Kandidaten prüfen will, setzt die Schwelle ausdrücklich
     /// ([`with_savings_threshold`](Self::with_savings_threshold)) — ein stiller Vorgabewert, der
     /// Kandidaten erzeugte, machte jede Erwartung davon abhängig, ihn zu kennen.
-    pub const UNREACHABLE_THRESHOLD: u64 = u64::MAX;
+    pub const UNREACHABLE_THRESHOLD: NonZeroU64 = NonZeroU64::MAX;
 
     /// Reicht die **Spar-Schwelle** als Wert herein: ab diesem Jahresbetrag (Minor Units) wird ein
     /// Kostentreiber Spar-Kandidat.
     #[must_use]
-    pub fn with_savings_threshold(mut self, annual_minor_units: u64) -> Self {
+    pub fn with_savings_threshold(mut self, annual_minor_units: NonZeroU64) -> Self {
         self.savings_threshold = SavingsThresholdConfig { annual_minor_units };
         self
     }

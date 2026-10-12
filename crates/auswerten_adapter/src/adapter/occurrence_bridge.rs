@@ -35,8 +35,5 @@ impl OccurrenceSource for OccurrenceBridge<'_> {
                 },
             )?
             .to_history()
-            .map_err(|missing| EvaluationError::MissingMandatoryField {
-                field: missing.field(),
-            })
     }
 }

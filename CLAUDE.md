@@ -235,11 +235,12 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   in them — it **stores nothing** (the aggregates are the sole truth; idempotence follows from
   querying immutable snapshots, not dedupe logic). The **recurrence detection**
   ([Issue 0005](docs/issues/0005-wiederkehr-erkennung.md), **built**) is pure domain logic: per
-  fingerprint, **outflows only** and **netted** (a standing order onto an own account is a transfer,
+  cost driver (fingerprint, or the fees of one account — since 0007 one grouping shared with the
+  ranking), **outflows only** and **netted** (a standing order onto an own account is a transfer,
   not a cost driver — same token rule and `SeedMarker` guard as the cashflow), it finds a monthly
   (gap 25–35 days, ≥ 3 charges) or yearly (350–380 days, ≥ 2) rhythm at a similar amount (±5 % per
   price level) and reports the latest **price increase** (cut-off day, old/new). Result per group:
-  `RecurrenceRow` (fingerprint, rhythm, typical amount, **annual amount** — the yardstick for 0007 —,
+  `RecurrenceRow` (driver, rhythm, typical amount, **annual amount** — the yardstick for 0007 —,
   price increase, charged account token) inside the returned `HistoryEvaluationRow`, guarded
   no-`Serialize` as an egress candidate for report/export. The **`Fingerabdruck`** is a **pure domain function** (company via `GläubigerId`, payment
   intermediary additionally via the merchant token, private person via the seed-based pseudonym) —
@@ -266,11 +267,15 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   on the **window-spanning** reach because only it sees the whole run (a per-window Pareto would rank one
   ~400-day page): the netted cashflow **per own account and month** (`AccountCashflowRow`, role from the
   own-accounts config), the **Pareto ranking** of cost drivers (`CostDriver::Kind(fingerprint) |
-  Fee(charged account) | Unattributed`, shares in basis points, cumulative ends at exactly 10 000) and
+  Fee(charged account) | Unattributed`, grouped **once** — recurrence and ranking come from the same
+  grouping, so a monthly account fee is recurring too; shares in basis points, only the cumulative share
+  is rounded, so all shares sum to exactly 10 000) and
   the **savings candidates**: every driver except the unattributed lump whose **annual amount** reaches
   the configured threshold (`--sparen`, decision V3) — recurring → from the recurrence, otherwise the
   per-year average over the observed span, never extrapolated upwards. All returned in the
-  `HistoryEvaluationRow`, guarded no-`Serialize`, nothing stored, no schema change.
+  `HistoryEvaluationRow`, guarded no-`Serialize`, nothing stored, no schema change. Because this reach
+  sums across windows, the read seam delivers each window's currency and a run with more than one is
+  rejected terminally (`EvaluationError::MixedCurrencies`); the row carries the one `currency`.
 
 (An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
 `Gegenkonto::Eigen|Fremd` resolution into the **`auswerten`** slice, done **on

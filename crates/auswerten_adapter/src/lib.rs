@@ -25,7 +25,7 @@
 //! Fenster des Laufs ([`OccurrenceSeam`]) und **gibt** die [`HistoryEvaluationRow`] **zurück** — die
 //! [`OccurrenceRow`]s der ganzen Zeitachse und die darin erkannten **wiederkehrenden Abflüsse**
 //! ([`RecurrenceRow`], [Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md)): je
-//! Buchungsart Takt ([`RecurrenceRhythm`]), typischer Betrag, **Jahresbetrag**, ggf. die jüngste
+//! Kostentreiber ([`CostDriverRow`]) Takt ([`RecurrenceRhythm`]), typischer Betrag, **Jahresbetrag**, ggf. die jüngste
 //! Preissteigerung ([`PriceIncreaseRow`]) und das belastete Konto. Er legt **nichts** ab. Kein
 //! Vorkommens-/Fold-Log, keine Akkumulation, keine zweite persistierte Sicht — die Aggregate sind
 //! die alleinige Wahrheit, und die Idempotenz folgt daraus statt aus Dedupe-Logik: eine Query über

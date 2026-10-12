@@ -13,18 +13,18 @@
 //! Schwelle erreicht — ein Vorschlag, kein LLM.
 
 use auswerten_adapter::{
-    BookingDirection, CostDriverRow, DriverRankRow, HistoryEvaluationRow, HistoryTestApi,
-    RecurrenceRhythm, SavingsCandidateRow, WindowBookingRow,
+    BookingDirection, CostDriverRow, DriverRankRow, EvaluationError, HistoryEvaluationRow,
+    HistoryTestApi, RecurrenceRhythm, RecurrenceRow, SavingsCandidateRow, WindowBookingRow,
 };
 
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
 use fixtures::{
-    APR_15, EIGENES_KONTO, FEB_15, HAENDLER, JAN_15, JAN_31, MAERZ_2023, MAERZ_2024, MAERZ_2025,
-    MAR_15, SPARKONTO, ZWEITER_HAENDLER, ZWEITES_KONTO, art, ausgang, dauerauftrag, eigene_konten,
-    eingang, entgelt, entgelt_auf, fenster, fingerabdruck, gebuehren_von, gegenkonto_eingang,
-    historie_api, konto_monat, platz, preissteigerung, vorkommen, wiederkehr, wiederkehrend,
-    zweiter_haendler,
+    APR_15, EIGENES_KONTO, FEB_15, FEB_29, HAENDLER, JAN_15, JAN_31, MAERZ_2023, MAERZ_2024,
+    MAERZ_2025, MAR_15, SPARKONTO, ZWEITER_HAENDLER, ZWEITES_KONTO, art, ausgang, dauerauftrag,
+    eigene_konten, eingang, entgelt, entgelt_auf, fenster, fenster_in, fingerabdruck,
+    gebuehren_von, gegenkonto_eingang, historie_api, konto_monat, platz, preissteigerung, schwelle,
+    vorkommen, wiederkehr, wiederkehrend, zweiter_haendler,
 };
 
 /// Die Lauf-Spanne, die alle Tage dieses Specs umfasst.
@@ -147,10 +147,10 @@ fn eine_gebuehr_bleibt_im_cashflow_und_ist_ein_eigener_treiber_je_konto() {
             platz(
                 art(&fingerabdruck(HAENDLER)),
                 (1_000, 1),
-                (2_873, 8_563),
+                (2_874, 8_563),
                 1_000
             ),
-            platz(gebuehren_von(ZWEITES_KONTO), (500, 1), (1_436, 10_000), 500),
+            platz(gebuehren_von(ZWEITES_KONTO), (500, 1), (1_437, 10_000), 500),
         ]
     );
 }
@@ -217,7 +217,7 @@ fn ein_wiederkehrender_treiber_traegt_takt_und_jahresbetrag_der_wiederkehr_im_ra
                 ..platz(
                     art(&fingerabdruck(HAENDLER)),
                     (3_897, 3),
-                    (2_804, 10_000),
+                    (2_805, 10_000),
                     15_588,
                 )
             },
@@ -234,7 +234,7 @@ fn abfluesse_ohne_gegenpartei_sammeln_sich_in_einem_treiber_und_werden_nie_spar_
         ausgang(FEB_15, 1_000),
         wiederkehrend(JAN_15, 5_000),
     ])
-    .with_savings_threshold(1);
+    .with_savings_threshold(schwelle(1));
 
     let ergebnis = auswertung(&api);
 
@@ -260,9 +260,136 @@ fn abfluesse_ohne_gegenpartei_sammeln_sich_in_einem_treiber_und_werden_nie_spar_
         ergebnis
             .savings_candidates
             .iter()
-            .map(|kandidat| kandidat.driver.clone())
+            .map(|kandidat| kandidat.ranked.driver.clone())
             .collect::<Vec<_>>(),
         vec![art(&fingerabdruck(HAENDLER))]
+    );
+}
+
+#[test]
+fn die_anteile_aller_plaetze_ergeben_genau_das_ganze() {
+    // Drei gleich große Treiber: getrennt abgerundet wäre jeder 3 333 Basispunkte, zusammen 9 999.
+    // Abgerundet wird nur der kumulierte Anteil; der letzte Platz trägt den Rest.
+    let api = ein_fenster(&[
+        wiederkehrend(JAN_15, 1_000),
+        zweiter_haendler(JAN_15, 1_000),
+        entgelt(FEB_15, 1_000),
+    ]);
+
+    let ranking = auswertung(&api).ranking;
+
+    assert_eq!(
+        ranking
+            .iter()
+            .map(|platz| (
+                platz.share_basis_points,
+                platz.cumulative_share_basis_points
+            ))
+            .collect::<Vec<_>>(),
+        vec![(3_333, 3_333), (3_333, 6_666), (3_334, 10_000)]
+    );
+    assert_eq!(
+        ranking
+            .iter()
+            .map(|platz| platz.share_basis_points)
+            .sum::<u32>(),
+        10_000
+    );
+}
+
+#[test]
+fn eine_monatliche_gebuehr_ist_wiederkehrend_mit_vollem_jahresbetrag() {
+    // Die Kontoführung, Monat für Monat 4,90 € — sie ist so wiederkehrend wie ein Abo. Ihr
+    // Jahresbetrag ist darum zwölf Monate (58,80 €), nicht die Summe der drei gesehenen (14,70 €).
+    let api = ein_fenster(&[
+        entgelt(JAN_15, 490),
+        entgelt(FEB_15, 490),
+        entgelt(MAR_15, 490),
+    ]);
+
+    let ergebnis = auswertung(&api);
+
+    assert_eq!(
+        ergebnis.recurrences,
+        vec![RecurrenceRow {
+            driver: gebuehren_von(EIGENES_KONTO),
+            ..wiederkehr("", RecurrenceRhythm::Monthly, 490, 5_880)
+        }]
+    );
+    assert_eq!(
+        ergebnis.ranking,
+        vec![DriverRankRow {
+            rhythm: Some(RecurrenceRhythm::Monthly),
+            ..platz(
+                gebuehren_von(EIGENES_KONTO),
+                (1_470, 3),
+                (10_000, 10_000),
+                5_880,
+            )
+        }]
+    );
+}
+
+#[test]
+fn eine_gebuehr_mit_gegenpartei_zerreisst_die_abo_reihe_nicht() {
+    // Derselbe Händler zieht einmal eine Gebühr ein (Buchungstext ENTGELT) — sie ist Geld, das als
+    // Gebühr genommen wird, und gehört zu den Gebühren des Kontos. Die Abo-Reihe des Händlers bleibt
+    // unberührt: 12,99 € im Monat, ohne einen Ausreißer von 3 € mitten darin.
+    let api = ein_fenster(&[
+        wiederkehrend(JAN_15, 1_299),
+        wiederkehrend(FEB_15, 1_299),
+        WindowBookingRow {
+            booking_text: Some("ENTGELT RUECKLASTSCHRIFT".to_string()),
+            ..wiederkehrend(FEB_29, 300)
+        },
+        wiederkehrend(MAR_15, 1_299),
+        wiederkehrend(APR_15, 1_299),
+    ]);
+
+    let ergebnis = auswertung(&api);
+
+    assert_eq!(
+        ergebnis.recurrences,
+        vec![wiederkehr(
+            &fingerabdruck(HAENDLER),
+            RecurrenceRhythm::Monthly,
+            1_299,
+            15_588
+        )]
+    );
+    assert_eq!(
+        ergebnis
+            .ranking
+            .iter()
+            .map(|platz| (platz.driver.clone(), platz.outflow_minor_units))
+            .collect::<Vec<_>>(),
+        vec![
+            (art(&fingerabdruck(HAENDLER)), 5_196),
+            (gebuehren_von(EIGENES_KONTO), 300),
+        ]
+    );
+}
+
+#[test]
+fn ein_lauf_mit_gemischten_waehrungen_wird_terminal_und_redigiert_abgelehnt() {
+    // Jedes Fenster hat eine Währung — der Lauf darüber aber zwei. Diese Reichweite summiert über
+    // alle Fenster; Euro zu Dollar zu addieren ergäbe Zahlen, die sich richtig lesen und falsch sind.
+    let api = historie_api()
+        .with_window("fenster-eur", fenster(&[wiederkehrend(JAN_15, 1_299)]))
+        .with_window(
+            "fenster-usd",
+            fenster_in("USD", &[zweiter_haendler(FEB_15, 2_000)]),
+        );
+
+    let fehler = api
+        .run_history(LAUF.0, LAUF.1)
+        .expect_err("gemischte Währungen sind terminal");
+
+    assert_eq!(fehler, EvaluationError::MixedCurrencies);
+    let meldung = fehler.to_string();
+    assert!(
+        !meldung.contains("USD") && !meldung.contains("EUR"),
+        "{meldung}"
     );
 }
 
@@ -288,8 +415,8 @@ fn kandidaten(ergebnis: &HistoryEvaluationRow) -> Vec<(usize, CostDriverRow, u64
         .map(|kandidat| {
             (
                 kandidat.pareto_rank,
-                kandidat.driver.clone(),
-                kandidat.annual_amount_minor_units,
+                kandidat.ranked.driver.clone(),
+                kandidat.ranked.annual_amount_minor_units,
             )
         })
         .collect()
@@ -300,13 +427,17 @@ fn spar_kandidat_ist_jeder_treiber_dessen_jahresbetrag_die_schwelle_erreicht() {
     // Die Schwelle schließt ein: 15 588 erreicht 15 588. Der Einzelkauf mit 15 587 liegt darunter —
     // obwohl er im Lauf mehr abfloss als das Abo. Bezugsgröße ist das Jahr, nicht der Lauf.
     assert_eq!(
-        kandidaten(&auswertung(&drei_treiber().with_savings_threshold(15_588))),
+        kandidaten(&auswertung(
+            &drei_treiber().with_savings_threshold(schwelle(15_588))
+        )),
         vec![(2, art(&fingerabdruck(HAENDLER)), 15_588)]
     );
 
     // Einen Cent tiefer sind es zwei — geordnet nach Jahresbetrag, nicht nach Platz im Ranking.
     assert_eq!(
-        kandidaten(&auswertung(&drei_treiber().with_savings_threshold(15_587))),
+        kandidaten(&auswertung(
+            &drei_treiber().with_savings_threshold(schwelle(15_587))
+        )),
         vec![
             (2, art(&fingerabdruck(HAENDLER)), 15_588),
             (1, art(&fingerabdruck(ZWEITER_HAENDLER)), 15_587),
@@ -332,11 +463,15 @@ fn ein_einzelkauf_zaehlt_mit_seinem_durchschnitt_je_jahr_ueber_den_beobachteten_
     };
 
     assert_eq!(
-        kandidaten(&auswertung(&zwei_jahre().with_savings_threshold(9_945))),
+        kandidaten(&auswertung(
+            &zwei_jahre().with_savings_threshold(schwelle(9_945))
+        )),
         vec![(1, art(&fingerabdruck(ZWEITER_HAENDLER)), 9_945)]
     );
     assert_eq!(
-        kandidaten(&auswertung(&zwei_jahre().with_savings_threshold(9_946))),
+        kandidaten(&auswertung(
+            &zwei_jahre().with_savings_threshold(schwelle(9_946))
+        )),
         vec![]
     );
 }
@@ -350,17 +485,22 @@ fn eine_preissteigerung_geht_als_merkmal_an_den_spar_kandidaten() {
         wiederkehrend(MAR_15, 1_499),
         wiederkehrend(APR_15, 1_499),
     ])
-    .with_savings_threshold(10_000);
+    .with_savings_threshold(schwelle(10_000));
 
     assert_eq!(
         auswertung(&api).savings_candidates,
         vec![SavingsCandidateRow {
             pareto_rank: 1,
-            driver: art(&fingerabdruck(HAENDLER)),
-            annual_amount_minor_units: 17_988,
-            share_basis_points: 10_000,
-            rhythm: Some(RecurrenceRhythm::Monthly),
-            price_increase: Some(preissteigerung(MAR_15, 1_299, 1_499)),
+            ranked: DriverRankRow {
+                rhythm: Some(RecurrenceRhythm::Monthly),
+                price_increase: Some(preissteigerung(MAR_15, 1_299, 1_499)),
+                ..platz(
+                    art(&fingerabdruck(HAENDLER)),
+                    (5_596, 4),
+                    (10_000, 10_000),
+                    17_988,
+                )
+            },
         }]
     );
 }
@@ -382,7 +522,7 @@ fn der_dto_vertrag_nimmt_buchungen_und_gibt_cashflow_ranking_und_kandidaten_ohne
         (EIGENES_KONTO, "giro"),
         (SPARKONTO, "spar"),
     ]))
-    .with_savings_threshold(1_000);
+    .with_savings_threshold(schwelle(1_000));
 
     let schluessel = fingerabdruck(HAENDLER);
     let abo = DriverRankRow {
@@ -392,6 +532,7 @@ fn der_dto_vertrag_nimmt_buchungen_und_gibt_cashflow_ranking_und_kandidaten_ohne
     assert_eq!(
         api.run_history(LAUF.0, LAUF.1),
         Ok(HistoryEvaluationRow {
+            currency: Some("EUR".to_string()),
             // Die Zeitachse ist ungefiltert — auch die Umbuchung steht darin.
             occurrences: vec![
                 vorkommen(&schluessel, JAN_15, 1_299, BookingDirection::Outgoing),
@@ -418,15 +559,11 @@ fn der_dto_vertrag_nimmt_buchungen_und_gibt_cashflow_ranking_und_kandidaten_ohne
             ],
             ranking: vec![
                 abo.clone(),
-                platz(gebuehren_von(EIGENES_KONTO), (500, 1), (1_137, 10_000), 500),
+                platz(gebuehren_von(EIGENES_KONTO), (500, 1), (1_138, 10_000), 500),
             ],
             savings_candidates: vec![SavingsCandidateRow {
                 pareto_rank: 1,
-                driver: abo.driver,
-                annual_amount_minor_units: 15_588,
-                share_basis_points: 8_862,
-                rhythm: Some(RecurrenceRhythm::Monthly),
-                price_increase: None,
+                ranked: abo,
             }],
         })
     );

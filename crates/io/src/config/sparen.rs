@@ -35,7 +35,7 @@ impl SparenConfig {
     /// Die Schwelle als Slice-DTO, wie `io` sie der fenster-übergreifenden Reichweite hereinreicht.
     pub fn savings_threshold(&self) -> SavingsThresholdConfig {
         SavingsThresholdConfig {
-            annual_minor_units: self.annual_minor_units.get(),
+            annual_minor_units: self.annual_minor_units,
         }
     }
 
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(
             config.savings_threshold(),
             SavingsThresholdConfig {
-                annual_minor_units: 12_000
+                annual_minor_units: NonZeroU64::new(12_000).expect("nicht null")
             }
         );
     }

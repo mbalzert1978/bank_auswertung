@@ -69,7 +69,7 @@ pub use category::Category;
 pub use category_answer::CategoryAnswer;
 pub use category_request::CategoryRequest;
 pub(crate) use charge_series::{Charge, ChargeSeries};
-pub(crate) use cost_driver::rank as rank_drivers;
+pub(crate) use cost_driver::DriverGroups;
 pub use cost_driver::{CostDriver, RankedDriver};
 pub use counter_account::{AccountRole, AccountToken, CounterAccount};
 pub use counterparty::Counterparty;

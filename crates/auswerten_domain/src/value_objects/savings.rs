@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::num::NonZeroU64;
 
 use crate::value_objects::{Amount, RankedDriver};
 
@@ -13,19 +14,23 @@ use crate::value_objects::{Amount, RankedDriver};
 /// **Bezugsgröße ist der Jahresbetrag**, nicht der Betrag je Abbuchung und nicht die Summe im Lauf:
 /// erst über ihn sind ein Monatsabo zu 13 € und ein Jahresabo zu 150 € vergleichbar, und ein Lauf über
 /// drei Jahre hebt einen Treiber nicht dreimal so hoch wie einer über eines.
+///
+/// **Nie null, per Typ:** eine Schwelle von 0 machte **jeden** Treiber zum Kandidaten — keine Auswahl
+/// mehr, sondern das Ranking noch einmal. [`NonZeroU64`] macht sie unkonstruierbar statt „geprüft"
+/// (ADR-0005), dasselbe Muster wie die Seitengröße des Pagers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SavingsThreshold(Amount);
+pub struct SavingsThreshold(NonZeroU64);
 
 impl SavingsThreshold {
     /// Die Schwelle als Jahresbetrag in Minor Units der Kontowährung.
     #[must_use]
-    pub fn annual(amount: Amount) -> Self {
-        Self(amount)
+    pub fn annual(minor_units: NonZeroU64) -> Self {
+        Self(minor_units)
     }
 
     /// Erreicht ein Jahresbetrag die Schwelle? **Einschließlich** — „ab 100 €" schließt 100 € ein.
     fn is_reached_by(self, annual_amount: Amount) -> bool {
-        annual_amount >= self.0
+        annual_amount.minor_units() >= self.0.get()
     }
 }
 
@@ -69,7 +74,7 @@ pub(crate) fn candidates(
     let mut candidates = ranking
         .iter()
         .zip(1_usize..)
-        .filter(|(driver, _)| driver.driver().is_actionable())
+        .filter(|(driver, _)| driver.driver().is_specific())
         .filter(|(driver, _)| threshold.is_reached_by(driver.annual_amount()))
         .map(|(driver, pareto_rank)| SavingsCandidate {
             pareto_rank,

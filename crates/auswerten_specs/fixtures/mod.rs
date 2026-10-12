@@ -409,7 +409,7 @@ pub(crate) fn wiederkehr(
     annual: u64,
 ) -> RecurrenceRow {
     RecurrenceRow {
-        fingerprint: fingerprint.to_string(),
+        driver: art(fingerprint),
         rhythm,
         typical_amount_minor_units: typical,
         annual_amount_minor_units: annual,
@@ -458,6 +458,24 @@ pub(crate) fn kategorie(fingerprint: &str, category: &str) -> CategoryRow {
 }
 
 // --- Der Aderlass: Cashflow je Konto, Pareto-Ranking, Spar-Kandidaten (Issue 0007) ---
+
+/// Eine **Spar-Schwelle** als Jahresbetrag in Minor Units — nie null (eine Schwelle von 0 machte
+/// jeden Treiber zum Kandidaten und ist darum unkonstruierbar).
+///
+/// # Panics
+/// Bei `0` — die Specs reichen stets eine echte Schwelle herein.
+pub(crate) fn schwelle(minor_units: u64) -> std::num::NonZeroU64 {
+    std::num::NonZeroU64::new(minor_units).expect("eine Spar-Schwelle ist nie null")
+}
+
+/// Ein eingefrorenes Auswertungsfenster in einer **frei gewählten** Währung — für den Lauf, dessen
+/// Fenster nicht dieselbe tragen.
+pub(crate) fn fenster_in(currency: &str, bookings: &[WindowBookingRow]) -> AnalysisWindowRow {
+    AnalysisWindowRow {
+        currency: currency.to_string(),
+        ..fenster(bookings)
+    }
+}
 
 /// Die Gläubiger-ID eines **zweiten** Händlers — erfunden. Er steht neben dem wiederkehrenden
 /// `HAENDLER`, damit das Ranking zwei Arten gegeneinander ordnen kann.
