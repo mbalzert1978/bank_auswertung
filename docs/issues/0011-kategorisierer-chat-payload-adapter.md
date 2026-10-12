@@ -1,7 +1,7 @@
 ---
 id: "0011"
 title: "Kategorisierer Chat-Payload-Adapter"
-status: open
+status: closed
 ---
 
 # Kategorisierer Chat-Payload-Adapter
