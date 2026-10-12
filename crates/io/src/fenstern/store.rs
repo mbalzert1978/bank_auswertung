@@ -286,7 +286,7 @@ mod tests {
     use crate::obfuskierung::ObfuskierungSqliteStore;
     use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{
-        CapturingAck, Stage, drain, register_fresh, seed_through, stamp,
+        CapturingAck, Stage, all_processed, drain, register_fresh, seed_through, stamp,
     };
     use crate::sqlite::{Delivery, SqliteOutbox};
 
@@ -434,9 +434,7 @@ mod tests {
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
-            outcomes
-                .iter()
-                .all(|(_, outcome)| matches!(outcome, Delivery::Processed)),
+            all_processed(&outcomes),
             "der ganze Lauf muss ohne Fehler durchlaufen: {outcomes:?}"
         );
 

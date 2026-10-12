@@ -89,9 +89,13 @@ Exit-0-Lauf gerade gemintet hat, und ein Lauf mit Aussonderung endet mit Exit 1.
 ## Bewusst nicht gebaut
 
 - **Kein Redrive-Werkzeug** (YAGNI). Eine ausgesonderte Nachricht zurück in die Zustellung zu holen,
-  kann das Programm nicht. Von Hand geht es nur über SQL, und zwar mit Status **und** Grund
-  (`status = 'open', dead_letter_reason = NULL`), weil der `CHECK` beides verlangt. Ob es je gebraucht
-  wird, ist offen: der übliche Weg ist, die Ursache zu beheben und den Auszug neu einzulesen.
+  kann das Programm nicht. Was nach behobener Ursache hilft, hängt davon ab, was ausgesondert ist:
+  - **ein `ReadTransactions`:** den Auszug neu einlesen. Sein Batch ist atomar, es liegt noch keine
+    seiner Zeilen im Bestand.
+  - **ein `Ingested`:** neu einlesen hilft **nicht** — die Zeile liegt schon in `einlesen_lines`, und
+    eine bekannte Zeile wird nie neu publiziert. Es bleiben das manuelle SQL-Redrive (`status = 'open',
+    dead_letter_reason = NULL`, beides, weil der `CHECK` es verlangt; das geht, weil die Rohzeile in
+    `einlesen_lines` liegt) oder eine frische `--db`.
 - **Kein Aufräumen.** Ausgesonderte Zeilen bleiben für immer liegen, wie verarbeitete.
 - **Kein Lauf-Bezug an der Outbox-Zeile.** Welche Aussonderung zu welchem Lauf gehört, weiß nur
   dieser Lauf selbst (er sammelt seine). Für „früher ausgesondert" reicht die Differenz.

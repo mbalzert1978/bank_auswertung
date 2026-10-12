@@ -81,6 +81,14 @@ pub(crate) fn assert_redacted_diagnosis(
     );
 }
 
+/// Wurde **jede** Nachricht des Aufrufs verarbeitet? Die eine Zusicherung „die Kette lief ohne
+/// Fehlschlag durch", statt dasselbe `matches!` in jedem Store-Testmodul.
+pub(crate) fn all_processed(deliveries: &[(OutboxMessage, Delivery)]) -> bool {
+    deliveries
+        .iter()
+        .all(|(_, delivery)| matches!(delivery, Delivery::Processed))
+}
+
 /// Der feste Test-Seed, mit dem das Seeding den obfuskierten Bestand tokenisiert. Downstream-Stores
 /// (`fenstern`) sind blind für seinen Wert — sie brauchen nur einen **konsistent** getokenisierten
 /// Bestand; `obfuskierung`s eigene Tests importieren ihn als den Seed, dessen Wirkung sie prüfen.
@@ -135,9 +143,7 @@ pub(crate) fn seed_through(
     outbox.enqueue(EINLESEN_CONSUMED, fixture)?;
     let einlesen_out = outbox.deliver_open(&stage1)?;
     assert!(
-        einlesen_out
-            .iter()
-            .all(|(_, outcome)| matches!(outcome, Delivery::Processed)),
+        all_processed(&einlesen_out),
         "einlesen muss atomar verarbeiten: {einlesen_out:?}"
     );
 
@@ -157,9 +163,7 @@ pub(crate) fn seed_through(
     register_fresh(&mut stage2, OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung));
     let obfuskierung_out = outbox.deliver_open(&stage2)?;
     assert!(
-        obfuskierung_out
-            .iter()
-            .all(|(_, outcome)| matches!(outcome, Delivery::Processed)),
+        all_processed(&obfuskierung_out),
         "obfuskierung muss atomar verarbeiten: {obfuskierung_out:?}"
     );
     Ok(())
@@ -276,9 +280,7 @@ pub(crate) fn drain(
         if batch.is_empty() {
             return Ok(all);
         }
-        let failed = batch
-            .iter()
-            .any(|(_, outcome)| !matches!(outcome, Delivery::Processed));
+        let failed = !all_processed(&batch);
         all.extend(batch);
         if failed {
             return Ok(all);

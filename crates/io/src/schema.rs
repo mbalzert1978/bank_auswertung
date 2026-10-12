@@ -30,7 +30,7 @@
 //!
 //! **Version 1** ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md))
 //! steht **neben** der Leiter, weil sie keine Stufe ist, sondern ein Neubau (`rebuild_unkeyed_v1`): sie
-//! landet direkt auf der aktuellen Version. Die erste echte Migration war 1 → 2: `einlesen_lines` bekommt den Zeilen-Schlüssel (`row_key`,
+//! landet auf Version 2 und steigt von dort die Leiter hinauf. Die erste echte Migration war 1 → 2: `einlesen_lines` bekommt den Zeilen-Schlüssel (`row_key`,
 //! `UNIQUE`), `auswertungsfenster` den Lauf (`run_id`). Eine Version-1-Datei **ohne** Bestand wird
 //! umgebaut; eine **mit** Bestand wird abgewiesen — terminal, redigiert, unangetastet. Ihre Zeilen
 //! lassen sich nicht nachträglich schlüsseln: der Schlüssel entsteht aus Spalten, die Version 1 nie
@@ -183,8 +183,20 @@ fn climb(transaction: &Transaction<'_>, found: i64) -> rusqlite::Result<()> {
 /// Sprosse 2 → 3 (Issue 0009): legt das Kategorie-Register samt seinem Index an. **Additiv** — keine
 /// vorhandene Tabelle wird berührt, ihr Bestand bleibt, wie er ist.
 fn add_category_register(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
-    transaction.execute_batch(LEARNED_CATEGORIES_TABLE.ddl)
+    transaction.execute_batch(REGISTER_VERSION_3)
 }
+
+/// Das Register, wie Sprosse 2 → 3 es anlegt — **eingefroren** wie [`OUTBOX_VERSION_4`], nicht aus
+/// `LEARNED_CATEGORIES_TABLE` gelesen: eine spätere Änderung des Registers bekommt ihre eigene Sprosse.
+const REGISTER_VERSION_3: &str = "\
+CREATE TABLE learned_categories (
+    fingerprint TEXT    PRIMARY KEY CHECK (trim(fingerprint) <> ''),
+    category    TEXT    NOT NULL    CHECK (trim(category) <> ''),
+    created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
+);
+CREATE INDEX window_evaluation_fingerprints_fingerprint_idx
+    ON window_evaluation_fingerprints (fingerprint);";
 
 /// Sprosse 3 → 4 (Issue 0085, ADR-0017): baut die Outbox auf die Form mit Status-Spalte und
 /// Aussonderungs-Grund um und übernimmt jede Zeile — `processed_on_utc` gesetzt wird `processed`,
@@ -234,14 +246,12 @@ CREATE TABLE outbox (
 CREATE INDEX outbox_open_idx
     ON outbox (status) WHERE status = 'open';";
 
-/// Version 1 (ADR-0016) — **keine Sprosse, sondern ein Neubau**, der direkt auf der **aktuellen**
-/// Version landet: baut die beiden damals geänderten Tabellen (`einlesen_lines` +`row_key`,
-/// `auswertungsfenster` +`run_id`) neu — **nur**, wenn beide leer sind. Leer heißt: nichts geht
-/// verloren, und `DROP` + Neuanlage **aller** Tabellen aus der heutigen DDL gibt der Datei **genau**
-/// das Schema, das eine frische Datei bekommt (kein `ALTER TABLE` mit Ersatz-Default, das davon
-/// abwiche). Die Outbox wird wie in Sprosse 3 → 4 umgebaut, ihr Bestand bleibt. Die übrigen Tabellen
-/// bleiben, ihr `CREATE … IF NOT EXISTS` läuft ins Leere; was seit Version 2 neu ist, entsteht dabei
-/// gleich mit.
+/// Version 1 (ADR-0016) — **keine Sprosse, sondern ein Neubau**, der auf **Version 2** landet und
+/// von dort die Leiter hinaufsteigt: baut die beiden damals geänderten Tabellen (`einlesen_lines`
+/// +`row_key`, `auswertungsfenster` +`run_id`) neu — **nur**, wenn beide leer sind. Leer heißt: nichts
+/// geht verloren, und `DROP` + Neuanlage gibt beiden **genau** ihre v2-Form (kein `ALTER TABLE` mit
+/// Ersatz-Default, das davon abwiche). Alles danach — Register, Outbox-Status — tun die Sprossen,
+/// derselbe Weg wie für jede Version-2-Datei; kein zweiter Pfad kennt sie.
 ///
 /// Trägt eine der beiden schon Zeilen, wird die Datei abgewiesen (siehe Modul-Doku) — innerhalb der
 /// Transaktion von `ensure`, also unangetastet.
@@ -254,10 +264,11 @@ fn rebuild_unkeyed_v1(transaction: &Transaction<'_>) -> Result<(), SchemaError> 
         }));
     }
     transaction.execute_batch("DROP TABLE einlesen_lines; DROP TABLE auswertungsfenster;")?;
-    // Die Outbox steht noch in ihrer Form vor Version 4; `create` legte sie (`IF NOT EXISTS`) nicht
-    // neu an. Ihr Umbau übernimmt den Bestand, wie es die Sprosse 3 → 4 tut.
-    add_outbox_status(transaction)?;
-    create(transaction)?;
+    // Landet auf Version 2: die beiden Tabellen in ihrer v2-Form (die heutige Store-DDL — ändert eine
+    // spätere Sprosse sie, ist hier ihre v2-Form einzufrieren; der Migrationstest schlüge sonst an).
+    // Ab da steigt die Leiter, wie für jede Version-2-Datei.
+    store_tables().try_for_each(|table| transaction.execute_batch(table.ddl))?;
+    climb(transaction, 2)?;
     Ok(())
 }
 

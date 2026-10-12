@@ -44,6 +44,8 @@ funktionieren.
       (Summen, Rankings), nicht einen roh durchgereichten LLM-Text.
 - [ ] Bericht lässt sich aus reinen Fixture-Analyse-DTOs erzeugen, ganz ohne
       SQLite-Speicher oder Kategorisierer-Adapter im Testlauf.
+- [ ] Ist `RunReport::incomplete() > 0`, nennt der Bericht sichtbar, wie viele Buchungen der
+      Analyse fehlen ([ADR-0017](../adr/0017-dead-letter-als-status-spalte-der-outbox.md)).
 
 ## Blockiert durch
 

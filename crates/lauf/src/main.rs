@@ -62,7 +62,9 @@ Alle sechs sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
 Scheitert eine Nachricht, wird sie ausgesondert: der Lauf nennt sie am Ende und endet mit
 Exit 1, die übrigen laufen weiter. Ein späterer Lauf wird von ihr nicht aufgehalten; seine
 Schlussbilanz zählt sie als „früher ausgesondert“. Fehlt der Analyse deshalb eine Buchung,
-steht dort „Analyse unvollständig“ — auch bei Exit 0.
+steht dort „Analyse unvollständig“ — auch bei Exit 0. Neu einlesen holt sie nicht zurück
+(eine bekannte Zeile wird nie neu publiziert) — dann hilft nur ein Redrive per SQL oder eine
+frische --db, siehe ADR-0017. Ein ausgesonderter Import-Auslöser dagegen: Auszug neu einlesen.
 
 Der Verwendungszweck wird vor der Weitergabe gescrubbt: IBANs, BICs und bekannte Namen
 (die vollständigen Namen aller Empfänger ohne Gläubiger-ID plus --personen) werden ersetzt. Das ist heuristisch und
