@@ -26,6 +26,10 @@ use crate::obfuskierung::{
 use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage, UnitOfWork};
 use crate::sqlite::{Delivery, SqliteOutbox};
 
+mod verbotene_werte;
+
+pub(crate) use verbotene_werte::VerboteneWerte;
+
 /// Registriert einen frischen Consumer und stellt sicher, dass er **keinen** bestehenden verdrängt —
 /// die eine Quelle je Dispatch-Key. Bündelt das über alle Store-Testmodule wiederholte
 /// `assert!(dispatcher.register(…).is_none(), "…")`, sodass eine Registrierung wie eine
@@ -210,12 +214,18 @@ impl TempDbPath {
     pub(crate) fn report_path(&self) -> std::path::PathBuf {
         self.0.with_extension("html")
     }
+
+    /// Der Pfad des Chat-Exports neben der Datenbank (Issue 0011) — derselbe Stamm wie Datei und
+    /// Bericht, beim Aufräumen mit entfernt.
+    pub(crate) fn export_path(&self) -> std::path::PathBuf {
+        self.0.with_extension("json")
+    }
 }
 
 impl Drop for TempDbPath {
     fn drop(&mut self) {
         // Best-effort-Aufräumen: eine bereits fehlende Datei ist kein Fehler.
-        for path in [self.0.clone(), self.report_path()] {
+        for path in [self.0.clone(), self.report_path(), self.export_path()] {
             match std::fs::remove_file(path) {
                 Ok(()) | Err(_) => {}
             }

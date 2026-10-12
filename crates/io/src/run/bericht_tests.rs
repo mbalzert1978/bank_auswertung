@@ -8,7 +8,7 @@ use auswerten_adapter::{
 };
 
 use super::*;
-use crate::pipeline_test_support::TempDbPath;
+use crate::pipeline_test_support::{TempDbPath, VerboteneWerte};
 use crate::report::neighbour_of;
 
 fn fixture(name: &str) -> PathBuf {
@@ -33,39 +33,6 @@ fn bericht(paths: &RunPaths) -> std::io::Result<String> {
     std::fs::read_to_string(&paths.report)
 }
 
-/// Die **Rohwerte** eines CSV-Auszugs, die nie im Bericht stehen dürfen — aus der Datei selbst
-/// gelesen, damit der Test mit der Fixture mitwächst: jede IBAN (Auftragskonto und Gegenkonto), jede
-/// BIC und jeder Name einer Gegenpartei **ohne** Gläubiger-ID (also einer fail-safe Person).
-/// Platzhalter wie `0` (vorgemerkte Zeilen) zählen nicht.
-fn rohwerte(csv: &Path) -> std::io::Result<Vec<String>> {
-    const AUFTRAGSKONTO: usize = 0;
-    const GLAEUBIGER_ID: usize = 5;
-    const EMPFAENGER: usize = 11;
-    const IBAN: usize = 12;
-    const BIC: usize = 13;
-    let text = std::fs::read_to_string(csv)?;
-    Ok(text
-        .lines()
-        .skip(1)
-        .flat_map(|zeile| {
-            let zellen = zeile
-                .split(';')
-                .map(|zelle| zelle.trim_matches('"').to_string())
-                .collect::<Vec<_>>();
-            let zelle = |index: usize| zellen.get(index).cloned().unwrap_or_default();
-            let person = zelle(GLAEUBIGER_ID).is_empty().then(|| zelle(EMPFAENGER));
-            [
-                Some(zelle(AUFTRAGSKONTO)),
-                Some(zelle(IBAN)),
-                Some(zelle(BIC)),
-                person,
-            ]
-        })
-        .flatten()
-        .filter(|wert| wert.len() > 3)
-        .collect())
-}
-
 #[expect(
     clippy::panic_in_result_fn,
     reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
@@ -84,14 +51,13 @@ fn ein_echter_lauf_schreibt_einen_bericht_ohne_iban_bic_klarname_token_und_seed(
     run(&paths, &mut Vec::new())?;
     let html = bericht(&paths)?;
 
-    let mut verboten = rohwerte(&paths.transactions)?;
-    verboten.extend(PersonenConfig::load(&paths.persons_config)?.into_names());
-    verboten.push(SeedConfig::load(&paths.seed_config)?.seed().to_string());
-    verboten.push("KONTO_".to_string());
-    assert!(verboten.len() > 10, "die Liste prüft etwas: {verboten:?}");
-    for wert in &verboten {
-        assert!(!html.contains(wert.as_str()), "der Bericht trägt {wert}");
-    }
+    let verboten = VerboteneWerte::aus_lauf(&paths);
+    assert!(
+        verboten.anzahl() > 10,
+        "die Liste prüft etwas: {verboten:?}"
+    );
+    assert!(verboten.enthaelt("MAX MUSTERMANN") && verboten.enthaelt("MUSTERMANN"));
+    verboten.pruefe("Bericht", &html);
 
     // Und er trägt die Analyse: Konten über ihre Rolle, Treiber, Beträge in Euro.
     for erwartet in ["Pareto-Ranking", "Giro", "Spar", "€", "unbekannt"] {
