@@ -686,7 +686,7 @@ mod tests {
     use crate::pipeline_test_support::{
         CapturingAck, SEED, Stage, drain, register_fresh, seed_through, stamp,
     };
-    use crate::sqlite::SqliteOutbox;
+    use crate::sqlite::{Delivery, SqliteOutbox};
     use crate::{Dispatcher, MessageId, UnitFactory};
 
     const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MESSAGE_TYPE;
@@ -958,7 +958,9 @@ mod tests {
         let outcomes = drain(&outbox, &dispatcher)?;
 
         assert!(
-            outcomes.iter().all(|(_, outcome)| outcome.is_processed()),
+            outcomes
+                .iter()
+                .all(|(_, outcome)| matches!(outcome, Delivery::Processed)),
             "die volle Pipeline muss ohne Fehler durchlaufen: {outcomes:?}"
         );
 

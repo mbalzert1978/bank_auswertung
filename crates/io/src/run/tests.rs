@@ -203,10 +203,11 @@ fn ein_terminal_gescheiterter_lauf_sondert_aus_und_nennt_den_redigierten_fehler(
     // Ausgesondert statt offen (Issue 0085): nicht mehr zuzustellen, aber abfragbar.
     assert_eq!(offene_nachrichten(&paths)?, 0);
     assert_eq!(ausgesonderte(&paths)?.len(), 1);
-    // Eine Analyse über den unvollständigen Import entfällt — und das Protokoll sagt es.
+    // Die Analyse läuft trotzdem (ADR-0017). Ein ausgesonderter Import-**Auslöser** macht sie nicht
+    // „unvollständig": sein Batch ist atomar, es fehlt keine einzelne Buchung, sondern der ganze Auszug.
     let text = String::from_utf8(protokoll)?;
-    assert!(text.contains("Analyse entfällt"), "{text}");
-    assert!(!text.contains(START_MESSAGE_TYPE), "{text}");
+    assert!(text.contains(START_MESSAGE_TYPE), "{text}");
+    assert!(!text.contains("Analyse unvollständig"), "{text}");
     Ok(())
 }
 
@@ -777,5 +778,48 @@ fn ein_ausgesonderter_ausloeser_haelt_den_naechsten_lauf_nicht_auf()
     assert_eq!(ausgesonderte(&gut)?.len(), 1, "die alte bleibt abfragbar");
     let text = String::from_utf8(protokoll)?;
     assert!(text.contains("früher ausgesondert: 1"), "{text}");
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn eine_in_einem_frueheren_lauf_ausgesonderte_buchung_macht_jeden_spaeteren_lauf_unvollstaendig()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Lauf 1 trifft auf eine vergiftete `obfuskierung`-Nachricht: ein `Ingested`, dessen Zeiger auf
+    // keine eingelesene Zeile zeigt (Stellvertreter für jede Buchung, an der `obfuskieren` terminal
+    // scheitert). Sie wird ausgesondert — und ihre Buchung fehlt fortan in `obfuskiert`, denn eine
+    // bekannte Zeile wird nie neu publiziert. Ein späterer Lauf mit einer anderen Datei gelingt, darf
+    // das aber nicht verschweigen.
+    let db = TempDbPath::new("lauf_unvollstaendig");
+    schema::open(&AppConfig::new(db.path()))?.enqueue(OBFUSKIERUNG_CONSUMED, "gibt-es-nicht")?;
+    let erster = lauf_pfade(&db);
+    let fehler = run(&erster, &mut Vec::new()).expect_err("Lauf 1 hat selbst ausgesondert");
+    assert!(
+        matches!(&fehler, RunError::DeadLettered(ausgesondert)
+            if ausgesondert.iter().all(|eine| eine.message_type() == OBFUSKIERUNG_CONSUMED)),
+        "{fehler:?}"
+    );
+
+    let zweiter = lauf_pfade_mit(&db, ZWEITES_KONTO);
+    let mut protokoll = Vec::new();
+    let bericht = run(&zweiter, &mut protokoll)?;
+
+    assert_eq!(bericht.incomplete(), 1, "aus der Datei, nicht aus dem Lauf");
+    let text = String::from_utf8(protokoll)?;
+    assert!(
+        text.contains("Analyse unvollständig: 1 Buchung(en) ausgesondert"),
+        "{text}"
+    );
+    assert!(text.contains("früher ausgesondert: 1"), "{text}");
+    // Und die Analyse lief — über alles, was da ist.
+    assert!(
+        bericht
+            .processed()
+            .contains_key(CONSUMED_HISTORY_MESSAGE_TYPE)
+    );
     Ok(())
 }

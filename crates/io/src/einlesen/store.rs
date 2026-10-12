@@ -513,7 +513,13 @@ mod tests {
         assert!(
             matches!(
                 outcomes.as_slice(),
-                [(_, Delivery::DeadLettered(OutboxError::Warning { .. }))]
+                [(
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                )]
             ),
             "eine kaputte Zeile failt den Batch terminal: {outcomes:?}"
         );
@@ -590,7 +596,8 @@ mod tests {
         // zugestellt — gezählt wird hier nur der Auslöser.)
         assert!(
             outcomes.iter().any(|(message, outcome)| {
-                message.message_type == CONSUMED_MESSAGE_TYPE && outcome.is_processed()
+                message.message_type == CONSUMED_MESSAGE_TYPE
+                    && matches!(outcome, Delivery::Processed)
             }),
             "der zweite Auslöser wird ebenso atomar verarbeitet: {outcomes:?}"
         );

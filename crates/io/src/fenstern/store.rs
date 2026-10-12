@@ -434,7 +434,9 @@ mod tests {
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
-            outcomes.iter().all(|(_, outcome)| outcome.is_processed()),
+            outcomes
+                .iter()
+                .all(|(_, outcome)| matches!(outcome, Delivery::Processed)),
             "der ganze Lauf muss ohne Fehler durchlaufen: {outcomes:?}"
         );
 
@@ -545,7 +547,13 @@ mod tests {
         assert!(
             matches!(
                 outcomes.as_slice(),
-                [(_, Delivery::DeadLettered(OutboxError::Warning { .. }))]
+                [(
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                )]
             ),
             "eine fehlende obfuskiert-Tabelle muss die Anker-Frage terminal + redigiert failen \
              lassen: {outcomes:?}"
@@ -573,7 +581,13 @@ mod tests {
         assert!(
             matches!(
                 outcomes.last(),
-                Some((_, Delivery::DeadLettered(OutboxError::Warning { .. })))
+                Some((
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                ))
             ),
             "ein unerreichbarer Fenster-Store muss den Fenster-Schritt terminal failen lassen: \
              {outcomes:?}"
@@ -612,7 +626,13 @@ mod tests {
         assert!(
             matches!(
                 outcomes.last(),
-                Some((_, Delivery::DeadLettered(OutboxError::Warning { .. })))
+                Some((
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                ))
             ),
             "eine fehlende Detail-Tabelle muss den Fenster-Schritt terminal + redigiert failen \
              lassen: {outcomes:?}"

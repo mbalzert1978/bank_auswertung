@@ -152,22 +152,29 @@ impl SqliteOutbox {
     /// **Lauf-Protokoll** ([`run`](crate::run)) zählt je `message_type`, und dieser Typ ist ein
     /// statischer Dispatch-Key, kein Rohwert.
     ///
+    /// **Kein verbuchter Ausgang geht verloren:** lässt sich ein Fehlschlag nicht verbuchen, steht das
+    /// als [`Delivery::Unrecorded`] **neben** den schon verbuchten Ausgängen dieses Aufrufs, und der
+    /// Broker stellt danach nichts mehr zu (die übrigen Nachrichten bleiben offen) — statt alles
+    /// Verbuchte mit einem Fehler zu verwerfen.
+    ///
     /// # Errors
     ///
-    /// Ein `rusqlite`-Fehler, wenn sich die offenen Nachrichten nicht lesen oder ein Fehlschlag nicht
-    /// verbuchen lässt; die übrigen Nachrichten des Schnappschusses bleiben dann offen.
+    /// Ein `rusqlite`-Fehler, wenn sich die offenen Nachrichten gar nicht erst lesen lassen.
     pub fn deliver_open(
         &self,
         dispatcher: &Dispatcher,
     ) -> rusqlite::Result<Vec<(OutboxMessage, Delivery)>> {
-        self.open_messages()?
-            .into_iter()
-            .map(|message| {
-                let outcome = dispatcher.dispatch(message.clone());
-                let delivery = self.settle(&message, outcome)?;
-                Ok((message, delivery))
-            })
-            .collect()
+        let mut deliveries = Vec::new();
+        for message in self.open_messages()? {
+            let outcome = dispatcher.dispatch(message.clone());
+            let delivery = self.settle(&message, outcome);
+            let unrecorded = matches!(delivery, Delivery::Unrecorded { .. });
+            deliveries.push((message, delivery));
+            if unrecorded {
+                break;
+            }
+        }
+        Ok(deliveries)
     }
 
     /// Der Schnappschuss der offenen Nachrichten (`status = 'open'`) in Einreih-Reihenfolge.
@@ -669,7 +676,7 @@ mod tests {
         assert!(
             matches!(
                 outcomes.as_slice(),
-                [(message, Delivery::Redelivery(OutboxError::Retry { .. }))] if message.id == root
+                [(message, Delivery::Redelivery { error: OutboxError::Retry { .. }, .. })] if message.id == root
             ),
             "ein gescheiterter Commit muss zu Retry führen: {outcomes:?}"
         );
@@ -723,7 +730,7 @@ mod tests {
         assert!(
             matches!(
                 erster_lauf.as_slice(),
-                [(message, Delivery::Redelivery(OutboxError::Retry { .. }))] if message.id == root
+                [(message, Delivery::Redelivery { error: OutboxError::Retry { .. }, .. })] if message.id == root
             ),
             "der abgestürzte Versuch muss als Retry erscheinen: {erster_lauf:?}"
         );

@@ -639,7 +639,7 @@ mod tests {
         assert!(
             matches!(
                 outcomes.as_slice(),
-                [(_, Delivery::DeadLettered(OutboxError::Warning { reason }))] if !reason.contains(ROH_IBAN)
+                [(_, Delivery::DeadLettered { error: OutboxError::Warning { reason }, .. })] if !reason.contains(ROH_IBAN)
             ),
             "eine fehlende Quell-Zeile muss terminal + redigiert failen: {outcomes:?}"
         );

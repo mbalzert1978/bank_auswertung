@@ -60,6 +60,9 @@ enum Ausgang {
     /// Der Handler gelingt, aber der **Commit** scheitert an SQLite — bis einschließlich zum
     /// angegebenen Versuch; danach gelingt er.
     CommitScheitertBis(u32),
+    /// Während der Handler läuft, erledigt eine **andere** Zustellung dieselbe Nachricht; der
+    /// idempotente Ack trifft dann keine offene Zeile mehr und meldet `Retry` („bereits verarbeitet").
+    AnderswoErledigt,
 }
 
 /// Der Slice-Stellvertreter hinter dem generischen [`OutboxConsumer`]: zählt seine Versuche und geht
@@ -84,9 +87,22 @@ impl<D: CommandDecoder<Command = Cmd>> TransactionalHandler for Stellvertreter<D
         self.versuche.set(self.versuche.get() + 1);
         let versuch = self.versuche.get();
         let ausgang = self.ausgang;
+        let id = ack.0.to_string();
         run_in_unit(self.outbox.begin(ack), move |unit, _publishing| {
             match ausgang {
                 Ausgang::Terminal => return Err(PflichtfeldFehlt),
+                Ausgang::AnderswoErledigt => {
+                    let erledigt = unit.with_connection(|conn| {
+                        conn.execute(
+                            "UPDATE outbox SET status = 'processed', processed_on_utc = 1 \
+                             WHERE id = ?1;",
+                            [&id],
+                        )
+                    });
+                    if erledigt.is_err() {
+                        return Err(PflichtfeldFehlt);
+                    }
+                }
                 Ausgang::CommitScheitertBis(bis) if versuch <= bis => {
                     // Eine Schreibung in eine fehlende Tabelle: der Commit scheitert an SQLite selbst.
                     unit.stage_row(Box::new(|tx| {
@@ -165,7 +181,7 @@ fn ein_terminal_scheiternder_handler_wird_beim_ersten_fehlschlag_ausgesondert_un
     assert!(
         matches!(
             erste_runde.as_slice(),
-            [(message, Delivery::DeadLettered(OutboxError::Warning { .. }))] if message.id == gift
+            [(message, Delivery::DeadLettered { error: OutboxError::Warning { .. }, .. })] if message.id == gift
         ),
         "terminal ⇒ beim ersten Fehlschlag ausgesondert: {erste_runde:?}"
     );
@@ -195,7 +211,10 @@ fn eine_hoffnungslose_huelle_wird_als_critical_sofort_ausgesondert() -> rusqlite
     assert!(
         runde.iter().all(|(_, delivery)| matches!(
             delivery,
-            Delivery::DeadLettered(OutboxError::Critical { .. })
+            Delivery::DeadLettered {
+                error: OutboxError::Critical { .. },
+                ..
+            }
         )),
         "{runde:?}"
     );
@@ -228,9 +247,15 @@ fn ein_transient_scheiternder_commit_wird_bis_zur_hoechstzahl_zugestellt_und_dan
         assert!(
             matches!(
                 runde.as_slice(),
-                [(_, Delivery::Redelivery(OutboxError::Retry { .. }))]
+                [(
+                    _,
+                    Delivery::Redelivery {
+                        error: OutboxError::Retry { .. },
+                        attempts,
+                    }
+                )] if *attempts == versuch
             ),
-            "Versuch {versuch}: noch erneut zuzustellen: {runde:?}"
+            "Versuch {versuch}: noch erneut zuzustellen, gezählt aus der Zeile: {runde:?}"
         );
         assert_eq!(zeile(&outbox, &gift)?, ("open".to_string(), versuch));
     }
@@ -240,9 +265,27 @@ fn ein_transient_scheiternder_commit_wird_bis_zur_hoechstzahl_zugestellt_und_dan
     assert!(
         matches!(
             letzte.as_slice(),
-            [(_, Delivery::DeadLettered(OutboxError::Retry { .. }))]
+            [(
+                _,
+                Delivery::DeadLettered {
+                    error: OutboxError::Retry { .. },
+                    dead_letter,
+                }
+            )] if dead_letter.attempts() == MAX_DELIVERY_ATTEMPTS
         ),
         "nach {MAX_DELIVERY_ATTEMPTS} Versuchen ausgesondert: {letzte:?}"
+    );
+    // Was der Broker meldet, ist genau die Zeile, wie sie nun steht.
+    assert_eq!(
+        letzte
+            .first()
+            .and_then(|(_, delivery)| match delivery {
+                Delivery::DeadLettered { dead_letter, .. } => Some(dead_letter.clone()),
+                _ => None,
+            })
+            .into_iter()
+            .collect::<Vec<_>>(),
+        outbox.dead_letters()?
     );
     assert_eq!(
         zeile(&outbox, &gift)?,
@@ -273,7 +316,10 @@ fn ein_commit_der_beim_zweiten_versuch_gelingt_wird_verarbeitet_und_zaehlt_beide
     let erste = outbox.deliver_open(&dispatcher)?;
     let zweite = outbox.deliver_open(&dispatcher)?;
 
-    assert!(matches!(erste.as_slice(), [(_, Delivery::Redelivery(_))]));
+    assert!(matches!(
+        erste.as_slice(),
+        [(_, Delivery::Redelivery { .. })]
+    ));
     assert!(matches!(zweite.as_slice(), [(_, Delivery::Processed)]));
     assert_eq!(zeile(&outbox, &id)?, ("processed".to_string(), 2));
     assert!(outbox.dead_letters()?.is_empty());
@@ -367,7 +413,7 @@ fn eine_gesunde_nachricht_hinter_einer_vergifteten_wird_weiter_zugestellt() -> r
         matches!(
             runde.as_slice(),
             [
-                (vorn, Delivery::DeadLettered(_)),
+                (vorn, Delivery::DeadLettered { .. }),
                 (hinten, Delivery::Processed),
             ] if vorn.id == gift && hinten.id == gesund
         ),
@@ -417,5 +463,133 @@ fn ein_ausgesonderter_status_ohne_grund_ist_unkonstruierbar() -> rusqlite::Resul
         "geackt ohne Ack-Stempel: {ohne_stempel:?}"
     );
     assert_eq!(zeile(&outbox, &id)?.0, "open");
+    Ok(())
+}
+
+// --- Review-Runde 1: die reine Regel, „anderweitig erledigt", ein Verbuchen, das scheitert ---------
+
+fn retry() -> OutboxError {
+    OutboxError::Retry {
+        reason: "commit weg".to_string(),
+    }
+}
+
+#[test]
+fn die_regel_sondert_terminal_sofort_und_transient_erst_beim_letzten_versuch_aus() {
+    let slice = OutboxError::Warning {
+        reason: "x".to_string(),
+    };
+    let huelle = OutboxError::Critical {
+        message: "x".to_string(),
+        source: "y".to_string(),
+    };
+    // Terminal: gleich beim ersten Versuch.
+    assert_eq!(disposition(&slice, 0), Disposition::DeadLetter);
+    assert_eq!(disposition(&huelle, 0), Disposition::DeadLetter);
+    // Transient: erneut zustellen, solange mit diesem Versuch die Höchstzahl nicht erreicht ist …
+    assert!(
+        (0..MAX_DELIVERY_ATTEMPTS - 1)
+            .all(|vorher| disposition(&retry(), vorher) == Disposition::Redeliver)
+    );
+    // … und aussondern, sobald sie erreicht ist — auch darüber hinaus.
+    assert_eq!(
+        disposition(&retry(), MAX_DELIVERY_ATTEMPTS - 1),
+        Disposition::DeadLetter
+    );
+    assert_eq!(disposition(&retry(), u32::MAX), Disposition::DeadLetter);
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+)]
+#[test]
+fn eine_anderweitig_erledigte_nachricht_wird_weder_gezaehlt_noch_ausgesondert()
+-> rusqlite::Result<()> {
+    // Zwei Fälle derselben Lage: beim ersten Versuch (die Regel sagte „erneut zustellen") und beim
+    // letzten erlaubten (die Regel sagte „aussondern"). Beide Male ist die Zeile schon erledigt.
+    let outbox = SqliteOutbox::open_in_memory()?;
+    let mut dispatcher = Dispatcher::new();
+    registriere::<JederInhalt>(&mut dispatcher, &outbox, GIFT, Ausgang::AnderswoErledigt);
+    let erster = outbox.enqueue(GIFT, "zeiger-1")?;
+    let letzter = outbox.enqueue(GIFT, "zeiger-2")?;
+    outbox.with_connection(|conn| {
+        conn.execute(
+            "UPDATE outbox SET attempt = ?2 WHERE id = ?1;",
+            rusqlite::params![letzter, MAX_DELIVERY_ATTEMPTS - 1],
+        )
+    })?;
+
+    let runde = outbox.deliver_open(&dispatcher)?;
+
+    assert!(
+        matches!(
+            runde.as_slice(),
+            [
+                (_, Delivery::SettledElsewhere(OutboxError::Retry { .. })),
+                (_, Delivery::SettledElsewhere(OutboxError::Retry { .. })),
+            ]
+        ),
+        "eine erledigte Nachricht ist weder erneut zuzustellen noch ausgesondert: {runde:?}"
+    );
+    assert_eq!(zeile(&outbox, &erster)?, ("processed".to_string(), 0));
+    assert_eq!(
+        zeile(&outbox, &letzter)?,
+        ("processed".to_string(), MAX_DELIVERY_ATTEMPTS - 1)
+    );
+    assert!(outbox.dead_letters()?.is_empty());
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+)]
+#[test]
+fn ein_scheiterndes_verbuchen_verwirft_keinen_ausgang_und_haelt_die_zustellung_an()
+-> rusqlite::Result<()> {
+    // Vorn eine gesunde Nachricht, dahinter zwei vergiftete — und ein Trigger, der jedes Aussondern
+    // an SQLite scheitern lässt. Der verbuchte Erfolg vorn darf nicht verloren gehen; nach dem
+    // gescheiterten Verbuchen stellt der Broker nichts weiter zu.
+    let outbox = SqliteOutbox::open_in_memory()?;
+    outbox.with_connection(|conn| {
+        conn.execute_batch(
+            "CREATE TRIGGER kein_aussondern BEFORE UPDATE OF status ON outbox \
+             WHEN NEW.status = 'dead_letter' BEGIN SELECT RAISE(ABORT, 'gesperrt'); END;",
+        )
+    })?;
+    let mut dispatcher = Dispatcher::new();
+    registriere::<JederInhalt>(&mut dispatcher, &outbox, GESUND, Ausgang::Gelingt);
+    let gift_versuche =
+        registriere::<JederInhalt>(&mut dispatcher, &outbox, GIFT, Ausgang::Terminal);
+    outbox.enqueue(GESUND, "zeiger-1")?;
+    let erstes_gift = outbox.enqueue(GIFT, "zeiger-2")?;
+    let zweites_gift = outbox.enqueue(GIFT, "zeiger-3")?;
+
+    let runde = outbox.deliver_open(&dispatcher)?;
+
+    assert!(
+        matches!(
+            runde.as_slice(),
+            [
+                (_, Delivery::Processed),
+                (
+                    _,
+                    Delivery::Unrecorded {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                ),
+            ]
+        ),
+        "{runde:?}"
+    );
+    assert_eq!(
+        gift_versuche.get(),
+        1,
+        "das zweite Gift wurde nicht mehr zugestellt"
+    );
+    assert_eq!(zeile(&outbox, &erstes_gift)?, ("open".to_string(), 0));
+    assert_eq!(zeile(&outbox, &zweites_gift)?, ("open".to_string(), 0));
     Ok(())
 }

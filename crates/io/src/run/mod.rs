@@ -30,20 +30,24 @@
 //!
 //! Scheitert eine Nachricht, nimmt der Broker sie aus der Zustellung — terminal sofort, transient nach
 //! [`MAX_DELIVERY_ATTEMPTS`](crate::sqlite::MAX_DELIVERY_ATTEMPTS) Versuchen
-//! ([Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)).
-//! Der Lauf zieht daraus drei Folgen:
+//! ([Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md),
+//! [ADR-0017](../../../../docs/adr/0017-dead-letter-als-status-spalte-der-outbox.md)).
+//! Der Lauf zieht daraus vier Folgen:
 //!
-//! - **Die Phase läuft zu Ende.** Die gesunden Nachrichten hinter der vergifteten werden weiter
-//!   zugestellt; die Kette bleibt nicht stehen.
-//! - **Nach einem Import mit ausgesonderten Nachrichten startet keine Analyse** — sie rechnete auf
-//!   einem Bestand, dem etwas fehlt.
-//! - **Der Lauf endet mit [`RunError::DeadLettered`]** und nennt jede in ihm ausgesonderte Nachricht
-//!   (redigiert); die Bin-Crate macht daraus Exit 1. Nichts wird still verschluckt.
-//!
-//! Ein **späterer** Lauf ist davon nicht betroffen: eine ausgesonderte Nachricht ist nicht mehr offen,
-//! also wird sie weder erneut zugestellt noch hält sie als [`RunError::PendingImport`] einen neuen
-//! Import auf. Die Schlussbilanz zählt sie als „früher ausgesondert" weiter mit, damit sie nicht in
-//! Vergessenheit gerät.
+//! - **Beide Phasen laufen zu Ende.** Die gesunden Nachrichten hinter der vergifteten werden weiter
+//!   zugestellt; die Kette bleibt nicht stehen, und die Analyse findet statt.
+//! - **Der Lauf endet mit [`RunError::DeadLettered`]**, wenn **er selbst** etwas ausgesondert hat, und
+//!   nennt jede solche Nachricht (redigiert); die Bin-Crate macht daraus Exit 1. Nichts wird still
+//!   verschluckt.
+//! - **Eine fehlende Buchung bleibt sichtbar — aus der Datei, nicht aus dem Lauf.** Ein ausgesondertes
+//!   `Ingested` fehlt für immer in `obfuskiert`: eine bekannte Zeile wird nie neu publiziert. Jeder
+//!   Lauf zählt darum am Ende die ausgesonderten `Ingested` der **Datei** und trägt sie als
+//!   [`RunReport::incomplete`]; das Protokoll schreibt „Analyse unvollständig". Ein ausgesonderter
+//!   Import-Auslöser zählt nicht: sein Batch ist atomar, also fehlt dann keine einzelne Buchung, sondern
+//!   der ganze Auszug — und den füllt ein erneuter Import der korrigierten Datei.
+//! - Ein **späterer** Lauf wird nicht aufgehalten: eine ausgesonderte Nachricht ist nicht mehr offen,
+//!   also wird sie weder erneut zugestellt noch hält sie als [`RunError::PendingImport`] einen neuen
+//!   Import auf. Die Schlussbilanz zählt sie als „früher ausgesondert" weiter mit.
 //!
 //! ## Das Lauf-Protokoll ist redigiert
 //!
@@ -139,9 +143,7 @@ pub struct RunPaths {
 pub struct RunReport {
     processed: BTreeMap<String, usize>,
     occurrences: usize,
-    /// Die in **diesem** Lauf ausgesonderten Nachrichten. Ist die Liste nicht leer, endet der Lauf mit
-    /// [`RunError::DeadLettered`] — ein gelungener [`RunReport`] trägt sie darum stets leer.
-    dead_lettered: Vec<DeadLetter>,
+    incomplete: usize,
 }
 
 impl RunReport {
@@ -156,6 +158,14 @@ impl RunReport {
     #[must_use]
     pub fn occurrences(&self) -> usize {
         self.occurrences
+    }
+
+    /// Wie viele **Buchungen** der Analyse fehlen, weil ihr `Ingested` ausgesondert ist — gezählt über
+    /// die ganze Datei, nicht nur diesen Lauf (ADR-0017). `0` heißt: die Analyse sieht jede eingelesene
+    /// Buchung. Der Bericht (Issue 0012) zeigt es an.
+    #[must_use]
+    pub fn incomplete(&self) -> usize {
+        self.incomplete
     }
 
     /// Wie viele Nachrichten der Lauf insgesamt verarbeitet hat.
@@ -251,10 +261,11 @@ impl From<SchemaError> for RunError {
 /// Fährt **einen vollständigen Pipeline-Lauf** gegen die realen `io`-Adapter und schreibt dabei das
 /// redigierte Lauf-Protokoll nach `protocol`.
 ///
-/// Gelingt der Lauf, ist die Outbox leer und der [`RunReport`] sagt, was verarbeitet wurde. Wird in
-/// ihm eine Nachricht ausgesondert, läuft die Phase trotzdem zu Ende, eine Analyse nach einem solchen
-/// Import entfällt, und der Lauf endet mit [`RunError::DeadLettered`] (siehe Modul-Doku). Die
-/// ausgesonderte Nachricht ist danach nicht mehr offen — ein späterer Lauf geht an ihr vorbei.
+/// Gelingt der Lauf, ist die Outbox leer und der [`RunReport`] sagt, was verarbeitet wurde — samt der
+/// Zahl der Buchungen, die der Analyse wegen einer Aussonderung fehlen ([`RunReport::incomplete`]).
+/// Wird in ihm selbst eine Nachricht ausgesondert, laufen beide Phasen trotzdem zu Ende, und der Lauf
+/// endet mit [`RunError::DeadLettered`] (siehe Modul-Doku). Die ausgesonderte Nachricht ist danach
+/// nicht mehr offen — ein späterer Lauf geht an ihr vorbei.
 pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunError> {
     let window_days = FensterConfig::load(&paths.window_config)?.window_days();
     let seed = SeedConfig::load(&paths.seed_config)?.seed();
@@ -282,15 +293,7 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // über seinen Datenquellen-Port (Issue 0018), der Auslöser ist ein reiner Trigger.
     write_line(protocol, "Lauf: Import")?;
     enqueue_import(&outbox, &SourceKey::of(&paths.transactions))?;
-    drain(&outbox, &dispatcher, protocol, &mut report)?;
-    if !report.dead_lettered.is_empty() {
-        // Eine Analyse über einen Bestand, dem ausgesonderte Buchungen fehlen, rechnete still falsch.
-        write_line(
-            protocol,
-            "Lauf: Analyse entfällt — der Import hat Nachrichten ausgesondert",
-        )?;
-        return finish(&outbox, protocol, report);
-    }
+    let mut dead_lettered = drain(&outbox, &dispatcher, protocol, &mut report)?;
 
     // Phase 2 — Analyse. **Erst jetzt**: der Anstoß liest den Initial-Anker aus dem obfuskierten
     // Bestand, den Phase 1 gerade erst aufgebaut hat (siehe Modul-Doku).
@@ -300,30 +303,38 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // **dieses** Laufs — obwohl er, wie jeder Lauf, die ganze obfuskierte Historie neu paginiert.
     //
     // Gezählt werden nur die Vorkommen **dieses** Laufs: hat Phase 1 einen liegengebliebenen alten
-    // Lauf zu Ende geführt (seine Nachrichten lagen noch offen), steckt dessen Zählung schon im
-    // Abnehmer und wird hier abgezogen.
+    // Lauf zu Ende geführt, steckt dessen Zählung schon im Abnehmer und wird hier abgezogen. Offen
+    // liegen bleibt ein alter Lauf **nur nach einem Absturz** — eine gescheiterte Nachricht ist
+    // ausgesondert, nicht offen (ADR-0017), und ein Lauf mit ausgesondertem `AdvanceWindow` oder
+    // `WindowClosed` bleibt für immer unvollständig; ihn liest der Bericht nicht (er endete mit Exit 1).
     write_line(protocol, "Lauf: Analyse")?;
     let occurrences_before = occurrences.count();
     enqueue(&outbox, START_MESSAGE_TYPE, &mint_run_id(&outbox)?)?;
-    drain(&outbox, &dispatcher, protocol, &mut report)?;
+    dead_lettered.extend(drain(&outbox, &dispatcher, protocol, &mut report)?);
 
     report.occurrences = occurrences.count().saturating_sub(occurrences_before);
-    finish(&outbox, protocol, report)
+    finish(&outbox, protocol, report, dead_lettered)
 }
 
-/// Schließt den Lauf ab: schreibt die Schlussbilanz und entscheidet den Ausgang — gelungen nur ohne
-/// eine in diesem Lauf ausgesonderte Nachricht.
+/// Schließt den Lauf ab: liest den Stand der **Datei** — wie viele Buchungen der Analyse fehlen, wie
+/// viele Nachrichten insgesamt ausgesondert sind —, schreibt die Schlussbilanz und entscheidet den
+/// Ausgang: gelungen nur ohne eine in **diesem** Lauf ausgesonderte Nachricht.
 fn finish(
     outbox: &SqliteOutbox,
     protocol: &mut dyn Write,
-    report: RunReport,
+    mut report: RunReport,
+    dead_lettered: Vec<DeadLetter>,
 ) -> Result<RunReport, RunError> {
-    let in_file = outbox.dead_letters().map_err(backbone)?.len();
-    write_summary(protocol, &report, in_file)?;
-    if report.dead_lettered.is_empty() {
+    let in_file = outbox.dead_letters().map_err(backbone)?;
+    report.incomplete = in_file
+        .iter()
+        .filter(|dead_letter| dead_letter.message_type() == OBFUSKIERUNG_CONSUMED)
+        .count();
+    write_summary(protocol, &report, &dead_lettered, in_file.len())?;
+    if dead_lettered.is_empty() {
         Ok(report)
     } else {
-        Err(RunError::DeadLettered(report.dead_lettered))
+        Err(RunError::DeadLettered(dead_lettered))
     }
 }
 
@@ -601,52 +612,72 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
 ///
 /// **Ein Fehlschlag hält die Schleife nicht an**: der Broker hat die gescheiterte Nachricht schon
 /// verbucht — ausgesondert oder zur erneuten Zustellung offen gelassen —, und die übrigen Nachrichten
-/// laufen weiter. Was ausgesondert wurde, sammelt der [`RunReport`] für den Abschluss.
+/// laufen weiter. Zurück kommen die in dieser Phase ausgesonderten Nachrichten.
 fn drain(
     outbox: &SqliteOutbox,
     dispatcher: &Dispatcher<'_>,
     protocol: &mut dyn Write,
     report: &mut RunReport,
-) -> Result<(), RunError> {
+) -> Result<Vec<DeadLetter>, RunError> {
+    let mut dead_lettered = Vec::new();
     for _ in 0..MAX_ROUNDS {
         let batch = outbox.deliver_open(dispatcher).map_err(backbone)?;
         if batch.is_empty() {
-            return Ok(());
+            return Ok(dead_lettered);
         }
-        batch
-            .into_iter()
-            .try_for_each(|(message, delivery)| record(protocol, report, &message, delivery))?;
+        for (message, delivery) in batch {
+            dead_lettered.extend(record(protocol, report, &message, delivery)?);
+        }
     }
     Err(RunError::NotConverging)
 }
 
 /// Protokolliert **einen** Zustell-Ausgang und zählt ihn in den Bericht — redigiert: der Dispatch-Key
-/// und, bei einem Fehlschlag, die `Display` des [`OutboxError`](crate::outbox::OutboxError).
+/// und, bei einem Fehlschlag, die `Display` des [`OutboxError`](crate::outbox::OutboxError). Gibt die
+/// ausgesonderte Nachricht zurück, falls dieser Versuch eine aussonderte; ein Versuch, der sich nicht
+/// verbuchen ließ, bricht den Lauf als Rückgrat-Fehler ab.
 fn record(
     protocol: &mut dyn Write,
     report: &mut RunReport,
     message: &OutboxMessage,
     delivery: Delivery,
-) -> Result<(), RunError> {
+) -> Result<Option<DeadLetter>, RunError> {
     let message_type = &message.message_type;
     match delivery {
         Delivery::Processed => {
             write_line(protocol, &format!("  {message_type}"))?;
             report.count(message_type);
+            Ok(None)
         }
-        Delivery::Redelivery(error) => write_line(
-            protocol,
-            &format!("  {message_type} — wird erneut zugestellt: {error}"),
-        )?,
-        Delivery::DeadLettered(error) => {
+        Delivery::Redelivery { error, attempts } => {
+            write_line(
+                protocol,
+                &format!("  {message_type} — wird erneut zugestellt (Versuch {attempts}): {error}"),
+            )?;
+            Ok(None)
+        }
+        Delivery::DeadLettered { error, dead_letter } => {
             write_line(
                 protocol,
                 &format!("  {message_type} — ausgesondert: {error}"),
             )?;
-            report.dead_lettered.push(DeadLetter::of(message, &error));
+            Ok(Some(dead_letter))
+        }
+        Delivery::SettledElsewhere(error) => {
+            write_line(
+                protocol,
+                &format!("  {message_type} — anderweitig erledigt: {error}"),
+            )?;
+            Ok(None)
+        }
+        Delivery::Unrecorded { error, diagnosis } => {
+            write_line(
+                protocol,
+                &format!("  {message_type} — gescheitert: {error}"),
+            )?;
+            Err(RunError::Backbone(diagnosis))
         }
     }
-    Ok(())
 }
 
 /// Registriert einen Consumer und macht eine **Doppel-Registrierung** zum Fehler, statt den
@@ -775,12 +806,13 @@ fn write_line(protocol: &mut dyn Write, line: &str) -> Result<(), RunError> {
     writeln!(protocol, "{line}").map_err(|error| RunError::Protocol(error.to_string()))
 }
 
-/// Die Schlussbilanz: die Zahl je Typ und die Gesamtzahl — beides reine Zählwerte —, dazu die in
-/// diesem Lauf ausgesonderten Nachrichten (redigiert) und wie viele die Datei schon von **früheren**
-/// Läufen trägt (`in_file` zählt alle).
+/// Die Schlussbilanz: die Zahl je Typ und die Gesamtzahl — beides reine Zählwerte —, ob der Analyse
+/// Buchungen fehlen, dazu die in diesem Lauf ausgesonderten Nachrichten (redigiert) und wie viele die
+/// Datei schon von **früheren** Läufen trägt (`in_file` zählt alle).
 fn write_summary(
     protocol: &mut dyn Write,
     report: &RunReport,
+    dead_lettered: &[DeadLetter],
     in_file: usize,
 ) -> Result<(), RunError> {
     write_line(protocol, "Lauf: verarbeitet")?;
@@ -795,12 +827,21 @@ fn write_summary(
             report.occurrences()
         ),
     )?;
-    let earlier = in_file.saturating_sub(report.dead_lettered.len());
+    if report.incomplete > 0 {
+        write_line(
+            protocol,
+            &format!(
+                "Analyse unvollständig: {} Buchung(en) ausgesondert",
+                report.incomplete
+            ),
+        )?;
+    }
+    let earlier = in_file.saturating_sub(dead_lettered.len());
     if in_file == 0 {
         return Ok(());
     }
     write_line(protocol, "Lauf: ausgesondert")?;
-    for dead_letter in &report.dead_lettered {
+    for dead_letter in dead_lettered {
         write_line(protocol, &format!("  {dead_letter}"))?;
     }
     write_line(protocol, &format!("  früher ausgesondert: {earlier}"))

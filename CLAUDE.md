@@ -60,7 +60,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (deliberately free of architecture/crate detail so it cannot go stale); the architecture
   is owned by [docs/adr/](docs/adr/) and this file.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — sixteen ADRs (0008/0009 governing the pipeline/kernel — refined
+- [docs/adr/](docs/adr/) — seventeen ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011** (built): each slice decoupled from the Outbox mechanics, kernel cut flipped and
   merged into `application_kernel`; and by **0012**, which fixes the pipeline to
   **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
@@ -74,7 +74,10 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   `io`-internal mechanics, **no** slice↔`io` seam changed; **0016** (*accepted*, **built** — issue
   0088) gives every `einlesen` line a **row key** (a new import adds, a known line is neither stored
   nor published again), binds windows to **one run** (run id from the `StartAnalysis` trigger,
-  window-spanning query scoped by it) and skips `Umsatz vorgemerkt`; 0010 governing seed-based pseudonym
+  window-spanning query scoped by it) and skips `Umsatz vorgemerkt`; **0017** (*accepted*, **built** —
+  issue 0085) answers 0012's deferred question: the broker **dead-letters** a failed message via a
+  `status` column in the outbox (terminal at once, transient after 3 attempts), runs are never blocked
+  by it, and a dead-lettered `Ingested` marks every later analysis **incomplete**; 0010 governing seed-based pseudonym
   stability; 0001–0007 each carry a superseded banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
@@ -354,13 +357,16 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
 - ~~**No dead-letter**~~ — **built**
   ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)),
   the answer to what [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
-  deferred: the outbox has a **`status` column** (`open`/`processed`/`dead_letter`, schema **v3**) and
-  counts attempts. The broker ([`sqlite/delivery.rs`](crates/io/src/sqlite/delivery.rs)) dead-letters
-  a **terminal** failure (`Warning`/`Critical`) at once and a **transient** one (`Retry`, a failed
-  commit) after `MAX_DELIVERY_ATTEMPTS` (3, a constant); the redacted reason stays on the row
-  (`SqliteOutbox::dead_letters`). The run drains the phase anyway, skips the analysis after an import
-  with dead letters, names them and ends with `RunError::DeadLettered` (exit 1); a later run is not
-  blocked and counts them as „früher ausgesondert". No slice changed.
+  deferred ([ADR-0017](docs/adr/0017-dead-letter-als-status-spalte-der-outbox.md)): the outbox has a
+  **`status` column** (`open`/`processed`/`dead_letter`, ladder rung 3 → 4, schema **v4**) and counts
+  attempts. The broker ([`sqlite/delivery.rs`](crates/io/src/sqlite/delivery.rs)) dead-letters a
+  **terminal** failure (`Warning`/`Critical`) at once and a **transient** one (`Retry`, a failed
+  commit) after `MAX_DELIVERY_ATTEMPTS` (3, a constant), reporting from the row it hit (`RETURNING`);
+  the redacted reason stays on the row (`SqliteOutbox::dead_letters`). Both run phases drain anyway; a
+  run that dead-letters something itself names it and ends with `RunError::DeadLettered` (exit 1); a
+  later run is not blocked, counts earlier ones as „früher ausgesondert", and reads from the **file**
+  how many bookings are missing (dead-lettered `Ingested`) → `RunReport::incomplete`, „Analyse
+  unvollständig" in the log, exit 0. No slice changed.
 - Cosmetic: the `toml` dependency carries semver build metadata, so every workspace command
   prints a warning ([0086](docs/issues/0086-toml-abhaengigkeit-ohne-semver-metadaten.md)).
 
@@ -410,8 +416,9 @@ cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.tom
 `personen.example.toml`, gitignored). It is **mandatory even when empty** (`namen = []`): a forgotten
 list stops the run instead of silently scrubbing fewer names.
 
-Exit code `0` = the outbox ran empty, `1` = this run dead-lettered a message (named, redacted — the
-message is out of delivery and does not block later runs), `2` = the command line was wrong. The invented fixtures under
+Exit code `0` = the outbox ran empty (the log still says „Analyse unvollständig" if an earlier run
+dead-lettered a booking), `1` = this run dead-lettered a message (named, redacted — the message is out
+of delivery and does not block later runs), `2` = the command line was wrong. The invented fixtures under
 [`crates/io/fixtures/lauf/`](crates/io/fixtures/lauf/) plus
 [`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example.
 

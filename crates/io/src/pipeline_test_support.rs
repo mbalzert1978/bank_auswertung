@@ -59,7 +59,15 @@ pub(crate) fn assert_redacted_diagnosis(
     raw_value: &str,
 ) {
     let reason = match outcomes {
-        [(_, Delivery::DeadLettered(OutboxError::Warning { reason }))] => reason,
+        [
+            (
+                _,
+                Delivery::DeadLettered {
+                    error: OutboxError::Warning { reason },
+                    ..
+                },
+            ),
+        ] => reason,
         other => panic!("genau ein terminaler Warning-Ausgang erwartet: {other:?}"),
     };
     assert!(
@@ -129,7 +137,7 @@ pub(crate) fn seed_through(
     assert!(
         einlesen_out
             .iter()
-            .all(|(_, outcome)| outcome.is_processed()),
+            .all(|(_, outcome)| matches!(outcome, Delivery::Processed)),
         "einlesen muss atomar verarbeiten: {einlesen_out:?}"
     );
 
@@ -151,7 +159,7 @@ pub(crate) fn seed_through(
     assert!(
         obfuskierung_out
             .iter()
-            .all(|(_, outcome)| outcome.is_processed()),
+            .all(|(_, outcome)| matches!(outcome, Delivery::Processed)),
         "obfuskierung muss atomar verarbeiten: {obfuskierung_out:?}"
     );
     Ok(())
@@ -268,7 +276,9 @@ pub(crate) fn drain(
         if batch.is_empty() {
             return Ok(all);
         }
-        let failed = batch.iter().any(|(_, outcome)| !outcome.is_processed());
+        let failed = batch
+            .iter()
+            .any(|(_, outcome)| !matches!(outcome, Delivery::Processed));
         all.extend(batch);
         if failed {
             return Ok(all);

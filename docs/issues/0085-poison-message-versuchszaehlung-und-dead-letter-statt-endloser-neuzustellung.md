@@ -42,6 +42,9 @@ weder Retry noch Dead-Letter.
 
 ## Wie es gebaut wurde
 
+Kanonisch festgehalten in
+[ADR-0017](../adr/0017-dead-letter-als-status-spalte-der-outbox.md).
+
 **Die Antwort auf ADR-0012s vertagte Frage:** `io` surfacet einen terminalen Fehlschlag, indem der
 **Broker** die Nachricht **aussondert** — sie bleibt als Outbox-Zeile liegen, wird aber nie wieder
 zugestellt, und ihr redigierter Grund ist abfragbar. Der Slice-Vertrag (`application_kernel`, jeder
@@ -52,23 +55,33 @@ zugestellt, und ihr redigierter Grund ist abfragbar. Der Slice-Vertrag (`applica
   illegalen Kombinationen unkonstruierbar (`processed` ⇔ Ack-Stempel, `dead_letter` ⇔ Grund).
   `attempt` zählt jetzt jeden Versuch, auch den gelungenen.
 - **Entscheidung im Broker** (`crates/io/src/sqlite/delivery.rs`, `SqliteOutbox::deliver_open`):
-  nach jedem Versuch verbucht er den Ausgang (`Delivery::Processed`/`Redelivery`/`DeadLettered`).
+  nach jedem Versuch verbucht er den Ausgang. Die Regel ist die reine Funktion `disposition`:
   `Warning` (Slice) und `Critical` (Hülle) → sofort ausgesondert; `Retry` (Commit) → offen, bis
-  `MAX_DELIVERY_ATTEMPTS` Versuche verbraucht sind.
+  `MAX_DELIVERY_ATTEMPTS` Versuche verbraucht sind. Gemeldet wird aus der getroffenen Zeile
+  (`UPDATE … WHERE status = 'open' RETURNING …`): `Processed`, `Redelivery`, `DeadLettered`,
+  `SettledElsewhere` (Zeile war schon erledigt, z. B. nach „bereits verarbeitet") oder `Unrecorded`
+  (das Verbuchen scheiterte; die schon verbuchten Ausgänge bleiben, der Broker stellt danach nichts
+  mehr zu).
 - **Höchstzahl = Konstante `MAX_DELIVERY_ATTEMPTS = 3`**, keine Config-Datei (YAGNI): kein
   Fachparameter, sondern Broker-Mechanik. Ein Commit scheitert an der Datenbank selbst; hält das drei
   Versuche an, ist es nicht mehr vorübergehend.
 - **Abfrage:** `SqliteOutbox::dead_letters()` → `DeadLetter` (Dispatch-Key, Versuche, Grund). Der Grund
   ist die `Display` des `OutboxError` — nie `partition_key` oder `content`.
-- **Lauf:** eine Phase läuft trotz Aussonderung zu Ende (die gesunden Nachrichten fließen weiter);
-  nach einem Import mit Aussonderungen entfällt die Analyse; am Ende nennt die Schlussbilanz die
-  Aussonderungen dieses Laufs und zählt frühere mit („früher ausgesondert: n"). Ein Lauf mit
-  Aussonderung endet mit `RunError::DeadLettered` → **Exit 1**. Ein **späterer** Lauf wird nicht
-  aufgehalten: die ausgesonderte Nachricht ist nicht offen, also auch kein `RunError::PendingImport` —
-  das greift nur noch bei einem wirklich offenen Auslöser (abgestürzter Lauf).
-- **Schema v3** (`crates/io/src/schema.rs`): Arm 2 → 3 baut die Outbox um und übernimmt den Bestand
-  (`processed_on_utc` gesetzt → `processed`, sonst `open`; `rowid` bleibt). Eine v1-Datei durchläuft
-  1 → 2 → 3, gestempelt wird am Ende.
+- **Lauf:** beide Phasen laufen trotz Aussonderung zu Ende (die gesunden Nachrichten fließen weiter,
+  die Analyse findet statt). Ein Lauf, der **selbst** etwas aussondert, endet mit
+  `RunError::DeadLettered` → **Exit 1** und nennt es. Ein **späterer** Lauf wird nicht aufgehalten: die
+  ausgesonderte Nachricht ist nicht offen, also auch kein `RunError::PendingImport` — das greift nur
+  noch bei einem wirklich offenen Auslöser (abgestürzter Lauf). Die Schlussbilanz zählt frühere
+  Aussonderungen mit („früher ausgesondert: n").
+- **Fehlende Buchungen bleiben sichtbar (Review-Runde 1):** ein ausgesondertes `Ingested` fehlt für
+  immer in `obfuskiert`. Jeder Lauf zählt darum am Ende die ausgesonderten `Ingested` der **Datei** →
+  `RunReport::incomplete` (öffentlich, für den Bericht 0012) und „Analyse unvollständig: n Buchung(en)
+  ausgesondert" im Protokoll — bei Exit 0. Ein ausgesonderter `ReadTransactions` zählt nicht (Batch
+  atomar; ein erneuter Import füllt den ganzen Auszug).
+- **Schema v4** (`crates/io/src/schema.rs`): Sprosse 3 → 4 der Migrations-Leiter aus 0009 baut die
+  Outbox mit **eingefrorener** Ziel-DDL um und übernimmt den Bestand (`processed_on_utc` gesetzt →
+  `processed`, sonst `open`; `rowid` bleibt). Der Version-1-Neubau baut die Outbox ebenso um.
+- **Bewusst nicht gebaut:** kein Redrive-Werkzeug (YAGNI) — siehe ADR-0017.
 
 **Belegende Tests** (crate-intern in `io`, echtes SQLite):
 
@@ -77,9 +90,10 @@ zugestellt, und ihr redigierter Grund ist abfragbar. Der Slice-Vertrag (`applica
 | terminal → sofort raus, kein Folge-Zustellen | `sqlite::delivery::tests::ein_terminal_scheiternder_handler_wird_beim_ersten_fehlschlag_ausgesondert_und_nie_wieder_zugestellt`, `…eine_hoffnungslose_huelle_wird_als_critical_sofort_ausgesondert` |
 | transient bis Höchstzahl, dann raus | `…ein_transient_scheiternder_commit_wird_bis_zur_hoechstzahl_zugestellt_und_dann_ausgesondert` (+ `…ein_commit_der_beim_zweiten_versuch_gelingt_…`) |
 | abfragbar, Grund ohne Rohwert/Freitext | `…ausgesonderte_nachrichten_sind_mit_grund_abfragbar_und_der_grund_traegt_keinen_rohwert_und_keinen_freitext`, `run::tests::der_aussonderungs_grund_eines_echten_laufs_traegt_keinen_rohwert_und_keinen_freitext` |
-| gesunde Nachricht hinter vergifteter | `…eine_gesunde_nachricht_hinter_einer_vergifteten_wird_weiter_zugestellt`, `run::tests::ein_ausgesonderter_ausloeser_haelt_den_naechsten_lauf_nicht_auf` |
+| gesunde Nachricht hinter vergifteter | `…eine_gesunde_nachricht_hinter_einer_vergifteten_wird_weiter_zugestellt`, `run::tests::ein_ausgesonderter_ausloeser_haelt_den_naechsten_lauf_nicht_auf`, `run::tests::eine_in_einem_frueheren_lauf_ausgesonderte_buchung_macht_jeden_spaeteren_lauf_unvollstaendig` |
 | Slice-Vertrag unverändert | Diff berührt nur `crates/io`, `crates/lauf` und Doku — kein `_domain`/`_adapter`/`_specs`, kein `application_kernel` |
-| Migration | `schema::tests::eine_version_2_datei_mit_bestand_bekommt_die_status_spalte_und_behaelt_jede_nachricht` |
+| Migration | `schema::tests::eine_version_3_datei_mit_bestand_bekommt_die_status_spalte_und_behaelt_jede_nachricht` (nicht aufsteigende `rowid`s) |
+| Regel, Randfälle | `…die_regel_sondert_terminal_sofort_und_transient_erst_beim_letzten_versuch_aus` (ohne SQLite), `…eine_anderweitig_erledigte_nachricht_wird_weder_gezaehlt_noch_ausgesondert`, `…ein_scheiterndes_verbuchen_verwirft_keinen_ausgang_und_haelt_die_zustellung_an` |
 
 ## Blocked by
 
