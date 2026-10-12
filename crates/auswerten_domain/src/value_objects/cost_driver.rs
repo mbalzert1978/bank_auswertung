@@ -30,6 +30,13 @@ const DAYS_PER_YEAR: u64 = 365;
 /// Entgeltzeile die Abo-Reihe ihrer Gegenpartei zerreißen, und eine monatliche Kontoführung verlöre
 /// ihren Takt. So ist auch eine Gebühr wiederkehrend, wenn sie im Takt abgeht.
 ///
+/// **Grenze, ehrlich benannt:** `Fee(konto)` fasst **alle** Gebühren eines Kontos zu **einer** Reihe
+/// zusammen. Zieht die Bank auf demselben Konto neben der monatlichen Kontoführung eine **zweite**
+/// Gebührenart ein (etwa ein Auslandseinsatz-Entgelt), bricht diese den Takt — die Kontoführung gilt
+/// dann nicht mehr als wiederkehrend, und ihr Jahresbetrag ist der Durchschnitt statt zwölf Monate.
+/// Ein feinerer Schnitt (je Gebührenart) ist bewusst **nicht** gebaut: welche Gebührentexte die Bank
+/// wirklich setzt, klärt erst der HITL-Schritt zu Issue 0006.
+///
 /// Die abgeleitete Ordnung (Art < Gebühr < Sammel-Treiber, darin nach Schlüssel) ist der stabile
 /// Gleichstand-Entscheider des Rankings.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

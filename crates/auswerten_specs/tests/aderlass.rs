@@ -331,6 +331,37 @@ fn eine_monatliche_gebuehr_ist_wiederkehrend_mit_vollem_jahresbetrag() {
 }
 
 #[test]
+fn eine_zweite_gebuehrenart_auf_demselben_konto_bricht_den_takt_der_kontofuehrung() {
+    // Eine **bekannte Grenze**, festgehalten statt verschwiegen: `Fee(konto)` ist **eine** Reihe je
+    // Konto. Neben der monatlichen Kontoführung zieht die Bank einmal ein Auslandseinsatz-Entgelt
+    // ein — der Abstand von 14 Tagen fällt aus dem Takt, die Kontoführung gilt nicht mehr als
+    // wiederkehrend, und ihr Jahresbetrag ist die Summe statt zwölf Monate. Ein Schnitt je
+    // Gebührenart ist bewusst nicht gebaut (HITL zu Issue 0006).
+    let api = ein_fenster(&[
+        entgelt(JAN_15, 490),
+        entgelt(FEB_15, 490),
+        WindowBookingRow {
+            booking_text: Some("AUSLANDSEINSATZENTGELT".to_string()),
+            ..entgelt(FEB_29, 150)
+        },
+        entgelt(MAR_15, 490),
+    ]);
+
+    let ergebnis = auswertung(&api);
+
+    assert_eq!(ergebnis.recurrences, vec![]);
+    assert_eq!(
+        ergebnis.ranking,
+        vec![platz(
+            gebuehren_von(EIGENES_KONTO),
+            (1_620, 4),
+            (10_000, 10_000),
+            1_620
+        )]
+    );
+}
+
+#[test]
 fn eine_gebuehr_mit_gegenpartei_zerreisst_die_abo_reihe_nicht() {
     // Derselbe Händler zieht einmal eine Gebühr ein (Buchungstext ENTGELT) — sie ist Geld, das als
     // Gebühr genommen wird, und gehört zu den Gebühren des Kontos. Die Abo-Reihe des Händlers bleibt

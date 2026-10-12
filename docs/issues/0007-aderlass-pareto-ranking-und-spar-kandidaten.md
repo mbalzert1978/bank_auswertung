@@ -73,6 +73,12 @@ nichts und verlöre Abos unterhalb der Spitze.
   (Fingerabdruck für die Wiederkehr, Treiber fürs Ranking) ließen eine einzelne Entgeltzeile mit
   Gegenpartei die Abo-Reihe des Händlers zerreißen. `RecurrenceRow` trägt darum den Treiber
   (`driver: CostDriverRow`) statt eines Fingerabdrucks.
+- **Grenze (Review-Runde 2, W5):** `Fee(konto)` fasst **alle** Gebühren eines Kontos zu einer Reihe
+  zusammen. Eine zweite Gebührenart auf demselben Konto (z. B. ein Auslandseinsatz-Entgelt neben der
+  Kontoführung) bricht den Takt — die Kontoführung gilt dann nicht als wiederkehrend, ihr
+  Jahresbetrag ist der Durchschnitt je Jahr. Festgehalten in der Spec
+  `eine_zweite_gebuehrenart_auf_demselben_konto_bricht_den_takt_der_kontofuehrung`. Ein feinerer
+  Schnitt (je Gebührenart) ist bewusst nicht gebaut; das entscheidet Markus beim HITL zu 0006.
 - **Pipeline** in `HistoryEvaluation::of`: `netted_outflows → DriverGroups → {recurrences, rank} →
   savings_candidates`, daneben `account_cashflows` und `occurrences`; die genetteten Abflüsse werden
   einmal durchlaufen.
