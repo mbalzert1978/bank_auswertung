@@ -5,7 +5,7 @@ use crate::ports::{
     AdvanceWindowPublisher, AnalysisWindowRepository, HistoryCompletePublisher,
     ObfuscatedWindowSource, WindowAnchor, WindowClosedPublisher,
 };
-use crate::value_objects::{DayStamp, WindowDays, WindowSpan};
+use crate::value_objects::{WindowDays, WindowSpan};
 
 /// Orchestriert **einen Fenster-Schritt** — er **lebt in der Domäne** und hängt **nur** an den von
 /// ihr verlangten Ports; die Verdrahtung an die Außenwelt (io/Fakes) besorgt der Adapter über
@@ -65,10 +65,10 @@ impl<'a> WindowingHandler<'a> {
     pub fn handle(&self, command: AdvanceWindow) -> Result<(), WindowError> {
         let span = WindowSpan::page(command.anchor(), self.window_days);
         let bookings = self.source.read(&span)?;
-        let window = AnalysisWindow::open(span, bookings)?;
+        let window = AnalysisWindow::open(command.run().clone(), span, bookings)?;
         let id = self.repository.save(&window)?;
         self.closed.publish(&id)?;
-        self.continuation(span, command.run_top())
+        self.continuation(span, &command)
     }
 
     /// Die **Selbst-Fortsetzung** — der eine Mechanismus aus ADR-0013, Entscheidung B,
@@ -76,19 +76,25 @@ impl<'a> WindowingHandler<'a> {
     /// Fensterunterkante**.
     ///
     /// - liefert die Abfrage **einen** Tag → das nächste [`AdvanceWindow`] mit diesem Anker (der
-    ///   Lauf-Gipfel reist unverändert mit);
-    /// - liefert sie **nichts** → der Abschluss mit der **Lauf-Spanne** `[from … run_top]`.
+    ///   Lauf-Gipfel und die Lauf-Identität reisen unverändert mit);
+    /// - liefert sie **nichts** → der Abschluss des Laufs mit seiner **Lauf-Spanne**
+    ///   `[from … run_top]`.
     ///
     /// Weil der Anker ein **echter** Buchungstag ist, sitzt jede Folgeseite auf Daten: Lücken —
     /// auch größer als eine Seitengröße — werden **übersprungen** statt in leere Fenster gegossen,
     /// die Seiten **überlappen nicht**, und die Kette **terminiert**, weil der Anker echt unter die
     /// Unterkante fällt und damit **streng monoton sinkt**.
-    fn continuation(&self, span: WindowSpan, run_top: DayStamp) -> Result<(), WindowError> {
+    fn continuation(&self, span: WindowSpan, command: &AdvanceWindow) -> Result<(), WindowError> {
         match self.anchors.latest_before(span.from())? {
-            Some(next) => self.advance.publish(&AdvanceWindow::new(next, run_top)),
-            None => self
-                .history
-                .publish(&WindowSpan::spanning(span.from(), run_top)),
+            Some(next) => self.advance.publish(&AdvanceWindow::new(
+                next,
+                command.run_top(),
+                command.run().clone(),
+            )),
+            None => self.history.publish(
+                command.run(),
+                &WindowSpan::spanning(span.from(), command.run_top()),
+            ),
         }
     }
 }

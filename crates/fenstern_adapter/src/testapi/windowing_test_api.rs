@@ -34,18 +34,24 @@ const KETTEN_SCHRANKE: usize = 1_000;
 
 pub struct WindowingTestApi {
     window_days: NonZeroU32,
+    run: String,
     source: FakeObfuscatedWindowSource,
     store: FakeAnalysisWindowStore,
     publisher: FakeWindowPublisher,
 }
 
 impl WindowingTestApi {
+    /// Die Lauf-Identität, unter der die TestApi anstößt, solange ein Spec keine eigene setzt
+    /// ([`with_run`](Self::with_run)).
+    pub const DEFAULT_RUN: &str = "lauf-1";
+
     /// Neue TestApi mit Seitengröße `1` — reale Specs setzen sie über
     /// [`with_window_days`](Self::with_window_days).
     #[must_use]
     pub fn new() -> Self {
         Self {
             window_days: NonZeroU32::MIN,
+            run: Self::DEFAULT_RUN.to_string(),
             source: FakeObfuscatedWindowSource::default(),
             store: FakeAnalysisWindowStore::default(),
             publisher: FakeWindowPublisher::default(),
@@ -61,6 +67,15 @@ impl WindowingTestApi {
     #[must_use]
     pub fn with_window_days(mut self, days: u32) -> Self {
         self.window_days = NonZeroU32::new(days).expect("Seitengröße >= 1");
+        self
+    }
+
+    /// Setzt die **Lauf-Identität**, unter der [`start`](Self::start) bzw. [`run`](Self::run) den
+    /// Lauf führen (ADR-0016) — sonst [`DEFAULT_RUN`](Self::DEFAULT_RUN). Vergeben wird sie in Produktion von dem, der
+    /// anstößt; der Slice reicht sie nur durch.
+    #[must_use]
+    pub fn with_run(mut self, run: &str) -> Self {
+        self.run = run.to_string();
         self
     }
 
@@ -94,14 +109,16 @@ impl WindowingTestApi {
     }
 
     /// Fährt den **Anstoß**: die echte Kette [`StartAnalysisCommandDecoder`] →
-    /// [`StartHandler`](crate::StartHandler) mit dem **feldlosen** Auslöser-Kommando. Der Anker wird
+    /// [`StartHandler`](crate::StartHandler) mit dem Auslöser-Kommando, das nur die Lauf-Identität
+    /// trägt. Der Anker wird
     /// dabei nicht hereingereicht, sondern vom Handler über den Anker-Port beschafft — die Specs
     /// arrangieren ihn allein über [`with_obfuscated`](Self::with_obfuscated), **ohne Uhr**.
     ///
     /// `Ok(())` = verarbeitet (auch beim **leeren** Bestand, dann ohne jede Nachricht);
     /// `Err` = terminaler [`WindowError`].
     pub fn start(&self) -> Result<(), WindowError> {
-        let command = StartAnalysisCommandDecoder::decode("", "").expect("feldloser Auslöser");
+        let command = StartAnalysisCommandDecoder::decode(&self.run, "")
+            .expect("Lauf-Identität als Schlüssel");
         StartHandler::new(&self.source, &self.publisher).handle(command)
     }
 
@@ -113,7 +130,7 @@ impl WindowingTestApi {
     /// bewusst nur das eine Kommando und lässt die publizierte Fortsetzung liegen, damit ein Spec
     /// den einzelnen Schritt isoliert betrachten kann.
     pub fn run(&self, anchor: i64) -> Result<(), WindowError> {
-        self.run_key(&format!("{anchor}:{anchor}"))
+        self.run_key(&format!("{anchor}:{anchor}:{}", self.run))
     }
 
     /// Fährt den **ganzen Lauf**: den ersten Schritt zum Anker und danach jede vom Slice selbst
@@ -127,7 +144,7 @@ impl WindowingTestApi {
     /// Wenn die Kette nicht binnen `KETTEN_SCHRANKE` Schritten terminiert — der Anker muss streng
     /// monoton sinken, ein Nicht-Terminieren ist ein **Fehlschlag des Specs**, kein Hänger.
     pub fn run_chain(&self, anchor: i64) -> Result<(), WindowError> {
-        self.fahre_kette(format!("{anchor}:{anchor}"), 0)
+        self.fahre_kette(format!("{anchor}:{anchor}:{}", self.run), 0)
     }
 
     /// Fährt den **ganzen Lauf ab dem Anstoß**: erst [`start`](Self::start) (der den Initial-Anker
@@ -187,7 +204,7 @@ impl WindowingTestApi {
     /// die Specs die echte `Decoder → Handler`-Kette betreten.
     ///
     /// # Panics
-    /// Wenn der Schlüssel nicht als `"{anchor}:{run_top}"` decodiert — eine unlesbare Envelope ist
+    /// Wenn der Schlüssel nicht als `"{anchor}:{run_top}:{run}"` decodiert — eine unlesbare Envelope ist
     /// eine io-Sorge, nicht Handler-Eingabe; die Specs reichen stets einen echten Anker herein.
     fn run_key(&self, partition_key: &str) -> Result<(), WindowError> {
         let command =
@@ -232,13 +249,28 @@ impl WindowingTestApi {
     }
 
     /// Prüft, dass genau die erwarteten **Lauf-Spannen** unter dem Dispatch-Key `HistoryComplete`
-    /// publiziert wurden — der Abschluss, der `auswerten`s fenster-übergreifende Reichweite auslöst.
+    /// publiziert wurden — der Abschluss, der `auswerten`s fenster-übergreifende Reichweite auslöst
+    /// —, jede unter der Lauf-Identität dieser TestApi.
     pub fn assert_history_complete(&self, spans: &[(i64, i64)]) {
         let erwartet: Vec<String> = spans
             .iter()
-            .map(|(from, to)| format!("{from}:{to}"))
+            .map(|(from, to)| format!("{from}:{to}:{}", self.run))
             .collect();
         assert_eq!(self.published_keys("HistoryComplete"), erwartet);
+    }
+
+    /// Prüft, dass **jede** publizierte Fortsetzung (`AdvanceWindow`) und jeder Abschluss
+    /// (`HistoryComplete`) die Lauf-Identität `run` trägt — sie reist unverändert durch die ganze
+    /// Kette (ADR-0016).
+    pub fn assert_every_message_carries_run(&self, run: &str) {
+        let schluessel: Vec<String> = [CONSUMED_MESSAGE_TYPE, "HistoryComplete"]
+            .into_iter()
+            .flat_map(|typ| self.published_keys(typ))
+            .collect();
+        assert!(!schluessel.is_empty(), "es wurde nichts publiziert");
+        for key in schluessel {
+            assert_eq!(key.rsplit(':').next(), Some(run), "{key}");
+        }
     }
 
     /// Die `partition_key`s der unter einem Dispatch-Key eingereihten Nachrichten, in

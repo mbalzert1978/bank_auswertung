@@ -2,7 +2,7 @@ use crate::error::LineError;
 use crate::ports::{Calendar, Currencies, Money};
 use crate::value_objects::{
     Amount, BookingText, CalendarDay, CreditorId, Date, Direction, Iban, NonEmptyString, Purpose,
-    RawLine, Recipient, RecipientName,
+    RawLine, Recipient, RecipientName, RowKey,
 };
 
 /// Eine eingelesene, validierte Buchungszeile — das Aggregat des Slice. Es entsteht
@@ -12,6 +12,7 @@ use crate::value_objects::{
 /// Adapter aus, um daraus das ausgehende „Eingelesen"-Command zu bauen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineAggregate {
+    row_key: RowKey,
     ordering_account: Iban,
     counter_account: Option<Iban>,
     amount: Amount,
@@ -65,6 +66,7 @@ impl LineAggregate {
         let purpose = line.purpose.map(Purpose::from);
         let booking_text = line.booking_text.map(BookingText::from);
         Ok(Self {
+            row_key: RowKey::from(line.row_key),
             ordering_account,
             counter_account,
             amount,
@@ -74,6 +76,11 @@ impl LineAggregate {
             purpose,
             booking_text,
         })
+    }
+
+    /// Der Zeilen-Schlüssel, an dem ein erneuter Import diese Zeile wiedererkennt.
+    pub fn row_key(&self) -> &RowKey {
+        &self.row_key
     }
 
     pub fn ordering_account(&self) -> &Iban {

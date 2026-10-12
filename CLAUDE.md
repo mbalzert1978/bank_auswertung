@@ -58,7 +58,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (deliberately free of architecture/crate detail so it cannot go stale); the architecture
   is owned by [docs/adr/](docs/adr/) and this file.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — fifteen ADRs (0008/0009 governing the pipeline/kernel — refined
+- [docs/adr/](docs/adr/) — sixteen ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011** (built): each slice decoupled from the Outbox mechanics, kernel cut flipped and
   merged into `application_kernel`; and by **0012**, which fixes the pipeline to
   **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
@@ -69,7 +69,10 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   **synchronous** (`sqlx` rejected — async ripple through `application_kernel`/all slices vs.
   ADR-0003); **0015** (*accepted*, **built** — issues 0074–0077) collapses the four `io`
   result-store hulls into **one** generic `SliceStore<S>` over a `StoreSpec` trait — purely
-  `io`-internal mechanics, **no** slice↔`io` seam changed; 0010 governing seed-based pseudonym
+  `io`-internal mechanics, **no** slice↔`io` seam changed; **0016** (*accepted*, **built** — issue
+  0088) gives every `einlesen` line a **row key** (a new import adds, a known line is neither stored
+  nor published again), binds windows to **one run** (run id from the `StartAnalysis` trigger,
+  window-spanning query scoped by it) and skips `Umsatz vorgemerkt`; 0010 governing seed-based pseudonym
   stability; 0001–0007 each carry a superseded banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
@@ -197,7 +200,9 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
 - **`fenstern`** — third pipeline step and the **paginating analysis head**
   ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)); the first
   **N→1** slice. **Two single-purpose handlers** (the type carries the intent, ADR-0005): the
-  `StartHandler` consumes the field-less `StartAnalysis`, reads the initial anchor once over the
+  `StartHandler` consumes `StartAnalysis` (no anchor — only the **run id** its sender minted,
+  ADR-0016, which then travels through every `AdvanceWindow` into every window row and the
+  `HistorieVollständig`), reads the initial anchor once over the
   `WindowAnchor` port (`max(booking_day)`, data-relative, no clock) and publishes the first
   `AdvanceWindow` — an **empty store is no error** (the run ends `Ok`, publishes nothing); the
   `WindowingHandler` then, per command, spans the page `[anchor − window_days + 1 … anchor]`,
@@ -217,7 +222,7 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   the periodic metric **within** the window — today the **month cashflow**, **netted** — plus the
   window's **distinct fingerprints**, and stores the result. The **window-spanning** reach
   (`HistoryEvaluationHandler`, consuming `HistorieVollständig` — a **different** dispatch key, scoped
-  to the run by the run span in the `partition_key`) runs **one** read-port query over **all** windows
+  to the run by the run id (ADR-0016) in the `partition_key`, next to the run span) runs **one** read-port query over **all** windows
   of the run and **returns** the occurrences of the whole timeline **plus the recurring outflows**
   in them — it **stores nothing** (the aggregates are the sole truth; idempotence follows from
   querying immutable snapshots, not dedupe logic). The **recurrence detection**
@@ -324,7 +329,13 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   (`SCHEMA_VERSION`). Same version → used as is; any other version — including an unstamped file that
   already has tables (version 0) — fails the run terminally and redacted (`RunError::SchemaVersion`,
   versions only). The stores no longer create tables (`SliceStore::new` is DDL-free; their own-table
-  creation is a `#[cfg(test)]` path). A migration *n → n+1* is one more arm in `schema::ensure`.
+  creation is a `#[cfg(test)]` path). A migration *n → n+1* is one more arm in `schema::ensure` — the
+  first one, **1 → 2**, came with ADR-0016 (row key + run id; a version-1 file **with** data is
+  rejected, `MismatchCause::UnkeyedRows`).
+- ~~**Repeat runs give wrong numbers**~~ — **built**
+  ([0088](docs/issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md),
+  [ADR-0016](docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)): row key, run-owned
+  windows, `Umsatz vorgemerkt` skipped — see „Many runs, one `--db`" below.
 - **No dead-letter** — a terminally failing message stays **open** in the outbox and is
   redelivered by every later run; nothing counts attempts. This is the question
   [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) explicitly
@@ -384,15 +395,22 @@ command line was wrong. The invented fixtures under
 [`crates/io/fixtures/lauf/`](crates/io/fixtures/lauf/) plus
 [`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example.
 
-**A run is resumable, not idempotent** — feed the same CSV into the same `--db` twice and you hold
-the inventory twice. It is worse than a factor of two on the analysis side: `fenstern` re-paginates
-the **whole** obfuscated history per run, so run *n* adds *n* × the rows to
-`auswertungsfenster_buchungen` (measured: 53 → 159 → 318 over three runs, occurrences 49 → 147 →
-294). The numbers after a repeat run are not doubled, they are **wrong**. Use a fresh `--db` per run
-until the de-duplication lands
-([0088](docs/issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md)). A leftover
-trigger from a *failed* run is caught (`RunError::PendingImport`, see `einlesen` above); a
-deliberate repeat of the *same* file is not — that one is the operator's call.
+**Many runs, one `--db`** ([ADR-0016](docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md),
+[0088](docs/issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md)) — one
+run per own account, repeats included, into the **same** database. A new import **adds**: every line
+carries a **row key** (ordering account + end-to-end reference + amount + booking day when the
+reference is filled, otherwise all columns; plus the running number of equal **booked** lines within
+the file — `Umsatz vorgemerkt` gets no key), stored as a SipHash digest, and a known key is neither
+stored nor published again. Every run still re-paginates the
+**whole** obfuscated history (all accounts), but its windows carry its **run id**, and the
+window-spanning query scopes over the run — so the **latest** run shows all accounts together and
+the same run repeated gives the same numbers (the old 53 → 159 → 318 growth is gone). „The latest
+run" is the one with the **greatest** `run_id` (it starts with the run's UTC start time). `Umsatz
+vorgemerkt` lines are skipped before the presence check. **Limit (both key paths):** a day must
+stand **completely** in an export — otherwise equal lines of that day could be taken for known ones. A
+leftover trigger from a *failed* run is still caught (`RunError::PendingImport`). Schema version is
+**2**; a version-1 file without data is migrated, one **with** data is rejected (its lines cannot be
+keyed retroactively) — use a fresh `--db` and re-import.
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 
 ## Architecture — the big picture

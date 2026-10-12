@@ -70,6 +70,10 @@ impl Handler for WindowingHandler<'_> {
             &self.advance,
             &self.history,
         )
-        .handle(AdvanceWindow::new(command.anchor(), command.run_top()))
+        .handle(AdvanceWindow::new(
+            command.anchor(),
+            command.run_top(),
+            command.run().clone(),
+        ))
     }
 }

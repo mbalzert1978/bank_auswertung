@@ -11,6 +11,11 @@
 //!    für Namen, die nie Empfänger waren, und für Teilnamen von Empfängern (Vornamen, Kurzformen),
 //!    die der Engpass nicht von selbst aus dem vollständigen Namen ableitet.
 //!
+//! **Nur Gebuchtes** ([ADR-0016](../../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)):
+//! eine **vorgemerkte** Zeile erreicht `einlesen_lines` nie — die ACL des einlesen-Slice verwirft sie
+//! vor jeder Prüfung. Ihr Empfänger-Name steht darum erst auf der Liste, wenn die Zeile gebucht in
+//! einem späteren Auszug ankommt.
+//!
 //! **Je Buchung gelesen**, nicht einmal je Lauf: die einlesen-Zeilen des laufenden Imports liegen
 //! erst nach dem Import-Schritt vor, und ihre Namen sollen schon in derselben Obfuskierung zählen.
 //!
@@ -102,11 +107,11 @@ mod tests {
         outbox.with_connection(|conn| {
             conn.execute(
                 "INSERT INTO einlesen_lines (
-                     id, ordering_account, amount_minor_units, currency, direction,
+                     id, row_key, ordering_account, amount_minor_units, currency, direction,
                      recipient_name, creditor_id,
                      booking_year, booking_month, booking_day, value_year, value_month, value_day
-                 ) VALUES (?1, 'DE00000000000000000000', 100, 'EUR', 'outgoing', ?2, ?3,
-                           2026, 7, 1, 2026, 7, 1);",
+                 ) VALUES (?1, 'schluessel-' || ?1, 'DE00000000000000000000', 100, 'EUR',
+                           'outgoing', ?2, ?3, 2026, 7, 1, 2026, 7, 1);",
                 rusqlite::params![id, empfaenger, glaeubiger_id],
             )
             .map(|_rows| ())

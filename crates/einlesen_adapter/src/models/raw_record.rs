@@ -12,6 +12,16 @@ use einlesen_domain::{NonEmptyString, RawLine};
 /// Domäne bekommt nur geprüfte Werte. Test-Fixtures leben **in den Specs**, nicht hier.
 #[derive(Debug, Clone, Default)]
 pub struct RawRecord {
+    /// Der **Zeilen-Schlüssel**, den die Quelle je Zeile vergibt — opak, ein Digest
+    /// ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)). Wie er
+    /// entsteht, ist Format-Wissen der Quelle (io); der Slice vergleicht ihn nur. Pflicht: ohne ihn
+    /// ließe sich ein erneuter Import derselben Zeile nicht erkennen. Innerhalb **eines** Batches ist
+    /// er je Zeile eindeutig (Vertrag der Quelle, von der ACL geprüft).
+    pub row_key: Option<String>,
+    /// Ob die Bank die Zeile schon **gebucht** oder erst **vorgemerkt** hat. Eine vorgemerkte Zeile
+    /// überspringt die ACL **vor** der Pflichtfeld-Prüfung — sie ist noch keine Buchung (leere
+    /// Valuta, Platzhalter statt IBAN) und zählt nicht.
+    pub status: RecordStatus,
     pub ordering_account: Option<String>,
     pub booking_day: Option<String>,
     pub value_date: Option<String>,
@@ -33,6 +43,7 @@ impl TryFrom<&RawRecord> for RawLine {
     /// aber nicht — das ist ACL-Mechanik). Optionale Zellen werden zu `Option<NonEmptyString>`.
     fn try_from(record: &RawRecord) -> Result<Self, Self::Error> {
         Ok(RawLine {
+            row_key: mandatory(&record.row_key, "row_key")?,
             ordering_account: mandatory(&record.ordering_account, "ordering_account")?,
             booking_day: mandatory(&record.booking_day, "booking_day")?,
             value_date: mandatory(&record.value_date, "value_date")?,
@@ -45,6 +56,19 @@ impl TryFrom<&RawRecord> for RawLine {
             booking_text: as_nonempty(&record.booking_text),
         })
     }
+}
+
+/// Der Buchungsstand einer Rohzeile, wie die Quelle ihn meldet — ein Summentyp statt eines
+/// `bool`-Flags. Der Default ist [`Booked`](RecordStatus::Booked): eine Quelle ohne Stand-Spalte
+/// liefert nur Gebuchtes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RecordStatus {
+    /// Die Bank hat die Zeile gebucht — sie ist eine Buchung und wird eingelesen.
+    #[default]
+    Booked,
+    /// Die Bank hat die Zeile nur **vorgemerkt** (CSV-CAMT-v8: `Info` = `Umsatz vorgemerkt`). Sie
+    /// ist noch keine Buchung und wird übersprungen; gebucht kommt sie mit einem späteren Auszug.
+    Pending,
 }
 
 /// Ein Pflichtfeld fehlt (leer/nicht vorhanden) in der Rohzeile — **terminaler**

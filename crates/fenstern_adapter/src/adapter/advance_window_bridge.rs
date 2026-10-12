@@ -19,6 +19,7 @@ impl AdvanceWindowPublisher for AdvanceWindowBridge<'_> {
             .publish_advance(AdvanceWindowMessage::from_anchor(
                 command.anchor().value(),
                 command.run_top().value(),
+                command.run().as_str(),
             ))
             .map_err(
                 |PublishUnavailable { message }| WindowError::PublishFailed { reason: message },

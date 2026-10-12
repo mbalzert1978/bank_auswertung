@@ -13,6 +13,7 @@ mod non_empty_string;
 mod purpose;
 mod raw_line;
 mod recipient;
+mod row_key;
 
 pub use amount::{Amount, Currency};
 pub use booking_text::BookingText;
@@ -25,3 +26,4 @@ pub use non_empty_string::NonEmptyString;
 pub use purpose::Purpose;
 pub use raw_line::RawLine;
 pub use recipient::{CreditorId, Recipient, RecipientName};
+pub use row_key::RowKey;

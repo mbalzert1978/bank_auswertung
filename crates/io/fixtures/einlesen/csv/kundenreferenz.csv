@@ -1,0 +1,5 @@
+"Auftragskonto";"Buchungstag";"Valutadatum";"Buchungstext";"Verwendungszweck";"Glaeubiger ID";"Mandatsreferenz";"Kundenreferenz (End-to-End)";"Sammlerreferenz";"Lastschrift Ursprungsbetrag";"Auslagenersatz Ruecklastschrift";"Beguenstigter/Zahlungspflichtiger";"Kontonummer/IBAN";"BIC (SWIFT-Code)";"Betrag";"Waehrung";"Info"
+"DE12100000000000000200";"01.07.2026";"01.07.2026";"LASTSCHRIFT";"Beitrag Juli";"DE00ZZZ00000000099";"MND-VB-0001";"E2E-VB-2607";"";"";"";"VEREIN FIKTIV";"DE77300000000000000999";"FIKTDEFFXXX";"-10,00";"EUR";"Umsatz gebucht"
+"DE12100000000000000200";"08.07.2026";"08.07.2026";"RUECKLASTSCHRIFT";"Beitrag Juli";"DE00ZZZ00000000099";"MND-VB-0001";"E2E-VB-2607";"";"";"";"VEREIN FIKTIV";"DE77300000000000000999";"FIKTDEFFXXX";"+10,00";"EUR";"Umsatz gebucht"
+"DE12100000000000000200";"02.07.2026";"02.07.2026";"UEBERWEISUNG";"Geschenk A";"";"";"NOTPROVIDED";"";"";"";"ERIKA BEISPIEL";"DE72300000000000000111";"FIKTDEFFXXX";"-5,00";"EUR";"Umsatz gebucht"
+"DE12100000000000000200";"02.07.2026";"02.07.2026";"UEBERWEISUNG";"Geschenk B";"";"";"NOTPROVIDED";"";"";"";"ERIKA BEISPIEL";"DE72300000000000000111";"FIKTDEFFXXX";"-5,00";"EUR";"Umsatz gebucht"

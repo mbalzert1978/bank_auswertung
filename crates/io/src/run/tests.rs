@@ -270,31 +270,270 @@ fn eine_fehlende_config_beendet_den_lauf_bevor_irgendetwas_laeuft() {
     );
 }
 
+// --- Mehrere Läufe in eine Datenbank (Issue 0088, ADR-0016) ---------------------------------
+
+/// Der Auszug des zweiten eigenen Kontos (Haushalt): erfunden, mit zwei gleichen Buchungen am
+/// selben Tag ohne Kundenreferenz und einer vorgemerkten Zeile.
+const ZWEITES_KONTO: &str = "einlesen/csv/lauf_haushalt.csv";
+
+/// Wie viele **gebuchte** Zeilen die beiden Auszüge tragen: `lauf.csv` 53, der Haushalts-Auszug 8
+/// (seine vorgemerkte Zeile zählt nicht).
+const ZEILEN_ERSTES_KONTO: i64 = 53;
+const ZEILEN_ZWEITES_KONTO: i64 = 8;
+
+/// Die Pfade für einen Lauf über den Auszug `csv`, sonst wie [`lauf_pfade`].
+fn lauf_pfade_mit(db: &TempDbPath, csv: &str) -> RunPaths {
+    RunPaths {
+        transactions: fixture(csv),
+        ..lauf_pfade(db)
+    }
+}
+
+/// Fährt einen Lauf und gibt seinen Bericht zurück — ein gescheiterter Lauf ist hier ein
+/// Testfehler, kein Ergebnis.
+fn lauf(paths: &RunPaths) -> RunReport {
+    run(paths, &mut Vec::new()).expect("der Lauf gelingt")
+}
+
+/// Eine Zeile Monats-Zahlen: Jahr, Monat, ein Schlüssel (Rolle bzw. Konto-Token, sonst leer),
+/// Eingang und Ausgang in Minor Units.
+type Monatszahl = (i64, i64, String, i64, i64);
+
+/// **Die Zahlen des jüngsten Laufs** — das, was eine Auswertung zeigt: wie viele Buchungen seine
+/// Fenster tragen, der Cashflow je Monat, die Umbuchungen je Monat und Rolle, die Gebühren je Monat
+/// und Konto, und die Zahl der Vorkommen der fenster-übergreifenden Reichweite. Gescopt über die
+/// **größte** `run_id` — der Vertrag für „der jüngste Lauf" (ADR-0016): die Identität beginnt mit dem
+/// Startzeitpunkt des Laufs.
+#[derive(Debug, PartialEq, Eq)]
+struct Zahlen {
+    fenster_buchungen: i64,
+    monate: Vec<Monatszahl>,
+    umbuchungen: Vec<Monatszahl>,
+    gebuehren: Vec<Monatszahl>,
+    vorkommen: usize,
+}
+
+fn zahlen_des_juengsten_laufs(paths: &RunPaths, report: &RunReport) -> rusqlite::Result<Zahlen> {
+    let conn = rusqlite::Connection::open(&paths.database)?;
+    let lauf: String =
+        conn.query_row("SELECT max(run_id) FROM auswertungsfenster;", [], |row| {
+            row.get(0)
+        })?;
+    let fenster_buchungen = conn.query_row(
+        "SELECT count(*) FROM auswertungsfenster_buchungen b \
+         JOIN auswertungsfenster w ON w.id = b.window_id WHERE w.run_id = ?1;",
+        [&lauf],
+        |row| row.get(0),
+    )?;
+    let monatszahlen = |tabelle: &str, schluessel: &str| -> rusqlite::Result<Vec<Monatszahl>> {
+        let mut statement = conn.prepare(&format!(
+            "SELECT d.year, d.month, {schluessel}, \
+                    sum(d.incoming_minor_units), sum(d.outgoing_minor_units) \
+             FROM {tabelle} d \
+             JOIN window_evaluations e ON e.id = d.evaluation_id \
+             JOIN auswertungsfenster w ON w.id = e.window_id \
+             WHERE w.run_id = ?1 GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;"
+        ))?;
+        let zeilen = statement.query_map([&lauf], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?;
+        zeilen.collect()
+    };
+    Ok(Zahlen {
+        fenster_buchungen,
+        monate: monatszahlen("window_evaluation_months", "''")?,
+        umbuchungen: monatszahlen("window_evaluation_transfers", "d.role")?,
+        gebuehren: monatszahlen("window_evaluation_fees", "d.account")?,
+        vorkommen: report.occurrences(),
+    })
+}
+
 #[expect(
     clippy::panic_in_result_fn,
-    clippy::unwrap_in_result,
-    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
 )]
 #[test]
-fn ein_zweiter_lauf_auf_derselben_datei_stoesst_den_import_erneut_an() -> rusqlite::Result<()> {
-    // Der Lauf ist **resumierbar**, nicht idempotent: er reiht seine Auslöser jedes Mal neu ein.
-    // Diese Zusage festzuhalten ist wichtiger als sie zu verstecken — wer zweimal importiert, hat
-    // den Bestand zweimal. Die Entdopplung ist ein eigenes Thema (Zeilen-Schlüssel,
-    // Issue 0088), kein stiller Nebeneffekt hier.
+fn a_dann_b_dann_a_erneut_ergibt_dieselben_zahlen_wie_a_und_b_je_einmal() -> rusqlite::Result<()> {
+    // Zwei eigene Konten, je ein Auszug, eine Datenbank — und der erste Auszug versehentlich ein
+    // zweites Mal eingelesen. Ein neuer Import ergänzt, er ersetzt nicht und verdoppelt nicht: die
+    // Zahlen des jüngsten Laufs müssen dieselben sein wie nach A und B je einmal.
+    let db_wiederholt = TempDbPath::new("lauf_a_b_a");
+    let a = lauf_pfade(&db_wiederholt);
+    let b = lauf_pfade_mit(&db_wiederholt, ZWEITES_KONTO);
+    lauf(&a);
+    lauf(&b);
+    let bericht_wiederholt = lauf(&a);
+
+    let db_einmal = TempDbPath::new("lauf_a_b");
+    let a_einmal = lauf_pfade(&db_einmal);
+    lauf(&a_einmal);
+    let bericht_einmal = lauf(&lauf_pfade_mit(&db_einmal, ZWEITES_KONTO));
+
+    let wiederholt = zahlen_des_juengsten_laufs(&a, &bericht_wiederholt)?;
+    let einmal = zahlen_des_juengsten_laufs(&a_einmal, &bericht_einmal)?;
+    assert_eq!(wiederholt, einmal);
+    // Und die Zahlen sind die **beider** Konten, nicht nur des zuletzt eingelesenen: jede Buchung
+    // beider Auszüge genau einmal im Bestand und genau einmal in den Fenstern des jüngsten Laufs.
+    let beide = ZEILEN_ERSTES_KONTO + ZEILEN_ZWEITES_KONTO;
+    assert_eq!(zeilen(&a, "einlesen_lines")?, beide);
+    assert_eq!(zeilen(&a, "obfuskiert")?, beide);
+    assert_eq!(wiederholt.fenster_buchungen, beide);
+    assert!(!wiederholt.monate.is_empty() && !wiederholt.umbuchungen.is_empty());
+    assert_eq!(offene_nachrichten(&a)?, 0);
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn ein_zweiter_lauf_auf_derselben_datei_ergaenzt_nichts_und_publiziert_nichts()
+-> rusqlite::Result<()> {
+    // Der Lauf ist resümierbar **und** wiederholbar: ein zweiter Lauf über denselben Auszug erkennt
+    // jede Zeile an ihrem Zeilen-Schlüssel wieder, legt keine an und schickt keine stromabwärts.
     let db = TempDbPath::new("lauf_zweimal");
     let paths = lauf_pfade(&db);
-    let mut protokoll = Vec::new();
+    lauf(&paths);
 
-    run(&paths, &mut protokoll).expect("erster Lauf");
-    let nach_dem_ersten = zeilen(&paths, "einlesen_lines")?;
-    run(&paths, &mut protokoll).expect("zweiter Lauf");
+    let zweiter = lauf(&paths);
 
+    assert_eq!(zeilen(&paths, "einlesen_lines")?, ZEILEN_ERSTES_KONTO);
+    assert_eq!(zeilen(&paths, "obfuskiert")?, ZEILEN_ERSTES_KONTO);
     assert_eq!(
-        zeilen(&paths, "einlesen_lines")?,
-        nach_dem_ersten * 2,
-        "zwei Läufe über dieselbe Datei importieren zweimal"
+        zweiter.processed().get(EINLESEN_CONSUMED),
+        Some(&1),
+        "der Import wird angestoßen …"
+    );
+    assert_eq!(
+        zweiter.processed().get(OBFUSKIERUNG_CONSUMED),
+        None,
+        "… aber keine Zeile reist ein zweites Mal stromabwärts"
     );
     assert_eq!(offene_nachrichten(&paths)?, 0, "und beide laufen leer");
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn ein_zweiter_lauf_zaehlt_keine_fenster_eines_frueheren_laufs_mit() -> rusqlite::Result<()> {
+    // Jeder Lauf paginiert die **ganze** obfuskierte Historie neu — das ist gewollt, so zeigt der
+    // jüngste alle Konten gemeinsam. Gemessen vor ADR-0016: 53 → 159 → 318 Fenster-Buchungen über
+    // drei Läufe, weil die fenster-übergreifende Abfrage nur über das Datum scopte. Jetzt gehört
+    // jedes Fenster genau einem Lauf, und der jüngste sieht nur seine.
+    let db = TempDbPath::new("lauf_fenster_je_lauf");
+    let paths = lauf_pfade(&db);
+    let erster = lauf(&paths);
+    let fenster_eines_laufs = zeilen(&paths, "auswertungsfenster")?;
+
+    let zweiter = lauf(&paths);
+    let dritter = lauf(&paths);
+
+    let zahlen = zahlen_des_juengsten_laufs(&paths, &dritter)?;
+    assert_eq!(zahlen.fenster_buchungen, ZEILEN_ERSTES_KONTO);
+    assert_eq!(zweiter.occurrences(), erster.occurrences());
+    assert_eq!(dritter.occurrences(), erster.occurrences());
+    assert_eq!(
+        zaehle(
+            &paths,
+            "SELECT count(DISTINCT run_id) FROM auswertungsfenster;"
+        )?,
+        3,
+        "drei Läufe, drei Lauf-Identitäten"
+    );
+    assert_eq!(
+        zeilen(&paths, "auswertungsfenster")?,
+        3 * fenster_eines_laufs,
+        "je Lauf derselbe Satz Fenster — keiner wächst mit den früheren"
+    );
+    Ok(())
+}
+
+/// Die größte `run_id` der Fenster — „der jüngste Lauf".
+fn juengster_lauf(paths: &RunPaths) -> rusqlite::Result<String> {
+    rusqlite::Connection::open(&paths.database)?.query_row(
+        "SELECT max(run_id) FROM auswertungsfenster;",
+        [],
+        |row| row.get(0),
+    )
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn der_juengste_lauf_ist_der_mit_der_groessten_lauf_identitaet() -> rusqlite::Result<()> {
+    // Der Vertrag, auf den der Bericht (0012) baut: jeder neue Lauf trägt eine größere Identität als
+    // alle früheren, also ist `max(run_id)` der jüngste — ohne `rowid`, die ein `VACUUM` neu vergibt.
+    let db = TempDbPath::new("lauf_ordnung");
+    let paths = lauf_pfade(&db);
+    let mut bisher: Vec<String> = Vec::new();
+
+    for _ in 0..3 {
+        lauf(&paths);
+        let juengster = juengster_lauf(&paths)?;
+        assert!(
+            bisher.iter().all(|frueher| *frueher < juengster),
+            "{juengster} muss größer sein als {bisher:?}"
+        );
+        assert!(
+            !juengster.contains(':'),
+            "die Identität steht zuletzt im Schlüssel"
+        );
+        bisher.push(juengster);
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn zwei_gleiche_buchungen_zaehlen_beide_und_eine_vorgemerkte_zeile_bricht_nichts()
+-> rusqlite::Result<()> {
+    // Der Haushalts-Auszug trägt zweimal dasselbe Brötchen am selben Tag (ohne Kundenreferenz) und
+    // eine vorgemerkte Tankung mit leerer Valuta. Der Lauf geht durch; beide Brötchen zählen, die
+    // Tankung nicht.
+    let db = TempDbPath::new("lauf_haushalt");
+    let paths = lauf_pfade_mit(&db, ZWEITES_KONTO);
+
+    lauf(&paths);
+
+    assert_eq!(zeilen(&paths, "einlesen_lines")?, ZEILEN_ZWEITES_KONTO);
+    assert_eq!(
+        zaehle(
+            &paths,
+            "SELECT count(*) FROM einlesen_lines WHERE purpose = 'Baeckerei Fiktiv Filiale 3';"
+        )?,
+        2,
+        "beide gleichen Buchungen liegen im Bestand"
+    );
+    assert_eq!(
+        zaehle(
+            &paths,
+            "SELECT count(*) FROM einlesen_lines WHERE purpose LIKE 'Tankstelle%';"
+        )?,
+        0,
+        "die vorgemerkte Zeile zählt nicht"
+    );
+    assert_eq!(zeilen(&paths, "obfuskiert")?, ZEILEN_ZWEITES_KONTO);
+    assert_eq!(offene_nachrichten(&paths)?, 0);
     Ok(())
 }
 

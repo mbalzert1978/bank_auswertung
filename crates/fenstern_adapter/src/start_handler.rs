@@ -40,7 +40,8 @@ impl Handler for StartHandler<'_> {
     type Response = ();
     type Error = WindowError;
 
-    fn handle(&self, _command: StartAnalysisCommand) -> Result<(), WindowError> {
-        DomainHandler::new(&self.anchors, &self.advance).handle(StartAnalysis)
+    fn handle(&self, command: StartAnalysisCommand) -> Result<(), WindowError> {
+        DomainHandler::new(&self.anchors, &self.advance)
+            .handle(StartAnalysis::new(command.run().clone()))
     }
 }

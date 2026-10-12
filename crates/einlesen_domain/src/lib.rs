@@ -37,7 +37,8 @@ pub use entities::LineAggregate;
 pub use error::{LineError, ReadError, SinkError, SourceError};
 pub use handler::ReadHandler;
 pub use models::{ReadTransactions, RunConfiguration};
-pub use ports::{Calendar, Currencies, EventSink, Money, RawLineSource, Store};
+pub use ports::{Calendar, Currencies, EventSink, Money, RawLineSource, Recording, Store};
 pub use value_objects::{
-    CalendarDay, Currency, DecodedAmount, Direction, IngestionId, NonEmptyString, RawLine, Sign,
+    CalendarDay, Currency, DecodedAmount, Direction, IngestionId, NonEmptyString, RawLine, RowKey,
+    Sign,
 };

@@ -8,11 +8,13 @@
 mod booking_id;
 mod currency;
 mod non_empty_string;
+mod run_id;
 mod window_id;
 mod window_span;
 
 pub use booking_id::BookingId;
 pub use currency::Currency;
 pub use non_empty_string::NonEmptyString;
+pub use run_id::RunId;
 pub use window_id::WindowId;
 pub use window_span::{DayStamp, WindowDays, WindowSpan};

@@ -4,10 +4,11 @@ use crate::value_objects::DayStamp;
 /// Laufs, die `fenstern` beim Versiegen der Historie mit `HistorieVollständig` mitträgt (ADR-0013,
 /// Entscheidung E).
 ///
-/// Sie ist der **Scope** der fenster-übergreifenden Query, und das ist ihr ganzer Zweck: ohne sie
-/// zöge die Query auch die Aggregate **früherer** Läufe herein, und der Rhythmus, den 0005 darauf
-/// erkennt, wäre der einer Zeitachse, die es nie gab. Der Fehler wäre dabei **still** — es käme ein
-/// Ergebnis heraus, nur das falsche.
+/// Sie begrenzt die Zeitachse der fenster-übergreifenden Query. **Gegen frühere Läufe grenzt sie
+/// allein nicht ab:** jeder Lauf paginiert dieselbe Historie, die Fenster eines früheren Laufs liegen
+/// in derselben Spanne. Den Lauf selbst legt die Lese-Bridge des Adapters als Scope an den Seam
+/// ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)); die Domäne
+/// bleibt lauf-blind. Ohne diesen Scope zöge die Query die Aggregate früherer Läufe still mit herein.
 ///
 /// **Unfehlbar und wohlgeordnet:** sie ordnet ihre beiden Eckpunkte selbst (`from = min`,
 /// `to = max`), statt eine verdrehte Eingabe „zu prüfen". Eine verdrehte Spanne ist damit

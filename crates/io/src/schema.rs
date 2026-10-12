@@ -20,11 +20,19 @@
 //! **Der Stempel ist SQLites eingebautes `PRAGMA user_version`** — ein Ganzzahl-Feld im Kopf der
 //! Datei, transaktional wie jede andere Schreibung, ohne eigene Tabelle.
 //!
-//! **Wo eine Migration ansetzt.** Die Versionen laufen über die eine Weiche `ensure`: heute kennt es nur „frisch"
-//! und „passt". Eine Migration von Version *n* auf *n + 1* ist dort **ein** weiterer Arm
-//! (`Found::Version(1) => migrate_1_to_2(conn)`), dazu [`SCHEMA_VERSION`] hochgezählt — und die
-//! DDL der Stores beschreibt dann das **neue** Schema, das eine frische Datei direkt bekommt. Eine
-//! Migrations-Maschinerie auf Vorrat gibt es bewusst nicht.
+//! **Wo eine Migration ansetzt.** Die Versionen laufen über die eine Weiche `ensure`: „frisch",
+//! „passt" und je Migration **ein** weiterer Arm (`Found::Version(1) => migrate_1_to_2(…)`), dazu
+//! [`SCHEMA_VERSION`] hochgezählt — die DDL der Stores beschreibt dann das **neue** Schema, das eine
+//! frische Datei direkt bekommt. Eine Migrations-Maschinerie auf Vorrat gibt es bewusst nicht.
+//!
+//! **Version 1 → 2** ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md))
+//! ist die erste echte Migration: `einlesen_lines` bekommt den Zeilen-Schlüssel (`row_key`,
+//! `UNIQUE`), `auswertungsfenster` den Lauf (`run_id`). Eine Version-1-Datei **ohne** Bestand wird
+//! umgebaut; eine **mit** Bestand wird abgewiesen — terminal, redigiert, unangetastet. Ihre Zeilen
+//! lassen sich nicht nachträglich schlüsseln: der Schlüssel entsteht aus Spalten, die Version 1 nie
+//! abgelegt hat (Kundenreferenz, Mandatsreferenz, BIC, …). Ein Ersatzschlüssel aus dem, was da ist,
+//! träfe beim nächsten Import desselben Auszugs nie — der Bestand verdoppelte sich still, genau der
+//! Fehler, den Version 2 behebt. Lieber laut eine frische Datei verlangen.
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
@@ -38,7 +46,7 @@ use crate::sqlite::{OUTBOX_TABLE, SqliteOutbox, StoreSpec, TableSpec};
 /// Die Schema-Version **dieses Programms** — der Wert, mit dem eine frisch angelegte Datei gestempelt
 /// wird und den eine vorgefundene Datei tragen muss. Hochzählen nur zusammen mit einer Migration in
 /// `ensure`.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Öffnet die Datenbank-Datei unter dem konfigurierten Pfad als Rückgrat — der **produktive**
 /// Öffnungspfad. Eine frische Datei bekommt Schema und Stempel, eine passend gestempelte wird
@@ -85,10 +93,12 @@ fn ensure(conn: &Connection) -> Result<(), SchemaError> {
     match found(&transaction)? {
         Found::Empty => create(&transaction)?,
         Found::Version(SCHEMA_VERSION) => {}
+        Found::Version(1) => migrate_1_to_2(&transaction)?,
         Found::Version(found) => {
             return Err(SchemaError::VersionMismatch(VersionMismatch {
                 found,
                 expected: SCHEMA_VERSION,
+                cause: MismatchCause::UnknownVersion,
             }));
         }
     }
@@ -112,6 +122,36 @@ fn found(conn: &Connection) -> rusqlite::Result<Found> {
 fn create(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     tables().try_for_each(|table| transaction.execute_batch(table.ddl))?;
     transaction.pragma_update(None, "user_version", SCHEMA_VERSION)
+}
+
+/// Version 1 → 2 (ADR-0016): baut die beiden geänderten Tabellen (`einlesen_lines` +`row_key`,
+/// `auswertungsfenster` +`run_id`) neu — **nur**, wenn beide leer sind. Leer heißt: nichts geht
+/// verloren, und `DROP` + Neuanlage aus der heutigen DDL gibt der Datei **genau** das Schema, das
+/// eine frische Datei bekommt (kein `ALTER TABLE` mit Ersatz-Default, das davon abwiche). Die übrigen
+/// Tabellen sind unverändert; ihr `CREATE … IF NOT EXISTS` läuft ins Leere.
+///
+/// Trägt eine der beiden schon Zeilen, wird die Datei abgewiesen (siehe Modul-Doku) — innerhalb der
+/// Transaktion von `ensure`, also unangetastet.
+fn migrate_1_to_2(transaction: &Transaction<'_>) -> Result<(), SchemaError> {
+    if has_rows(transaction, "einlesen_lines")? || has_rows(transaction, "auswertungsfenster")? {
+        return Err(SchemaError::VersionMismatch(VersionMismatch {
+            found: 1,
+            expected: SCHEMA_VERSION,
+            cause: MismatchCause::UnkeyedRows,
+        }));
+    }
+    transaction.execute_batch("DROP TABLE einlesen_lines; DROP TABLE auswertungsfenster;")?;
+    create(transaction)?;
+    Ok(())
+}
+
+/// Trägt die Tabelle mindestens eine Zeile? Der Name ist stets ein Code-Literal, nie Fremd-Eingabe.
+fn has_rows(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        &format!("SELECT EXISTS (SELECT 1 FROM {table});"),
+        [],
+        |row| row.get(0),
+    )
 }
 
 /// **Alle** Tabellen des Programms: die Outbox und die der vier Ergebnis-Stores, jede mit ihrer
@@ -163,11 +203,24 @@ impl From<rusqlite::Error> for SchemaError {
     }
 }
 
-/// Die vorgefundene und die erwartete Schema-Version — zwei Zahlen, sonst nichts.
+/// Die vorgefundene und die erwartete Schema-Version samt dem **Grund**, warum die Datei nicht
+/// benutzt wird — zwei Zahlen und ein statischer Fall, sonst nichts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionMismatch {
     found: i64,
     expected: i64,
+    cause: MismatchCause,
+}
+
+/// Warum eine Datei mit abweichender Version nicht benutzt wird.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MismatchCause {
+    /// Für diese Version kennt das Programm keinen Weg (eine neuere, eine ungestempelte mit Tabellen
+    /// = Version 0, oder sonst eine fremde).
+    UnknownVersion,
+    /// Eine Version-1-Datei **mit** Bestand: ihre Zeilen tragen keinen Zeilen-Schlüssel und lassen
+    /// sich nicht nachträglich schlüsseln (ADR-0016).
+    UnkeyedRows,
 }
 
 impl VersionMismatch {
@@ -182,17 +235,33 @@ impl VersionMismatch {
     pub const fn expected(&self) -> i64 {
         self.expected
     }
+
+    /// Warum die Datei nicht benutzt wird.
+    #[must_use]
+    pub const fn cause(&self) -> MismatchCause {
+        self.cause
+    }
 }
 
 impl std::fmt::Display for VersionMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "die Datenbank trägt Schema-Version {}, dieses Programm erwartet {} — die Datei bleibt \
-             unangetastet; für diesen Lauf eine frische Datei angeben (Version 0 = angelegt vor dem \
-             Versionsstempel)",
-            self.found, self.expected
-        )
+        match self.cause {
+            MismatchCause::UnknownVersion => write!(
+                f,
+                "die Datenbank trägt Schema-Version {}, dieses Programm erwartet {} — die Datei \
+                 bleibt unangetastet; für diesen Lauf eine frische Datei angeben (Version 0 = \
+                 angelegt vor dem Versionsstempel)",
+                self.found, self.expected
+            ),
+            MismatchCause::UnkeyedRows => write!(
+                f,
+                "die Datenbank trägt Schema-Version {} mit eingelesenen Buchungen ohne \
+                 Zeilen-Schlüssel; dieses Programm erwartet {} und kann sie nicht nachträglich \
+                 schlüsseln — die Datei bleibt unangetastet; für diesen Lauf eine frische Datei \
+                 angeben und die Auszüge neu einlesen",
+                self.found, self.expected
+            ),
+        }
     }
 }
 
@@ -302,6 +371,7 @@ mod tests {
             Some(SchemaError::VersionMismatch(VersionMismatch {
                 found: fremd,
                 expected: SCHEMA_VERSION,
+                cause: MismatchCause::UnknownVersion,
             }))
         );
         let conn = roh(&db)?;
@@ -336,6 +406,7 @@ mod tests {
             Some(SchemaError::VersionMismatch(VersionMismatch {
                 found: 0,
                 expected: SCHEMA_VERSION,
+                cause: MismatchCause::UnknownVersion,
             }))
         );
         let conn = roh(&db)?;
@@ -420,6 +491,7 @@ mod tests {
         let meldung = SchemaError::VersionMismatch(VersionMismatch {
             found: 0,
             expected: SCHEMA_VERSION,
+            cause: MismatchCause::UnknownVersion,
         })
         .to_string();
 
@@ -428,5 +500,128 @@ mod tests {
             meldung.contains(&format!("erwartet {SCHEMA_VERSION}")),
             "{meldung}"
         );
+    }
+
+    // --- Migration 1 → 2 (ADR-0016) -----------------------------------------------------------
+
+    /// Die beiden Tabellen in ihrer **Version-1-Form** — eingefroren als Test-Wahrheit, weil die
+    /// Stores nur noch die heutige DDL kennen: `einlesen_lines` ohne `row_key`,
+    /// `auswertungsfenster` ohne `run_id` (und ohne dessen Index).
+    const V1_EINLESEN_LINES: &str = "\
+CREATE TABLE einlesen_lines (
+    id               TEXT    PRIMARY KEY,
+    ordering_account TEXT    NOT NULL,
+    counter_account  TEXT,
+    amount_minor_units      INTEGER NOT NULL,
+    currency         TEXT    NOT NULL,
+    direction        TEXT    NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
+    recipient_name   TEXT,
+    creditor_id      TEXT,
+    booking_year     INTEGER NOT NULL,
+    booking_month    INTEGER NOT NULL,
+    booking_day      INTEGER NOT NULL,
+    value_year       INTEGER NOT NULL,
+    value_month      INTEGER NOT NULL,
+    value_day        INTEGER NOT NULL,
+    purpose          TEXT,
+    booking_text     TEXT,
+    created_at       INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at       INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
+);";
+
+    const V1_AUSWERTUNGSFENSTER: &str = "\
+CREATE TABLE auswertungsfenster (
+    id         TEXT    PRIMARY KEY,
+    from_day   INTEGER NOT NULL,
+    to_day     INTEGER NOT NULL,
+    currency   TEXT    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
+);";
+
+    /// Eine erfundene, gültige Auftrags-IBAN — sie darf in keiner Meldung auftauchen.
+    const ALT_IBAN: &str = "DE93100000000000000100";
+
+    /// Legt eine Datei an, wie Version 1 sie hinterließ: alle Tabellen, die beiden geänderten in
+    /// ihrer alten Form, Stempel 1.
+    fn version_1_datei(name: &str) -> Result<TempDbPath, Box<dyn std::error::Error>> {
+        let db = TempDbPath::new(name);
+        drop(open(&AppConfig::new(db.path()))?);
+        let conn = roh(&db)?;
+        conn.execute_batch(&format!(
+            "DROP TABLE einlesen_lines; DROP TABLE auswertungsfenster; \
+             {V1_EINLESEN_LINES} {V1_AUSWERTUNGSFENSTER}"
+        ))?;
+        conn.pragma_update(None, "user_version", 1)?;
+        Ok(db)
+    }
+
+    /// Das ganze Schema einer Datei als vergleichbarer Text — jede Tabelle und jeder Index mit
+    /// seiner DDL, nach Namen geordnet.
+    fn schema_text(conn: &Connection) -> rusqlite::Result<Vec<(String, Option<String>)>> {
+        let mut statement = conn.prepare("SELECT name, sql FROM sqlite_master ORDER BY name;")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect()
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn eine_version_1_datei_ohne_bestand_wird_auf_version_2_migriert()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let alt = version_1_datei("schema_v1_leer")?;
+        let frisch = TempDbPath::new("schema_v2_frisch");
+        drop(open(&AppConfig::new(frisch.path()))?);
+
+        drop(open(&AppConfig::new(alt.path()))?);
+
+        let conn = roh(&alt)?;
+        assert_eq!(user_version(&conn)?, SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 2);
+        // Danach trägt die Datei **genau** das Schema einer frisch angelegten — Spalte für Spalte,
+        // Index für Index. Ein Umbau, der davon abwiche, wäre die nächste Migrations-Falle.
+        assert_eq!(schema_text(&conn)?, schema_text(&roh(&frisch)?)?);
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn eine_version_1_datei_mit_bestand_wird_terminal_redigiert_abgewiesen_und_bleibt_unangetastet()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let alt = version_1_datei("schema_v1_bestand")?;
+        roh(&alt)?.execute(
+            "INSERT INTO einlesen_lines (id, ordering_account, amount_minor_units, currency, \
+             direction, booking_year, booking_month, booking_day, value_year, value_month, \
+             value_day) VALUES ('alt-1', ?1, 490, 'EUR', 'outgoing', 2026, 6, 30, 2026, 6, 30);",
+            [ALT_IBAN],
+        )?;
+        let vorher = schema_cookie(&roh(&alt)?)?;
+
+        let fehler = open(&AppConfig::new(alt.path())).err();
+
+        assert_eq!(
+            fehler,
+            Some(SchemaError::VersionMismatch(VersionMismatch {
+                found: 1,
+                expected: SCHEMA_VERSION,
+                cause: MismatchCause::UnkeyedRows,
+            }))
+        );
+        let meldung = fehler.map(|fehler| fehler.to_string()).unwrap_or_default();
+        assert!(meldung.contains("Zeilen-Schlüssel"), "{meldung}");
+        assert!(!meldung.contains(ALT_IBAN), "{meldung}");
+        // Unangetastet: Stempel, Schema und Bestand wie vorher.
+        let conn = roh(&alt)?;
+        assert_eq!(user_version(&conn)?, 1);
+        assert_eq!(schema_cookie(&conn)?, vorher);
+        let zeilen: i64 =
+            conn.query_row("SELECT count(*) FROM einlesen_lines;", [], |row| row.get(0))?;
+        assert_eq!(zeilen, 1);
+        Ok(())
     }
 }

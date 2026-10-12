@@ -15,4 +15,4 @@ pub use currency_seam::{CurrencySeam, ResolvedCurrency};
 pub use money_seam::{DecodedAmount, MoneySeam, Sign};
 pub use publish_seam::{PublishSeam, PublishUnavailable};
 pub use source_seam::{SourceSeam, SourceUnavailable};
-pub use store_seam::{StoreSeam, StoreUnavailable};
+pub use store_seam::{StoreOutcome, StoreSeam, StoreUnavailable};

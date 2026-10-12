@@ -11,6 +11,8 @@ use fenstern_domain::AnalysisWindow;
 /// Währung und Tag-Stamps — keinen strukturellen Identifikator und keinen Freitext.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalysisWindowRow {
+    /// Der Lauf, zu dem das Fenster gehört — genau einer (ADR-0016).
+    pub run: String,
     pub from: i64,
     pub to: i64,
     pub currency: String,
@@ -23,6 +25,7 @@ impl From<&AnalysisWindow> for AnalysisWindowRow {
     fn from(window: &AnalysisWindow) -> Self {
         let span = window.span();
         Self {
+            run: window.run().as_str().to_string(),
             from: span.from().value(),
             to: span.to().value(),
             currency: window.currency().as_str().to_string(),

@@ -1,0 +1,3 @@
+"Auftragskonto";"Buchungstag";"Valutadatum";"Buchungstext";"Verwendungszweck";"Glaeubiger ID";"Mandatsreferenz";"Kundenreferenz (End-to-End)";"Sammlerreferenz";"Lastschrift Ursprungsbetrag";"Auslagenersatz Ruecklastschrift";"Beguenstigter/Zahlungspflichtiger";"Kontonummer/IBAN";"BIC (SWIFT-Code)";"Betrag";"Waehrung";"Info"
+"DE12100000000000000200";"10.07.2026";"";"KARTENZAHLUNG";"Tankstelle Fiktiv";"";"";"";"";"";"";"TANKSTELLE FIKTIV";"0";"0";"-45,10";"EUR";"Umsatz vorgemerkt"
+"DE12100000000000000200";"09.07.2026";"09.07.2026";"LASTSCHRIFT";"Strom Juli";"DE00ZZZ00000000077";"MND-ST-0001";"E2E-ST-2607";"";"";"";"STROMWERK FIKTIV";"DE66300000000000000888";"FIKTDEFFXXX";"-61,00";"EUR";"Umsatz gebucht"

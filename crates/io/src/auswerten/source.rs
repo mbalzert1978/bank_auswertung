@@ -115,8 +115,10 @@ impl AnalysisWindowSeam for AuswertungsfensterSource {
 }
 
 impl OccurrenceSeam for AuswertungsfensterSource {
-    /// Liest die Historie **aller** Fenster **innerhalb** der Lauf-Spanne `[from … to]` (beide
-    /// Grenzen einschließlich) in **einer** Query über die Fenster-Tabellen im Join auf `obfuskiert`.
+    /// Liest die Historie **aller** Fenster des Laufs `run` **innerhalb** der Lauf-Spanne
+    /// `[from … to]` (beide Grenzen einschließlich) in **einer** Query über die Fenster-Tabellen im
+    /// Join auf `obfuskiert`. Fenster **früherer** Läufe über dieselbe Historie bleiben draußen —
+    /// gescopt wird über die `run_id` der Fenster, nicht nur über das Datum (ADR-0016).
     /// Eine Historie **ohne** Buchungen ist kein Fehler, sondern die gültige Auskunft „in dieser
     /// Spanne liegt nichts"; `Err` = die Beschaffung misslang (terminal).
     ///
@@ -124,8 +126,13 @@ impl OccurrenceSeam for AuswertungsfensterSource {
     /// und muss dafür wissen, unter welcher Tokenisierung die Gegenkonto-Token entstanden. Gelesen
     /// wird er wie beim Einzel-Fenster — über dieselbe Funktion, die auch hier erzwingt, dass **alle**
     /// Buchungen denselben tragen.
-    fn history_in(&self, from: i64, to: i64) -> Result<RunHistoryRow, SourceUnavailable> {
-        let raw = self.raw_bookings(SELECT_RUN_BOOKINGS, &[&from, &to])?;
+    fn history_in(
+        &self,
+        run: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<RunHistoryRow, SourceUnavailable> {
+        let raw = self.raw_bookings(SELECT_RUN_BOOKINGS, &[&run, &from, &to])?;
         let seed_marker = window_seed_marker(&raw)?;
         Ok(RunHistoryRow {
             // Wie beim Einzel-Fenster: „kein Marker" wird erst hier zur leeren Zelle — und die ACL
@@ -310,8 +317,9 @@ const SELECT_WINDOW_BOOKINGS: &str = concat!(
       ORDER BY b.position;"
 );
 
-/// Die Buchungen **aller** Fenster einer Lauf-Spanne: über die Fenster gescopt (`from_day`/`to_day`
-/// innerhalb `[?1 … ?2]`), im Join auf `obfuskiert`. Dieselbe Spalten-Liste (`booking_columns!`) wie
+/// Die Buchungen **aller** Fenster eines Laufs: über die Fenster gescopt — **erst** über den Lauf
+/// (`run_id = ?1`, indiziert; ADR-0016), dann über die Spanne (`from_day`/`to_day` innerhalb
+/// `[?2 … ?3]`) —, im Join auf `obfuskiert`. Dieselbe Spalten-Liste (`booking_columns!`) wie
 /// [`SELECT_WINDOW_BOOKINGS`]; die Ordnung (Tag, dann Fenster, dann Position) ist deterministisch, die
 /// fenster-übergreifende Domäne sortiert ohnehin total nach.
 const SELECT_RUN_BOOKINGS: &str = concat!(
@@ -320,7 +328,7 @@ const SELECT_RUN_BOOKINGS: &str = concat!(
     " FROM auswertungsfenster w \
       JOIN auswertungsfenster_buchungen b ON b.window_id = w.id \
       JOIN obfuskiert o ON o.id = b.booking_id \
-      WHERE w.from_day >= ?1 AND w.to_day <= ?2 \
+      WHERE w.run_id = ?1 AND w.from_day >= ?2 AND w.to_day <= ?3 \
       ORDER BY o.booking_day, b.window_id, b.position;"
 );
 
@@ -372,7 +380,7 @@ mod tests {
         let source = AuswertungsfensterSource::new(outbox);
 
         source
-            .history_in(0, 1_000_000)
+            .history_in("lauf-1", 0, 1_000_000)
             .expect_err("ohne Fenster-Tabellen muss die Query terminal failen");
         Ok(())
     }
@@ -385,12 +393,18 @@ mod tests {
         seed_juni: u64,
         seed_juli: u64,
     ) -> rusqlite::Result<()> {
+        zwei_fenster(outbox, [(seed_juni, "lauf-1"), (seed_juli, "lauf-1")])
+    }
+
+    /// Wie [`zwei_fenster_mit_seeds`], aber je Fenster mit eigenem Seed **und** eigenem Lauf.
+    fn zwei_fenster(outbox: &SqliteOutbox, juni_juli: [(u64, &str); 2]) -> rusqlite::Result<()> {
+        let [(seed_juni, lauf_juni), (seed_juli, lauf_juli)] = juni_juli;
         ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
         FensternSqliteStore::with_own_tables(outbox.clone())?;
         outbox.with_connection(|conn| {
-            for (id, day, stamp, seed) in [
-                ("juni", "2024-06-10", 19_884_i64, seed_juni),
-                ("juli", "2024-07-10", 19_914_i64, seed_juli),
+            for (id, day, stamp, seed, lauf) in [
+                ("juni", "2024-06-10", 19_884_i64, seed_juni, lauf_juni),
+                ("juli", "2024-07-10", 19_914_i64, seed_juli, lauf_juli),
             ] {
                 conn.execute(
                     "INSERT INTO obfuskiert (id, source_id, ordering_account, amount_minor_units, \
@@ -399,9 +413,9 @@ mod tests {
                     params![id, day, seed_marker(seed).as_str()],
                 )?;
                 conn.execute(
-                    "INSERT INTO auswertungsfenster (id, from_day, to_day, currency) \
-                     VALUES (?1, ?2, ?2, 'EUR');",
-                    params![id, stamp],
+                    "INSERT INTO auswertungsfenster (id, run_id, from_day, to_day, currency) \
+                     VALUES (?1, ?3, ?2, ?2, 'EUR');",
+                    params![id, stamp, lauf],
                 )?;
                 conn.execute(
                     "INSERT INTO auswertungsfenster_buchungen (window_id, position, booking_id) \
@@ -428,7 +442,7 @@ mod tests {
         let source = AuswertungsfensterSource::new(outbox);
 
         let fehler = source
-            .history_in(19_884, 19_914)
+            .history_in("lauf-1", 19_884, 19_914)
             .expect_err("gemischte Tokenisierungen im Lauf müssen terminal failen");
         assert!(
             !fehler.message.contains(seed_marker(42).as_str())
@@ -450,13 +464,32 @@ mod tests {
         zwei_fenster_mit_seeds(&outbox, 42, 42)?;
         let source = AuswertungsfensterSource::new(outbox);
 
-        let historie = source.history_in(19_884, 19_914);
+        let historie = source.history_in("lauf-1", 19_884, 19_914);
         assert_eq!(
             historie
                 .as_ref()
                 .map(|h| (h.seed_marker.clone(), h.bookings.len())),
             Ok((seed_marker(42).as_str().to_string(), 2))
         );
+        Ok(())
+    }
+
+    /// Zwei Läufe über **dieselbe** Spanne — genau die Lage nach einem zweiten Lauf, der die ganze
+    /// Historie neu paginiert hat: die Query des späteren Laufs sieht nur **sein** Fenster
+    /// (ADR-0016). Gescopt nur über das Datum, käme das Fenster des früheren Laufs still mit.
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! ist die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn history_in_sieht_nur_die_fenster_des_eigenen_laufs() -> rusqlite::Result<()> {
+        let outbox = SqliteOutbox::open_in_memory()?;
+        zwei_fenster(&outbox, [(42, "lauf-1"), (42, "lauf-2")])?;
+        let source = AuswertungsfensterSource::new(outbox);
+
+        let historie = source.history_in("lauf-2", 19_884, 19_914);
+
+        assert_eq!(historie.map(|h| h.bookings.len()), Ok(1));
         Ok(())
     }
 

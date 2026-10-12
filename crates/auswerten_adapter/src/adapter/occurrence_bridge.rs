@@ -1,6 +1,7 @@
 use auswerten_domain::{EvaluationError, OccurrenceSource, RunHistory, RunSpan};
 
 use crate::abstractions::{OccurrenceSeam, SourceUnavailable};
+use crate::models::RunScope;
 
 /// Die **Port-Bridge** der fenster-übergreifenden Reichweite: erfüllt
 /// `auswerten_domain::OccurrenceSource` und mappt ihn auf den öffentlichen [`OccurrenceSeam`] (den
@@ -14,14 +15,20 @@ use crate::abstractions::{OccurrenceSeam, SourceUnavailable};
 /// `MissingMandatoryField` (nur der statische Feldname). Eine **leere** Historie ist **kein**
 /// Fehler — es gibt hier keinen Zeiger, der ins Leere zeigen könnte, nur eine Spanne, in der nichts
 /// liegt.
+///
+/// **Der Lauf-Scope sitzt hier** ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)):
+/// die Bridge wird je Kommando gebaut und trägt dessen Lauf; sie legt ihn neben der Spanne an den
+/// Seam. Das Scoping ist Beschaffungs-Mechanik — die Domäne verlangt „die Historie dieses Laufs" und
+/// muss den Lauf dafür nicht kennen.
 pub(crate) struct OccurrenceBridge<'a> {
     pub(crate) seam: &'a dyn OccurrenceSeam,
+    pub(crate) run: &'a RunScope,
 }
 
 impl OccurrenceSource for OccurrenceBridge<'_> {
     fn history_in(&self, span: RunSpan) -> Result<RunHistory, EvaluationError> {
         self.seam
-            .history_in(span.from().value(), span.to().value())
+            .history_in(self.run.as_str(), span.from().value(), span.to().value())
             .map_err(
                 |SourceUnavailable { message }| EvaluationError::SourceUnavailable {
                     reason: message,

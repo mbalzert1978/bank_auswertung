@@ -954,7 +954,7 @@ mod tests {
             )),
         );
 
-        outbox.enqueue(START_MESSAGE_TYPE, "")?;
+        outbox.enqueue(START_MESSAGE_TYPE, "lauf-1")?;
         let outcomes = drain(&outbox, &dispatcher)?;
 
         assert!(
@@ -1061,8 +1061,8 @@ mod tests {
         FensternSqliteStore::with_own_tables(outbox.clone())?;
         outbox.with_connection(|conn| {
             conn.execute(
-                "INSERT INTO auswertungsfenster (id, from_day, to_day, currency) \
-                 VALUES ('w-1', 0, 0, 'EUR');",
+                "INSERT INTO auswertungsfenster (id, run_id, from_day, to_day, currency) \
+                 VALUES ('w-1', 'lauf-1', 0, 0, 'EUR');",
                 [],
             )
         })?;

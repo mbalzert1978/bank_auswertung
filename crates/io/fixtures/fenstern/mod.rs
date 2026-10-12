@@ -35,6 +35,9 @@ mod commit_failed;
 use commit_failed::CommitFailed;
 
 /// Seitengröße des Tests: klein genug, dass der Bestand unten in **drei** Seiten zerfällt.
+/// Die Lauf-Identität, unter der die Fixture-Läufe anstoßen (ADR-0016).
+pub(crate) const LAUF: &str = "lauf-1";
+
 pub(crate) const WINDOW_DAYS: u32 = 3;
 
 /// Obergrenze der Broker-Schleife: die **Terminierung** der Selbst-Fortsetzung ist Teil dessen, was
@@ -287,7 +290,7 @@ fn wird_konsumiert(message_type: &str) -> bool {
               der Rückgabewert gehört allein der Disposition der Nachrichtenverarbeitung"
 )]
 pub(crate) fn fahre_lauf(dispatcher: &Dispatcher<'_>, db: &FakeDb) -> Result<(), OutboxError> {
-    let mut offen = VecDeque::from([envelope(io::fenstern::START_MESSAGE_TYPE, "")]);
+    let mut offen = VecDeque::from([envelope(io::fenstern::START_MESSAGE_TYPE, LAUF)]);
     let mut gelesen = 0;
     for _ in 0..MAX_RUNDEN {
         let Some(nachricht) = offen.pop_front() else {
@@ -322,6 +325,7 @@ pub(crate) fn bestand() -> FakeSource {
 
 pub(crate) fn fenster(from: i64, to: i64, booking_ids: &[&str]) -> AnalysisWindowRow {
     AnalysisWindowRow {
+        run: LAUF.to_string(),
         from,
         to,
         currency: "EUR".to_string(),

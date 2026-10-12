@@ -63,11 +63,14 @@ Der Verwendungszweck wird vor der Weitergabe gescrubbt: IBANs, BICs und bekannte
 (die vollständigen Namen aller Empfänger ohne Gläubiger-ID plus --personen) werden ersetzt. Das ist heuristisch und
 nicht beweisbar vollständig — ein Name, der nirgends bekannt ist, bleibt stehen.
 
-ACHTUNG — ein Lauf ist resümierbar, aber NICHT idempotent: dieselbe CSV zweimal in
-dieselbe --db eingelesen ergibt den Bestand zweimal. Weil `fenstern` je Lauf die ganze
-Historie neu paginiert, wächst dabei nicht nur der Bestand, sondern auch das
-Analyse-Ergebnis überproportional — die Zahlen sind danach nicht doppelt, sondern falsch.
-Für einen Wiederholungslauf eine frische --db verwenden. Die Entdopplung ist Issue 0088.";
+Mehrere Läufe in dieselbe --db sind gewollt: je eigenem Konto ein Lauf, auch wiederholt.
+Ein neuer Auszug ergänzt den Bestand; eine schon eingelesene Zeile wird an ihrem
+Zeilen-Schlüssel wiedererkannt und nicht erneut gezählt. Jeder Lauf wertet alle Konten
+der --db gemeinsam aus; maßgeblich ist der jüngste Lauf. Vorgemerkte Umsätze werden
+übersprungen und kommen gebucht mit einem späteren Auszug.
+GRENZE: ein Tag muss vollständig im Export stehen — überlappen sich zwei Auszüge, muss
+jeder den gemeinsamen Tag ganz tragen. Sonst können gleiche Buchungen dieses Tages als
+schon bekannt gelten und verloren gehen (ADR-0016).";
 
 /// Warum die Kommandozeile nicht trägt. **Redigiert wie alles andere:** die Meldung nennt die
 /// **Option**, nie den übergebenen Wert — ein Pfad kann Kontonamen tragen, und ein verrutschtes

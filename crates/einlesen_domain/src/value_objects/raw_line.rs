@@ -13,6 +13,9 @@ use crate::value_objects::NonEmptyString;
 /// weiter zu reichen Wert-Objekten — die Domäne spricht nie ein primitives `String`.
 #[derive(Debug, Clone)]
 pub struct RawLine {
+    /// Der Zeilen-Schlüssel, den die Quelle vergibt (opak; siehe [`RowKey`](crate::RowKey)) —
+    /// Pflicht wie die Pflichtfelder: ohne ihn ließe sich ein erneuter Import nicht erkennen.
+    pub row_key: NonEmptyString,
     pub ordering_account: NonEmptyString,
     pub booking_day: NonEmptyString,
     pub value_date: NonEmptyString,

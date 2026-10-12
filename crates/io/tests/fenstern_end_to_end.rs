@@ -15,7 +15,8 @@ use io::outbox::OutboxError;
 #[path = "../fixtures/fenstern/mod.rs"]
 mod fixtures;
 use fixtures::{
-    FakeDb, FakeSource, bestand, dispatcher_mit, envelope, fahre_lauf, fenster, nachricht, zeile,
+    FakeDb, FakeSource, LAUF, bestand, dispatcher_mit, envelope, fahre_lauf, fenster, nachricht,
+    zeile,
 };
 
 /// Dieselbe gültige Fixture-Config wie im Loader-Test (`fenstern_config.rs`), hier als Beleg, dass
@@ -49,13 +50,13 @@ fn ein_start_analysis_laeuft_ueber_mehrere_seiten_bis_historie_vollstaendig() {
     assert_eq!(
         db.committed_messages(),
         vec![
-            nachricht("AdvanceWindow", "100:100"),
+            nachricht("AdvanceWindow", "100:100:lauf-1"),
             nachricht("WindowClosed", "fenster-1"),
-            nachricht("AdvanceWindow", "95:100"),
+            nachricht("AdvanceWindow", "95:100:lauf-1"),
             nachricht("WindowClosed", "fenster-2"),
-            nachricht("AdvanceWindow", "90:100"),
+            nachricht("AdvanceWindow", "90:100:lauf-1"),
             nachricht("WindowClosed", "fenster-3"),
-            nachricht("HistoryComplete", "88:100"),
+            nachricht("HistoryComplete", "88:100:lauf-1"),
         ]
     );
 }
@@ -86,7 +87,10 @@ fn die_aus_der_toml_geladene_seitengroesse_paginiert_entlang_der_buchungstag_ach
     );
 
     assert_eq!(
-        dispatcher.dispatch(envelope(io::fenstern::CONSUMED_MESSAGE_TYPE, "100:100")),
+        dispatcher.dispatch(envelope(
+            io::fenstern::CONSUMED_MESSAGE_TYPE,
+            "100:100:lauf-1"
+        )),
         Ok(())
     );
 
@@ -109,19 +113,22 @@ fn beide_kommandotypen_werden_vom_selben_dispatcher_aufgeloest() {
     // Der Anstoß: aufgelöst, verarbeitet — er publiziert nur das erste Fenster-Kommando und legt
     // selbst **nichts** ab (einzweckig).
     assert_eq!(
-        dispatcher.dispatch(envelope(io::fenstern::START_MESSAGE_TYPE, "")),
+        dispatcher.dispatch(envelope(io::fenstern::START_MESSAGE_TYPE, LAUF)),
         Ok(())
     );
     assert!(db.committed_windows().is_empty());
     assert_eq!(
         db.committed_messages(),
-        vec![nachricht("AdvanceWindow", "100:100")]
+        vec![nachricht("AdvanceWindow", "100:100:lauf-1")]
     );
 
     // Der Fenster-Schritt: derselbe Dispatcher, anderer `message_type`, anderer Handler — er
     // materialisiert das Fenster.
     assert_eq!(
-        dispatcher.dispatch(envelope(io::fenstern::CONSUMED_MESSAGE_TYPE, "100:100")),
+        dispatcher.dispatch(envelope(
+            io::fenstern::CONSUMED_MESSAGE_TYPE,
+            "100:100:lauf-1"
+        )),
         Ok(())
     );
     assert_eq!(
@@ -173,9 +180,9 @@ fn ein_terminaler_fehler_rollt_die_ganze_arbeitseinheit_zurueck() {
     assert_eq!(
         db.committed_messages(),
         vec![
-            nachricht("AdvanceWindow", "100:100"),
+            nachricht("AdvanceWindow", "100:100:lauf-1"),
             nachricht("WindowClosed", "fenster-1"),
-            nachricht("AdvanceWindow", "95:100"),
+            nachricht("AdvanceWindow", "95:100:lauf-1"),
         ]
     );
 }
@@ -201,7 +208,7 @@ fn ein_commit_fehler_hinterlaesst_keine_halb_fortgesetzte_kette() {
     assert!(db.committed_windows().is_empty());
     assert_eq!(
         db.committed_messages(),
-        vec![nachricht("AdvanceWindow", "100:100")]
+        vec![nachricht("AdvanceWindow", "100:100:lauf-1")]
     );
 }
 

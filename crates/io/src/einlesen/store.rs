@@ -30,8 +30,8 @@
 //! `store` als [`StoreUnavailable`] (→ `SinkError::StoreFailed`) und damit terminal + redigiert (nur
 //! io-Diagnose der Zugriffs-Mechanik, nie ein Zell-/Feldwert). Kein Dead-Letter, kein Retry im Slice.
 
-use einlesen_adapter::{CalendarDay, Direction, Line, StoreSeam, StoreUnavailable};
-use rusqlite::{Transaction, params};
+use einlesen_adapter::{CalendarDay, Direction, Line, StoreOutcome, StoreSeam, StoreUnavailable};
+use rusqlite::{Connection, Transaction, params};
 
 use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
@@ -77,13 +77,27 @@ pub type EinlesenSqliteStore = SliceStore<EinlesenLines>;
 pub type EinlesenUnit = SliceUnit<EinlesenLines>;
 
 impl StoreSeam for EinlesenUnit {
-    /// Mintet die Zeilen-ID **synchron an der DB** (`randomblob`) und stagt das Zeilen-`INSERT` in die
-    /// committende Transaktion; ein unerreichbarer Store (Schema fehlt / DB-Fehler) failt **hier**
-    /// terminal als redigierte [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und
-    /// `Ingested`-Publish oder gar nicht.
-    fn store(&self, line: &Line) -> Result<String, StoreUnavailable> {
-        self.store_dto(line)
+    /// Fragt zuerst, ob der Bestand den `row_key` der Zeile schon trägt — dann legt er **nichts** an
+    /// ([`StoreOutcome::AlreadyKnown`], ADR-0016). Sonst mintet er die Zeilen-ID **synchron an der
+    /// DB** (`randomblob`) und stagt das Zeilen-`INSERT` in die committende Transaktion; ein
+    /// unerreichbarer Store (Schema fehlt / DB-Fehler) failt **hier** terminal als redigierte
+    /// [`StoreUnavailable`]. Der `INSERT` selbst committet mit Ack und `Ingested`-Publish oder gar
+    /// nicht.
+    ///
+    /// Gefragt wird der **committete** Bestand: zwei gleiche Schlüssel **innerhalb** eines Batches
+    /// sähe die Frage nicht — die weist schon die ACL des Slice ab, und die `UNIQUE`-Spalte bleibt
+    /// das letzte Netz.
+    fn store(&self, line: &Line) -> Result<StoreOutcome, StoreUnavailable> {
+        if self.read(|conn| knows_row_key(conn, &line.row_key))? {
+            return Ok(StoreOutcome::AlreadyKnown);
+        }
+        self.store_dto(line).map(StoreOutcome::Stored)
     }
+}
+
+/// Trägt der Bestand den Zeilen-Schlüssel schon?
+fn knows_row_key(conn: &Connection, row_key: &str) -> rusqlite::Result<bool> {
+    conn.query_row(SELECT_ROW_KEY_KNOWN, params![row_key], |row| row.get(0))
 }
 
 /// Das Präfix, das dieser Store **jeder** eigenen Diagnose voranstellt — die eine Quelle für den
@@ -110,6 +124,7 @@ fn store_unavailable(message: &str) -> StoreUnavailable {
 /// sie außerhalb von `io` nicht konstruierbar und nicht lesbar (benennbar ist sie als
 /// `<EinlesenLines as StoreSpec>::Prepared` schon — nur eben inert).
 pub struct LineFields {
+    row_key: String,
     ordering_account: String,
     counter_account: Option<String>,
     amount_minor_units: i64,
@@ -131,6 +146,7 @@ impl TryFrom<&Line> for LineFields {
     /// nie ein Rohwert).
     fn try_from(line: &Line) -> Result<Self, StoreUnavailable> {
         Ok(Self {
+            row_key: line.row_key.clone(),
             ordering_account: line.ordering_account.clone(),
             counter_account: line.counter_account.clone(),
             amount_minor_units: i64::try_from(line.amount_minor_units)
@@ -167,6 +183,7 @@ impl LineRow {
             INSERT_LINE,
             params![
                 self.id,
+                fields.row_key,
                 fields.ordering_account,
                 fields.counter_account,
                 fields.amount_minor_units,
@@ -209,6 +226,12 @@ const TABLES: &[TableSpec] = &[TableSpec {
 /// Rohe Identifikatoren (IBANs, Klarname) liegen hier **roh** — das ist erlaubt (lokale Persistenz,
 /// kein Egress; obfuskiert wird der nachgelagerte Slice, [ADR-0008](../../../../docs/adr/0008-event-getriebene-pipeline-und-outbox.md)).
 ///
+/// **`row_key`** ([ADR-0016](../../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md))
+/// ist der Zeilen-Schlüssel der Quelle — ein **Digest**, nie die Kundenreferenz oder die
+/// zusammengesetzte Zeile im Klartext. Die Spalte ist `UNIQUE`: ein neuer Import ergänzt, eine schon
+/// bekannte Zeile liegt nie zweimal hier. Der `UNIQUE`-Index trägt zugleich die Frage „kenne ich die
+/// Zeile schon?" vor jeder Ablage.
+///
 /// `direction` ist enum-artig (nur `incoming`/`outgoing`) und wird per `CHECK`-Constraint auf
 /// DB-Ebene erzwungen; `created_at`/`updated_at` (Epoch-Millis) tragen den Audit-Zeitstempel jeder
 /// Zeile — beide Konventionen aus `.rules/sql/schema-konventionen.md`. Die Tabelle ist append-only,
@@ -216,6 +239,7 @@ const TABLES: &[TableSpec] = &[TableSpec {
 const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS einlesen_lines (
     id               TEXT    PRIMARY KEY,
+    row_key          TEXT    NOT NULL UNIQUE,
     ordering_account TEXT    NOT NULL,
     counter_account  TEXT,
     amount_minor_units      INTEGER NOT NULL,
@@ -240,17 +264,22 @@ CREATE TABLE IF NOT EXISTS einlesen_lines (
 // Insert garantiert zusammenfallen (empirisch bestätigt) — kein CTE nötig.
 const INSERT_LINE: &str = "\
 INSERT INTO einlesen_lines (
-    id, ordering_account, counter_account, amount_minor_units, currency, direction,
+    id, row_key, ordering_account, counter_account, amount_minor_units, currency, direction,
     recipient_name, creditor_id,
     booking_year, booking_month, booking_day,
     value_year, value_month, value_day,
     purpose, booking_text,
     created_at, updated_at
 ) VALUES (
-    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
     CAST(unixepoch('subsec') * 1000 AS INTEGER),
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
+
+/// Die Frage vor jeder Ablage: liegt dieser Zeilen-Schlüssel schon im Bestand? Getragen vom
+/// `UNIQUE`-Index der Spalte.
+const SELECT_ROW_KEY_KNOWN: &str =
+    "SELECT EXISTS (SELECT 1 FROM einlesen_lines WHERE row_key = ?1);";
 
 #[cfg(test)]
 const SELECT_LINES: &str = "\
@@ -258,7 +287,7 @@ SELECT id, ordering_account, counter_account, amount_minor_units, currency, dire
        recipient_name, creditor_id,
        booking_year, booking_month, booking_day,
        value_year, value_month, value_day,
-       purpose, booking_text
+       purpose, booking_text, row_key
 FROM einlesen_lines
 ORDER BY rowid;";
 
@@ -284,6 +313,7 @@ impl EinlesenSqliteStore {
                 Ok((
                     row.get::<_, String>(0)?,
                     Line {
+                        row_key: row.get(16)?,
                         ordering_account: row.get(1)?,
                         counter_account: row.get(2)?,
                         amount_minor_units,
@@ -333,15 +363,25 @@ mod tests {
     use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{assert_redacted_diagnosis, csv_source, register_fresh};
     use crate::sqlite::SqliteOutbox;
+    use einlesen_adapter::SourceSeam;
 
     /// Die rohe Auftraggeber-IBAN der `gueltig.csv`-Fixture — sie darf in **keinem** Fehlergrund
     /// auftauchen (Datenschutz-Redaktion).
     const ROH_IBAN: &str = "DE89370400440532013000";
 
     /// Die erwartete `Line`-Projektion der einzigen Zeile aus `gueltig.csv` (EDEKA, `-50,00 EUR`) —
-    /// unabhängige Wahrheit für den Feld-Treue-Vergleich der committeten Zeile.
+    /// unabhängige Wahrheit für den Feld-Treue-Vergleich der committeten Zeile. Den Zeilen-Schlüssel
+    /// liefert die echte Quelle selbst (er ist ein Digest, kein lesbarer Wert): verglichen wird, dass
+    /// er **unverändert** bis in die Tabelle reist.
     fn erwartete_gueltige_zeile() -> Line {
+        let row_key = csv_source("gueltig.csv")
+            .fetch()
+            .ok()
+            .and_then(|records| records.into_iter().next())
+            .and_then(|record| record.row_key)
+            .unwrap_or_default();
         Line {
+            row_key,
             ordering_account: ROH_IBAN.to_string(),
             counter_account: Some("DE11520513735120710131".to_string()),
             amount_minor_units: 5000,
@@ -515,6 +555,129 @@ mod tests {
                 "der Betrag muss auf die ISO-Minor-Unit skaliert committen (1234), Währung {currency:?}: {lines:?}"
             );
         }
+        Ok(())
+    }
+
+    /// Der Zeilen-Schlüssel jeder abgelegten Zeile — getrennt von der ID, die je Ablage neu
+    /// gemintet wird.
+    fn row_keys(store: &EinlesenSqliteStore) -> rusqlite::Result<Vec<String>> {
+        Ok(store
+            .lines()?
+            .into_iter()
+            .map(|(_, line)| line.row_key)
+            .collect())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn ein_zweiter_import_derselben_datei_legt_nichts_an_und_publiziert_nichts()
+    -> rusqlite::Result<()> {
+        // Ein neuer Import ergänzt (ADR-0016): derselbe Auszug, zweimal zugestellt, hinterlässt
+        // denselben Bestand — und keinen zweiten Zeiger, sonst legte `obfuskieren` die Zeile doppelt ab.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
+        deliver(&outbox, store.clone(), "gueltig.csv")?;
+
+        let outcomes = deliver(&outbox, store.clone(), "gueltig.csv")?;
+
+        // (Der erste `Ingested`-Zeiger liegt in diesem Test ohne Abnehmer offen und wird erneut
+        // zugestellt — gezählt wird hier nur der Auslöser.)
+        assert!(
+            outcomes.iter().any(|(message, outcome)| {
+                message.message_type == CONSUMED_MESSAGE_TYPE && outcome.is_ok()
+            }),
+            "der zweite Auslöser wird ebenso atomar verarbeitet: {outcomes:?}"
+        );
+        assert_eq!(store.lines()?.len(), 1, "die Zeile liegt genau einmal da");
+        assert_eq!(
+            ingested_partition_keys(&outbox)?.len(),
+            1,
+            "und genau ein Zeiger reist stromabwärts"
+        );
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn zwei_gleiche_buchungen_ohne_kundenreferenz_werden_beide_abgelegt() -> rusqlite::Result<()> {
+        // Zweimal dasselbe Parkticket am selben Tag, Spalte für Spalte gleich: zwei echte Buchungen.
+        // Die laufende Nummer im Zeilen-Schlüssel hält sie auseinander — beide zählen, auch nach
+        // einem zweiten Import derselben Datei bleiben es zwei.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
+
+        deliver(&outbox, store.clone(), "zwei_gleiche.csv")?;
+        deliver(&outbox, store.clone(), "zwei_gleiche.csv")?;
+
+        let keys = row_keys(&store)?;
+        assert_eq!(
+            keys.len(),
+            2,
+            "beide gleichen Buchungen liegen da: {keys:?}"
+        );
+        assert!(
+            keys.first() != keys.get(1),
+            "unter verschiedenen Schlüsseln"
+        );
+        assert_eq!(ingested_partition_keys(&outbox)?.len(), 2);
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn eine_vorgemerkte_zeile_bricht_den_import_nicht_ab_und_wird_nicht_abgelegt()
+    -> rusqlite::Result<()> {
+        // Die vorgemerkte Zeile hat eine leere Valuta — ein Pflichtfeld. Sie wird übersprungen, bevor
+        // geprüft wird; die gebuchte Zeile daneben kommt an.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
+
+        let outcomes = deliver(&outbox, store.clone(), "vorgemerkt.csv")?;
+
+        assert!(
+            matches!(outcomes.as_slice(), [(_, Ok(()))]),
+            "eine vorgemerkte Zeile bricht nichts ab: {outcomes:?}"
+        );
+        let lines = store.lines()?;
+        assert!(
+            matches!(lines.as_slice(), [(_, line)] if line.purpose.as_deref() == Some("Strom Juli")),
+            "nur die gebuchte Zeile liegt da: {lines:?}"
+        );
+        assert_eq!(ingested_partition_keys(&outbox)?.len(), 1);
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn zwei_ueberlappende_auszuege_mit_wiederkehrender_referenz_verlieren_keinen_monat()
+    -> rusqlite::Result<()> {
+        // Der Repro aus Review-Runde 1, gegen echtes SQLite: April–Juni, dann Mai–Juli, dieselbe
+        // Kundenreferenz und derselbe Betrag jeden Monat. Vier Monate, vier Zeilen — der Juli fehlt
+        // nicht still.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
+
+        deliver(&outbox, store.clone(), "referenz_wiederholt_a.csv")?;
+        deliver(&outbox, store.clone(), "referenz_wiederholt_b.csv")?;
+
+        let monate: Vec<u8> = store
+            .lines()?
+            .into_iter()
+            .map(|(_, line)| line.booking_day.month)
+            .collect();
+        assert_eq!(monate, vec![6, 5, 4, 7]);
         Ok(())
     }
 }
