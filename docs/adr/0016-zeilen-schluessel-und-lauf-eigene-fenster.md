@@ -114,6 +114,14 @@ Vor diesem ADR ergaben mehrere Läufe in **eine** Datei falsche Zahlen, aus drei
   einer Datei sind seriell und dauern länger als eine Millisekunde; zwei gleiche Zeitstempel gibt es
   nicht. Die Grenze: eine rückwärts gestellte Systemuhr bräche die Ordnung — das Programm vertraut der
   Uhr der Maschine. Den Vertrag nutzt der Bericht (Issue 0012).
+- **„Jüngster Lauf" heißt jüngster abgeschlossener Lauf.** Scheitert ein Lauf mitten in `fenstern`
+  oder `auswerten` terminal, sind seine bisherigen Fenster schon committet — `max(run_id)` zeigte dann
+  auf einen **unvollständigen** Lauf, bis der nächste Programmstart ihn zu Ende führt. Darum gilt
+  (Entscheidung des Orchestrators, 2026-10-12): der **Bericht entsteht am Ende eines Laufs, der die
+  Outbox leer laufen lässt (Exit 0), und liest genau die Lauf-Identität, die dieser Lauf gerade
+  gemintet hat** — er sucht den Lauf nicht nachträglich per `max(run_id)`. Nach Exit 1 gibt es keinen
+  Bericht. `max(run_id)` bleibt die Ordnung für Werkzeuge, die die Datei später lesen; sie müssen
+  dieselbe Grenze kennen.
 - **Sie reist als Wert durch die Nachrichten**, nicht als Envelope-ID — der Slice bleibt
   Outbox-blind ([ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):
   - `StartAnalysis` → `"{run}"`,
@@ -132,7 +140,7 @@ Vor diesem ADR ergaben mehrere Läufe in **eine** Datei falsche Zahlen, aus drei
 - **Verworfen: eine Lauf-Tabelle, deren ID die Persistenz beim Anstoß vergibt.** Sie folgte dem
   ID-Handoff wörtlicher, brauchte aber eine weitere Tabelle, einen Port, einen Seam und einen Store
   für eine Identität, die außer den Fenstern niemand liest. Die Fenster tragen den Lauf; „der
-  jüngste Lauf" ist der des zuletzt abgelegten Fensters.
+  jüngste Lauf" ist der mit der größten `run_id` (siehe oben).
 - **Ein liegengebliebener Lauf** (Analyse terminal gescheitert) wird beim nächsten Programmstart
   unter **seiner** alten Lauf-Identität zu Ende geführt (in Phase 1, die alle offenen Nachrichten
   abarbeitet); der neue Lauf daneben hat seine eigene. Keiner zählt die Fenster des anderen, und die
