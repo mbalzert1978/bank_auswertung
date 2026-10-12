@@ -16,8 +16,10 @@
 //! ([Issue 0059](../../../docs/issues/0059-config-loader-toml-seed.md)) und
 //! [`EigeneKontenConfig`] die eigenen Konten des `auswerten`-Slice
 //! ([Issue 0002](../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)) — Letztere als
-//! einzige mit einem eigenen Zwischenschritt: sie liest **IBANs** und gibt **Token** heraus.
-//! **Alle drei Loader teilen sich einen
+//! einzige mit einem eigenen Zwischenschritt: sie liest **IBANs** und gibt **Token** heraus. Dazu
+//! kommt [`PersonenConfig`], die lokale Namensliste des Freitext-Engpasses von `obfuskierung`
+//! ([Issue 0010](../../../docs/issues/0010-scrubbing-regeln-fuer-obfuskiertertext.md)).
+//! **Alle vier Loader teilen sich einen
 //! einzigen** [`ConfigError`] — die redigierte, statische Fehler-Ursache jedes fehlgeschlagenen
 //! Ladens; `io` reicht den geladenen Wert dann als rohen Wert in den jeweiligen Consumer (die
 //! Domäne liest **keine** Datei). Der zugehörige [`ConfigKind`] ist **bewusst Teil der öffentlichen
@@ -28,10 +30,12 @@
 
 mod eigene_konten;
 mod fenster;
+mod personen;
 mod seed;
 
 pub use eigene_konten::EigeneKontenConfig;
 pub use fenster::FensterConfig;
+pub use personen::PersonenConfig;
 pub use seed::SeedConfig;
 
 use std::path::{Path, PathBuf};
@@ -70,6 +74,8 @@ pub enum ConfigKind {
     Fenster,
     /// Der Eigene-Konten-Loader ([`EigeneKontenConfig`]).
     EigeneKonten,
+    /// Der Loader der lokalen Namensliste ([`PersonenConfig`]).
+    Personen,
 }
 
 impl ConfigKind {
@@ -79,28 +85,30 @@ impl ConfigKind {
             Self::Seed => "Seed-Konfiguration",
             Self::Fenster => "Fenster-Konfiguration",
             Self::EigeneKonten => "Eigene-Konten-Konfiguration",
+            Self::Personen => "Personen-Konfiguration",
         }
     }
 }
 
-/// Liest eine Config-Datei ein — der gemeinsame erste Lade-Schritt aller drei Loader
-/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`]). **Redigiert**: die io-Fehlermeldung
-/// wird bewusst **verworfen** (nicht als `source` gehängt) — sie könnte den Pfad tragen, und
-/// redigiert heißt kein Rohwert im Fehler-Chain.
+/// Liest eine Config-Datei ein — der gemeinsame erste Lade-Schritt aller vier Loader
+/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`], [`PersonenConfig`]).
+/// **Redigiert**: die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt) — sie
+/// könnte den Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
 fn read_config_file(path: &Path, kind: ConfigKind) -> Result<String, ConfigError> {
     std::fs::read_to_string(path).map_err(|_err| ConfigError::Unreadable(kind))
 }
 
-/// Parst toml-Text als Tabelle — der gemeinsame Parse-Schritt aller drei Loader. **Redigiert**: der
+/// Parst toml-Text als Tabelle — der gemeinsame Parse-Schritt aller vier Loader. **Redigiert**: der
 /// toml-Parsefehler wird verworfen — er kann Zeilen-/Feldinhalt (bis hin zur IBAN oder zum Seed)
 /// zitieren; redigiert heißt, nur die statische Ursache reist weiter.
 fn parse_toml_table(raw: &str, kind: ConfigKind) -> Result<toml::Table, ConfigError> {
     raw.parse().map_err(|_err| ConfigError::Malformed(kind))
 }
 
-/// Warum das Laden einer Config misslang — **der eine, geteilte** Fehler beider Loader
-/// ([`SeedConfig`] und [`FensterConfig`]). **Redigiert**: jede Variante trägt eine **statische**
-/// Ursache und **nie** einen Rohwert (Dateiinhalt, Pfad, gelesener Seed/Wert). Die beiden geteilten
+/// Warum das Laden einer Config misslang — **der eine, geteilte** Fehler aller Loader
+/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`], [`PersonenConfig`]).
+/// **Redigiert**: jede Variante trägt eine **statische** Ursache und **nie** einen Rohwert
+/// (Dateiinhalt, Pfad, gelesener Seed/Wert, Name). Die beiden geteilten
 /// Fehlerformen ([`Unreadable`](Self::Unreadable)/[`Malformed`](Self::Malformed)) tragen ihren
 /// Loader-Kontext als statischen [`ConfigKind`] mit, damit die Meldung loader-spezifisch bleibt. So
 /// kann der Fehler nirgends zum Leck-Pfad werden, und der Aufrufer bleibt panikfrei.
@@ -134,6 +142,12 @@ pub enum ConfigError {
     /// Dieselbe IBAN steht zweimal in der Config — welche Rolle gälte, entschiede sonst die
     /// Reihenfolge in der Datei.
     OwnAccountDuplicate,
+    /// Die Personen-Config führt keinen Schlüssel `namen` — auch „keine weiteren Namen" wird
+    /// ausdrücklich als `namen = []` geschrieben.
+    PersonNamesMissing,
+    /// `namen` ist keine Liste aus nicht-leeren Texten. Der abgelehnte Eintrag erscheint **nicht**
+    /// in der Meldung — er könnte ein Name sein.
+    PersonNamesInvalid,
 }
 
 impl std::fmt::Display for ConfigError {
@@ -166,6 +180,10 @@ impl std::fmt::Display for ConfigError {
             ),
             Self::OwnAccountDuplicate => {
                 f.write_str("Eigene-Konten-Konfiguration: dieselbe iban steht zweimal")
+            }
+            Self::PersonNamesMissing => f.write_str("Personen-Konfiguration: namen fehlt"),
+            Self::PersonNamesInvalid => {
+                f.write_str("Personen-Konfiguration: namen muss eine Liste nicht-leerer Texte sein")
             }
         }
     }

@@ -6,11 +6,13 @@
 #      aber nie selbst Empfänger einer Buchung sind (z. B. „Taschengeld Lisa").
 #   3. `personen.toml` ist per .gitignore ausgeschlossen und verlässt die
 #      Maschine nie — nur diese Vorlage mit erfundenen Namen wird versioniert.
+#   4. Beim Lauf mit `--personen personen.toml` übergeben. Die Option ist Pflicht;
+#      gibt es keine weiteren Namen, steht hier `namen = []`.
 #
 # Wozu: Bevor ein Freitext (Verwendungszweck) als `ObfuskierterText` weiterläuft,
 # werden darin Personen-Namen ersetzt. Alle Namen, die schon einmal Empfänger
-# waren, kennt das Programm selbst aus der Datenbank. Diese Liste ergänzt nur
-# die Namen, die es nicht kennen kann.
+# einer Buchung ohne Gläubiger-ID waren, kennt das Programm selbst aus der
+# Datenbank. Diese Liste ergänzt nur die Namen, die es nicht kennen kann.
 #
 # Ehrliche Grenze: das Ersetzen ist heuristisch und nicht beweisbar vollständig.
 # Ein Name, der weder Empfänger war noch hier steht, wird nicht erkannt.

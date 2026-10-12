@@ -1,0 +1,11 @@
+# Namensliste des Lauf-Tests (Issue 0010) — das Gegenstück zur lokalen `personen.toml`.
+#
+# **Dateiname bewusst `namen.toml`, nicht `personen.toml`:** Letzterer ist per .gitignore
+# ausgeschlossen, damit eine ECHTE Namensliste nie versehentlich im Repository landet. Diese
+# Fixture davon auszunehmen hieße, den Schutz aufzuweichen (wie bei `konten.toml`).
+#
+# **Frei erfunden.** „Oma Fiktiv" ist nie Empfänger einer Buchung, steht aber im Verwendungszweck
+# der Scrubbing-Fixture (`fixtures/einlesen/csv/scrubbing.csv`) — genau der Fall, für den es diese
+# Liste gibt.
+
+namen = ["Oma Fiktiv"]

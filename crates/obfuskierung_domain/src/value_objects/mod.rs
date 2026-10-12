@@ -5,15 +5,18 @@
 //! Identität definierte Entities und liegen in `entities/`.
 
 mod booking_id;
+mod known_persons;
 mod non_empty_string;
 mod obfuscated_counterparty;
 mod pass_through;
 mod raw_counterparty;
 mod recipient;
 mod replacement;
+mod scrubbing;
 mod seed;
 
 pub use booking_id::BookingId;
+pub use known_persons::KnownPersons;
 pub use non_empty_string::NonEmptyString;
 pub use obfuscated_counterparty::ObfuscatedCounterparty;
 pub use pass_through::PassThrough;

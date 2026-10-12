@@ -93,9 +93,9 @@
 //! `obfuskieren`, der Seed bleibt dort.
 //!
 //! Was er sieht, ist opake IDs, eine Währung, Tag-Stamps, Beträge, Konto-/Personen-**Token** und
-//! Freitext. Beim Freitext lohnt die Genauigkeit: Verwendungszweck und Buchungstext laufen durch den
-//! `ObfuskierterText`-Engpass, der **Firmenname** dagegen wird von `obfuskieren` **verbatim**
-//! durchgereicht — bewusst, denn er ist das wichtigste Kategorie-Signal (er benennt eine Firma, nicht
+//! Freitext. Beim Freitext lohnt die Genauigkeit: Verwendungszweck, Buchungstext **und** Firmenname
+//! laufen durch den `ObfuskierterText`-Engpass; den **Firmennamen** pseudonymisiert `obfuskieren` dabei
+//! **nicht** — bewusst, denn er ist das wichtigste Kategorie-Signal (er benennt eine Firma, nicht
 //! eine Person). „Stromabwärts der Grenze" heißt also *tokenisiert und gescrubbt*, nicht *frei von
 //! Klartext*.
 //!

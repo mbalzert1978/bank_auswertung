@@ -1,11 +1,11 @@
 //! **Das Programm** ([Issue 0083](../../../docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)):
-//! die dünnste denkbare Hülle um [`io::run::run`]. Sie liest fünf Pfade von der Kommandozeile, fährt
+//! die dünnste denkbare Hülle um [`io::run::run`]. Sie liest sechs Pfade von der Kommandozeile, fährt
 //! **einen** Lauf und setzt den Exit-Code — mehr tut sie nicht.
 //!
 //! **Warum so wenig.** Die Verdrahtung der Pipeline gehört in die Infrastruktur, nicht in die
 //! Kommandozeile: sie ist derselbe Lauf, ob ihn ein Terminal, ein Test oder später ein Scheduler
 //! anstößt. Diese Crate bindet darum als einzige interne Abhängigkeit `io` — und keine externe, auch
-//! keinen Argument-Parser: fünf benannte Pflicht-Optionen zu lesen ist keine Bibliothek wert.
+//! keinen Argument-Parser: sechs benannte Pflicht-Optionen zu lesen ist keine Bibliothek wert.
 //!
 //! **Das Lauf-Protokoll geht auf den Fehlerkanal**, damit die Standardausgabe für den späteren
 //! `report` frei bleibt. Es ist redigiert (siehe [`io::run`]): Nachrichtentypen, Zählwerte und im
@@ -45,15 +45,22 @@ fn main() -> ExitCode {
 
 const USAGE: &str = "\
 Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <datei> \
---eigene-konten <datei>
+--eigene-konten <datei> --personen <datei>
 
   --db              SQLite-Datei (Outbox + Ergebnis-Tabellen); wird bei Bedarf angelegt
   --csv             CSV-CAMT-v8-Kontoauszug, den `einlesen` beschafft
   --fenster         Fenster-Config (window_days)
   --seed            Seed-Config (seed)
   --eigene-konten   Eigene-Konten-Config ([[konto]] mit iban + rolle)
+  --personen        Namensliste (namen = [...]) für den Verwendungszweck: Namen, die nie
+                    Empfänger waren; `namen = []`, wenn es keine gibt. Vorlage:
+                    personen.example.toml
 
-Alle fünf sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
+Alle sechs sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
+
+Der Verwendungszweck wird vor der Weitergabe gescrubbt: IBANs, BICs und bekannte Namen
+(alle Empfänger ohne Gläubiger-ID plus --personen) werden ersetzt. Das ist heuristisch und
+nicht beweisbar vollständig — ein Name, der nirgends bekannt ist, bleibt stehen.
 
 ACHTUNG — ein Lauf ist resümierbar, aber NICHT idempotent: dieselbe CSV zweimal in
 dieselbe --db eingelesen ergibt den Bestand zweimal. Weil `fenstern` je Lauf die ganze
@@ -81,8 +88,8 @@ impl std::fmt::Display for Aufruffehler {
     }
 }
 
-/// Die fünf Optionen, während sie eingesammelt werden — jede noch **offen**, bis sie gesetzt ist. Der
-/// Übergang „alle fünf da" ist genau der Punkt, an dem daraus [`RunPaths`] wird
+/// Die sechs Optionen, während sie eingesammelt werden — jede noch **offen**, bis sie gesetzt ist. Der
+/// Übergang „alle sechs da" ist genau der Punkt, an dem daraus [`RunPaths`] wird
 /// ([`vollstaendig`](Aufrufoptionen::vollstaendig)); vorher gibt es keinen Wert, der so tut, als wäre
 /// er vollständig.
 #[derive(Debug, Default)]
@@ -92,6 +99,7 @@ struct Aufrufoptionen {
     window_config: Option<PathBuf>,
     seed_config: Option<PathBuf>,
     own_accounts_config: Option<PathBuf>,
+    persons_config: Option<PathBuf>,
 }
 
 impl Aufrufoptionen {
@@ -106,6 +114,7 @@ impl Aufrufoptionen {
             "--fenster" => Some(("--fenster", &mut self.window_config)),
             "--seed" => Some(("--seed", &mut self.seed_config)),
             "--eigene-konten" => Some(("--eigene-konten", &mut self.own_accounts_config)),
+            "--personen" => Some(("--personen", &mut self.persons_config)),
             _ => None,
         }
     }
@@ -125,11 +134,14 @@ impl Aufrufoptionen {
             own_accounts_config: self
                 .own_accounts_config
                 .ok_or(Aufruffehler::OptionFehlt("--eigene-konten"))?,
+            persons_config: self
+                .persons_config
+                .ok_or(Aufruffehler::OptionFehlt("--personen"))?,
         })
     }
 }
 
-/// Liest die fünf Pflicht-Optionen. Eine doppelt gesetzte Option gewinnt in ihrer letzten Nennung —
+/// Liest die sechs Pflicht-Optionen. Eine doppelt gesetzte Option gewinnt in ihrer letzten Nennung —
 /// die übliche Konvention, und die einzige, die ohne Sonderfall auskommt.
 fn parse(args: impl Iterator<Item = String>) -> Result<RunPaths, Aufruffehler> {
     let mut args = args;
@@ -165,6 +177,8 @@ mod tests {
             "seed.toml",
             "--eigene-konten",
             "eigene-konten.toml",
+            "--personen",
+            "personen.toml",
         ]
         .iter()
         .map(|argument| (*argument).to_string())
@@ -172,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn fuenf_optionen_ergeben_die_lauf_pfade() {
+    fn sechs_optionen_ergeben_die_lauf_pfade() {
         let paths = parse(vollstaendige_argumente().into_iter()).expect("vollständiger Aufruf");
 
         assert_eq!(paths.database, PathBuf::from("lauf.sqlite"));
@@ -183,14 +197,22 @@ mod tests {
             paths.own_accounts_config,
             PathBuf::from("eigene-konten.toml")
         );
+        assert_eq!(paths.persons_config, PathBuf::from("personen.toml"));
     }
 
     #[test]
     fn jede_fehlende_option_wird_benannt() {
         // Je Option den Aufruf **ohne** sie: der Fehler nennt genau die fehlende.
-        for (index, option) in ["--db", "--csv", "--fenster", "--seed", "--eigene-konten"]
-            .into_iter()
-            .enumerate()
+        for (index, option) in [
+            "--db",
+            "--csv",
+            "--fenster",
+            "--seed",
+            "--eigene-konten",
+            "--personen",
+        ]
+        .into_iter()
+        .enumerate()
         {
             let ohne: Vec<String> = vollstaendige_argumente()
                 .into_iter()

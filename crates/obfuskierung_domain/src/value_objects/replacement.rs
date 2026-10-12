@@ -1,4 +1,6 @@
+use crate::value_objects::known_persons::KnownPersons;
 use crate::value_objects::non_empty_string::NonEmptyString;
+use crate::value_objects::scrubbing;
 
 /// Der rohe Ersatzwert, den der [`Obfuscator`](crate::Obfuscator)-Port aus (Seed, Klartext)
 /// erzeugt — die pseudo-zufällige, aber deterministische Kennung, aus der die Domäne dann ihre
@@ -58,24 +60,37 @@ impl Pseudonym {
     }
 }
 
-/// Freitext (Firmenname / Verwendungszweck / Buchungstext) nach Obfuskierung. Minimale
-/// Erstversion: trimmt nur (via [`NonEmptyString`]) und lehnt Leeres ab. Das eigentliche
-/// Scrubbing eingebetteter Identifikatoren (IBAN-/BIC-Muster, bekannte Personen-Token) vertieft
-/// ein späterer Schritt; dieser Typ erzwingt schon jetzt den einen Engpass, durch den aller
-/// Freitext muss.
+/// Freitext (Firmenname / Verwendungszweck / Buchungstext) nach Obfuskierung — der **eine**
+/// Engpass, durch den aller Freitext muss. Es gibt keinen Weg, ihn **ohne** Scrubbing zu bauen: der
+/// einzige Konstruktor ist das crate-interne `scrub`, das die Gegenpartei-Obfuskierung aufruft.
+/// Gescrubbt wird **heuristisch, nicht beweisbar vollständig**: IBAN-Muster, BIC-Muster und die
+/// bekannten Personen-Namen ([`KnownPersons`]) werden durch feste Platzhalter ersetzt; was die
+/// Regeln nicht kennen, bleibt stehen.
+///
+/// Nicht-leer per Konstruktion: der Eingang ist ein getrimmter [`NonEmptyString`], und jeder ersetzte
+/// Abschnitt wird zu einem nicht-leeren Platzhalter — darum genügt hier ein schlichter `String`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ObfuscatedText(NonEmptyString);
-
-impl From<NonEmptyString> for ObfuscatedText {
-    fn from(value: NonEmptyString) -> Self {
-        Self(value)
-    }
-}
+pub struct ObfuscatedText(String);
 
 impl ObfuscatedText {
+    /// Scrubbt den Freitext **best-effort**, bevor er als `ObfuscatedText` existiert: eingebettete
+    /// **IBANs** werden zu `[IBAN]`, **BICs** zu `[BIC]` und **bekannte Personen-Namen** zu
+    /// `[PERSON]`.
+    ///
+    /// **Heuristisch, nicht beweisbar vollständig.** Die Regeln fangen die üblichen Schreibweisen;
+    /// was sie nicht kennen, bleibt stehen — ein Name, der weder in [`KnownPersons`] steht noch
+    /// Empfänger war, eine verfremdete IBAN, eine ausländische BIC ohne Ziffer und ohne `BIC`-Hinweis.
+    /// Wo sie unsicher sind, ersetzen sie lieber zu viel (fail-safe): auch eine Firma ohne
+    /// Gläubiger-ID, deren Name in der Liste steht, wird geschwärzt. Eine Anonymisierung ist das
+    /// nicht. Die einzelnen Regeln und ihre Grenzen stehen am Modul `scrubbing`.
+    #[must_use]
+    pub(crate) fn scrub(raw: &NonEmptyString, persons: &KnownPersons) -> Self {
+        Self(scrubbing::scrub(raw.as_str(), persons))
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
 }
 

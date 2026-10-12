@@ -20,6 +20,11 @@ pub enum ObfuscationError {
     SourceUnavailable { reason: String },
     /// Eine vorhandene Zeile hat ein leeres/fehlendes Pflichtfeld — trägt nur den statischen Feldnamen.
     MissingMandatoryField { field: &'static str },
+    /// Die **bekannten Personen-Namen** ließen sich nicht beschaffen (unerreichbarer Bestand,
+    /// kaputtes Schema). Trägt **nur** die durchgereichte io-Diagnose (`reason` — Beschaffungs-Mechanik,
+    /// **nie** ein Name). Terminal: ohne Namensliste wird nicht obfuskiert, statt still zu wenig zu
+    /// scrubben.
+    PersonsUnavailable { reason: String },
     /// Die Ablage der obfuskierten Buchung ist gescheitert. Trägt **nur** die durchgereichte
     /// io-Diagnose (`reason` — Zugriffs-Mechanik, nie ein Rohwert) und ist damit formgleich mit
     /// `fenstern`/`auswerten`: ein unerreichbarer Store bleibt diagnostizierbar, statt dass die
@@ -40,6 +45,9 @@ impl fmt::Display for ObfuscationError {
             }
             ObfuscationError::MissingMandatoryField { field } => {
                 write!(f, "mandatory field missing in source booking: {field}")
+            }
+            ObfuscationError::PersonsUnavailable { reason } => {
+                write!(f, "could not read known person names: {reason}")
             }
             ObfuscationError::StorageUnavailable { reason } => {
                 write!(f, "could not store obfuscated booking: {reason}")

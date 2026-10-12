@@ -11,15 +11,18 @@
 //! `OutboxConsumer` fährt ihn: sie extrahiert die Envelope, ruft den slice-gelieferten
 //! [`ObfuscateCommandDecoder`] (Shape Y, nur nackte Strings; der Aggregat-Zeiger liegt im
 //! `partition_key`) und dispatcht. Der Handler **liest** das rohe Aggregat per ID aus dem
-//! einlesen-Speicher, obfuskiert seed-basiert, **legt die obfuskierte Buchung in der
-//! `obfuskiert`-Tabelle ab** (die Persistenz vergibt die neue ID) und **publiziert genau diese neue
-//! ID** als Zeiger (Tabelle = Wahrheit, Message = Pointer). Ein terminaler Fehler ist der **nackte
-//! Domänen-[`ObfuscationError`]** (hier re-exportiert), dessen **redigierte** `Display` `io` spiegelt.
+//! einlesen-Speicher, obfuskiert seed-basiert (der Freitext wird dabei gegen IBAN-/BIC-Muster und
+//! die bekannten Personen-Namen des [`KnownPersonsSeam`] **heuristisch** gescrubbt), **legt die
+//! obfuskierte Buchung in der `obfuskiert`-Tabelle ab** (die Persistenz vergibt die neue ID) und
+//! **publiziert genau diese neue ID** als Zeiger (Tabelle = Wahrheit, Message = Pointer). Ein
+//! terminaler Fehler ist der **nackte Domänen-[`ObfuscationError`]** (hier re-exportiert), dessen
+//! **redigierte** `Display` `io` spiegelt.
 //!
 //! **Schichtung:** der domänen-interne [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler)
-//! hängt **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`ObfuscatedRepository`/
-//! `BookingPublisher`); die Port-Bridges (Modul `adapter`) mappen die öffentlichen, mechanischen
-//! Abstractions ([`IngestedSourceSeam`]/[`ObfuscatorSeam`]/[`ObfuscatedStoreSeam`], die io erfüllt)
+//! hängt **nur** an den verlangten Domänen-Ports (`RawBookingSource`/`Obfuscator`/`KnownPersonsSource`/
+//! `ObfuscatedRepository`/`BookingPublisher`); die Port-Bridges (Modul `adapter`) mappen die
+//! öffentlichen, mechanischen Abstractions ([`IngestedSourceSeam`]/[`ObfuscatorSeam`]/
+//! [`KnownPersonsSeam`]/[`ObfuscatedStoreSeam`], die io erfüllt)
 //! darauf. Der Ausgang (Publisher-Bridge) zielt auf `application_kernel::Publisher`; den letzten
 //! Outbox-Hop macht `io`. Betrag/Datum &c. reist als Pass-Through verbatim mit.
 //!
@@ -27,7 +30,8 @@
 //! (die der Lese-Seam liefert) und die obfuskierten Ausgangs-DTOs ([`ObfuscatedBooking`] +
 //! [`AccountId`]/[`Pseudonym`]/[`ObfuscatedText`]/[`Recipient`]), die von `io` erfüllten Seams
 //! **samt ihrem Fehlertyp** ([`IngestedSourceSeam`] + [`SourceUnavailable`],
-//! [`ObfuscatedStoreSeam`] + [`StoreUnavailable`], [`ObfuscatorSeam`]) und der von `io` verdrahtete
+//! [`ObfuscatedStoreSeam`] + [`StoreUnavailable`], [`KnownPersonsSeam`] + [`PersonsUnavailable`],
+//! [`ObfuscatorSeam`]) und der von `io` verdrahtete
 //! Slice-Vertrag ([`ObfuscatingHandler`], [`ObfuscateCommand`]/[`ObfuscateCommandDecoder`], das opake
 //! [`ObfuscatedMessage`], [`CONSUMED_MESSAGE_TYPE`], der re-exportierte [`ObfuscationError`]) — dazu
 //! [`account_token`], über das ein Aufrufer **dasselbe** Konto-Token bilden kann, das dieser Slice
@@ -49,7 +53,8 @@ mod models;
 mod testapi;
 
 pub use abstractions::{
-    IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam, SourceUnavailable, StoreUnavailable,
+    IngestedSourceSeam, KnownPersonsSeam, ObfuscatedStoreSeam, ObfuscatorSeam, PersonsUnavailable,
+    SourceUnavailable, StoreUnavailable,
 };
 pub use account_tokenising::account_token;
 pub use handler::ObfuscatingHandler;

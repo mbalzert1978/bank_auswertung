@@ -327,7 +327,7 @@ mod tests {
     use crate::Dispatcher;
     use crate::einlesen::EinlesenSqliteStore;
     use crate::obfuskierung::{
-        CONSUMED_MESSAGE_TYPE, EinlesenRowSource, SeededObfuscator, consumer,
+        CONSUMED_MESSAGE_TYPE, EinlesenRowSource, KnownPersonNames, SeededObfuscator, consumer,
     };
     use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{
@@ -423,7 +423,8 @@ mod tests {
         // offenen `Ingested`-Nachricht.
         let source = EinlesenRowSource::new(outbox.clone());
         let obfuscator = SeededObfuscator;
-        let obfuskierung = consumer(&source, &obfuscator, seed, obfuskierung_store);
+        let persons = KnownPersonNames::new(outbox.clone(), Vec::new());
+        let obfuskierung = consumer(&source, &obfuscator, &persons, seed, obfuskierung_store);
         let mut dispatcher = Dispatcher::new();
         register_fresh(
             &mut dispatcher,
@@ -486,9 +487,8 @@ mod tests {
             "der Marker der Tokenisierung reist mit — der Seed selbst nie"
         );
         // Empfänger **mit** Gläubiger-ID → Firma: die öffentliche `creditor_id` bleibt der
-        // Klartext-Analyse-Anker (ADR-0010). Der Firmenname reist als `ObfuscatedText` (best-effort,
-        // heute nur trimmend — die Scrubbing-Regeln sind vertagt), also **nicht** strukturell
-        // getokenisiert; die harte Datenschutz-Zusage prüft dieser Test an den IBAN-Token unten.
+        // Klartext-Analyse-Anker (ADR-0010). Der Firmenname reist als `ObfuscatedText` (best-effort
+        // gescrubbt, Issue 0010), also **nicht** strukturell getokenisiert; die harte Datenschutz-Zusage prüft dieser Test an den IBAN-Token unten.
         assert_eq!(
             buchung.recipient_kind, "company",
             "mit Gläubiger-ID → Firma"
@@ -621,7 +621,8 @@ mod tests {
 
         let source = EinlesenRowSource::new(outbox.clone());
         let obfuscator = SeededObfuscator;
-        let obfuskierung = consumer(&source, &obfuscator, SEED, store.clone());
+        let persons = KnownPersonNames::new(outbox.clone(), Vec::new());
+        let obfuskierung = consumer(&source, &obfuscator, &persons, SEED, store.clone());
         let mut dispatcher = Dispatcher::new();
         assert!(
             dispatcher
