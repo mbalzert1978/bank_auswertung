@@ -16,7 +16,7 @@ begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
 | 3a Wiederkehr | [0005](0005-wiederkehr-erkennung.md) | #94 | erledigt | 9ed77a9 |
 | 3b Scrubbing | [0010](0010-scrubbing-regeln-fuer-obfuskiertertext.md) | #97 | erledigt | 1ef9ab8 |
 | 4a Cashflow/Pareto/Spar | [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md) | #95 | offen (nach 2 + 3a) | — |
-| 4b Kategorie-Register | [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md) | #96 | offen | — |
+| 4b Kategorie-Register | [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md) | #96 | erledigt | 1b70038 |
 | 4c Dead-Letter | [0085](0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md) | #102 | offen (nach 2) | — |
 | 5a HTML-Bericht | [0012](0012-html-bericht.md) | #99 | offen (nach 4a) | — |
 | 5b Chat-Export/-Import | [0011](0011-kategorisierer-chat-payload-adapter.md) | #98 | offen (nach 3a, 3b, 4b) | — |
