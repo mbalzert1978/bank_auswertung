@@ -68,6 +68,11 @@ pub enum SourceError {
     /// gemischten Währungen, darum eine **formatunabhängige** Inbound-Zusicherung der ACL
     /// (nicht des CSV-Readers). Redigiert per Konstruktion: **datenlos**, nie ein Code.
     MixedCurrency,
+    /// Zwei beschaffte Zeilen tragen **denselben** Zeilen-Schlüssel. Die Quelle sagt zu, ihn je
+    /// Zeile eines Batches eindeutig zu vergeben (gleiche Zeilen unterscheidet ihre laufende
+    /// Nummer, ADR-0016); ein Doppel hieße, eine echte Buchung still als „schon bekannt" zu
+    /// verwerfen. Redigiert per Konstruktion: **datenlos**, nie der Schlüssel.
+    DuplicateRowKey,
 }
 
 impl fmt::Display for SourceError {
@@ -79,6 +84,9 @@ impl fmt::Display for SourceError {
             }
             SourceError::MixedCurrency => {
                 write!(f, "source is not single-currency across the batch")
+            }
+            SourceError::DuplicateRowKey => {
+                write!(f, "source delivered two lines with the same row key")
             }
         }
     }

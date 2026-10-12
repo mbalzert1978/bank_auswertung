@@ -34,6 +34,7 @@ pub(crate) fn zeile(id: &str, currency: &str) -> ObfuscatedRow {
 /// mehrseitigen Läufe, in denen je Seite eine andere Spanne entsteht.
 pub(crate) fn fenster(from: i64, to: i64, booking_ids: &[&str]) -> AnalysisWindowRow {
     AnalysisWindowRow {
+        run: WindowingTestApi::DEFAULT_RUN.to_string(),
         from,
         to,
         currency: "EUR".to_string(),
@@ -45,6 +46,7 @@ pub(crate) fn fenster(from: i64, to: i64, booking_ids: &[&str]) -> AnalysisWindo
 /// Fremdschlüssel auf genau die eingefrorenen Zeilen.
 pub(crate) fn erwartetes_fenster(booking_ids: &[&str]) -> AnalysisWindowRow {
     AnalysisWindowRow {
+        run: WindowingTestApi::DEFAULT_RUN.to_string(),
         from: UNTERGRENZE,
         to: ANKER,
         currency: "EUR".to_string(),

@@ -65,7 +65,7 @@ use crate::obfuskierung::{
 };
 use crate::outbox::OutboxHandler;
 use crate::schema::{self, SchemaError, VersionMismatch};
-use crate::sqlite::SqliteOutbox;
+use crate::sqlite::{MINT_ID, SqliteOutbox};
 
 mod ack_sink;
 mod history_sink;
@@ -262,8 +262,12 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
 
     // Phase 2 — Analyse. **Erst jetzt**: der Anstoß liest den Initial-Anker aus dem obfuskierten
     // Bestand, den Phase 1 gerade erst aufgebaut hat (siehe Modul-Doku).
+    //
+    // Der Anstoß trägt die **Lauf-Identität** (ADR-0016): jedes Fenster dieses Laufs und sein
+    // Abschluss tragen sie weiter, und die fenster-übergreifende Abfrage sieht nur die Fenster
+    // **dieses** Laufs — obwohl er, wie jeder Lauf, die ganze obfuskierte Historie neu paginiert.
     write_line(protocol, "Lauf: Analyse")?;
-    enqueue(&outbox, START_MESSAGE_TYPE, "")?;
+    enqueue(&outbox, START_MESSAGE_TYPE, &mint_run_id(&outbox)?)?;
     drain(&outbox, &dispatcher, protocol, &mut report)?;
 
     report.occurrences = occurrences.count();
@@ -578,6 +582,15 @@ fn register<'a>(
             message_type: message_type.to_string(),
         }),
     }
+}
+
+/// Vergibt die Identität eines neuen Analyse-Laufs — an der DB gemintet wie jede andere ID
+/// (128 Bit Zufall), opak und ohne Bezug zu irgendeinem Rohwert. Sie entsteht **hier**, wo der Lauf
+/// beginnt; der `fenstern`-Slice reicht sie nur durch (ADR-0016).
+fn mint_run_id(outbox: &SqliteOutbox) -> Result<String, RunError> {
+    outbox
+        .with_connection(|conn| conn.query_row(MINT_ID, [], |row| row.get(0)))
+        .map_err(backbone)
 }
 
 /// Reiht eine Wurzel-Nachricht ein und verwirft ihre ID: der Lauf zeigt auf nichts, er stößt nur an.

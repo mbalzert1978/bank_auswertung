@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use crate::abstractions::{StoreSeam, StoreUnavailable};
+use crate::abstractions::{StoreOutcome, StoreSeam, StoreUnavailable};
 use crate::models::Line;
 
 /// Beobachtet die **abgelegten** Zeilen an der Speicher-Grenze: hält je `store` das **ganze**
@@ -10,6 +10,10 @@ use crate::models::Line;
 /// [`StoreSeam`] (nicht den Domänen-Port direkt) — hinter dem echten Seam steckt später rusqlite in io,
 /// das die ID `INSERT … RETURNING id` vergibt. Ein arrangierter Ausfall (`fail_with`) lässt `store`
 /// terminal scheitern.
+///
+/// **Ein neuer Import ergänzt:** ein schon abgelegter `row_key` wird nicht erneut angelegt
+/// ([`StoreOutcome::AlreadyKnown`]) — die Zeilen bleiben über mehrere `run`s derselben TestApi
+/// liegen, so lässt sich ein zweiter Import desselben Auszugs black-box beobachten.
 ///
 /// **Die vergebene ID** ist deterministisch (`ingested-1`, `ingested-2`, … in Ablage-Reihenfolge) —
 /// so kann ein Spec die publizierten Zeiger und die Speicher-Schlüssel exakt gegeneinander prüfen.
@@ -57,16 +61,24 @@ impl FakeStoreSeam {
 }
 
 impl StoreSeam for FakeStoreSeam {
-    fn store(&self, line: &Line) -> Result<String, StoreUnavailable> {
+    fn store(&self, line: &Line) -> Result<StoreOutcome, StoreUnavailable> {
         if let Some(message) = &self.unavailable {
             return Err(StoreUnavailable {
                 message: message.clone(),
             });
         }
         let mut rows = self.rows.borrow_mut();
+        // Ein schon abgelegter Zeilen-Schlüssel wird nicht erneut angelegt — der Fake spielt die
+        // Eindeutigkeit, die io über die `row_key`-Spalte erzwingt (ADR-0016).
+        if rows
+            .iter()
+            .any(|(_, stored)| stored.row_key == line.row_key)
+        {
+            return Ok(StoreOutcome::AlreadyKnown);
+        }
         // Deterministische, je abgelegter Zeile eindeutige ID (der Fake spielt `INSERT … RETURNING id`).
         let id = format!("ingested-{}", rows.len() + 1);
         rows.push((id.clone(), line.clone()));
-        Ok(id)
+        Ok(StoreOutcome::Stored(id))
     }
 }

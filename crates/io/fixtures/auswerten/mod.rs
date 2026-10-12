@@ -48,6 +48,9 @@ use commit_failed::CommitFailed;
 /// ≠ Zeitraum, CONTEXT.md), klein genug, dass der Bestand unten in **zwei** Fenster zerfällt.
 pub(crate) const WINDOW_DAYS: u32 = 30;
 
+/// Die Lauf-Identität, unter der die Fixture-Läufe anstoßen (ADR-0016).
+pub(crate) const LAUF: &str = "lauf-1";
+
 /// Der Seed-Marker, unter dem die Token dieses Laufs entstanden sind — **nicht** der Seed
 /// (ADR-0010). Fenster und Eigene-Konten-Config müssen denselben tragen, sonst verglichen sie Token
 /// aus zwei verschiedenen Tokenisierungen.
@@ -177,9 +180,11 @@ impl AnalysisWindowSeam for FakeJoin<'_> {
 impl OccurrenceSeam for FakeJoin<'_> {
     /// Die fenster-übergreifende Query: **alle** Fenster, die in der Lauf-Spanne liegen, mit ihren
     /// Buchungen — **eine** Query über viele Fenster, nicht N+1 Lesevorgänge (so wie der Seam-Vertrag
-    /// es beschreibt). Die Spanne scopt auf **diesen** Lauf; Fenster früherer Läufe fallen heraus.
+    /// es beschreibt). Der Lauf (und darin die Spanne) scopt auf **diesen** Lauf; Fenster früherer
+    /// Läufe fallen heraus (ADR-0016).
     fn history_in(
         &self,
+        run: &str,
         from: i64,
         to: i64,
     ) -> Result<RunHistoryRow, auswerten_adapter::SourceUnavailable> {
@@ -189,7 +194,7 @@ impl OccurrenceSeam for FakeJoin<'_> {
             .borrow()
             .windows
             .iter()
-            .filter(|(_, window)| from <= window.from && window.to <= to)
+            .filter(|(_, window)| window.run == run && from <= window.from && window.to <= to)
             .flat_map(|(_, window)| {
                 window
                     .booking_ids
@@ -515,7 +520,7 @@ pub(crate) fn envelope(message_type: &str, partition_key: &str) -> OutboxMessage
               allein der Disposition der Nachrichtenverarbeitung"
 )]
 pub(crate) fn fahre_lauf(dispatcher: &Dispatcher<'_>, db: &FakeDb) -> Result<(), OutboxError> {
-    let mut offen = VecDeque::from([envelope(io::fenstern::START_MESSAGE_TYPE, "")]);
+    let mut offen = VecDeque::from([envelope(io::fenstern::START_MESSAGE_TYPE, LAUF)]);
     let mut gelesen = 0;
     for _ in 0..MAX_RUNDEN {
         let Some(nachricht) = offen.pop_front() else {

@@ -2,8 +2,9 @@
 //! [`ObfuscatedRow`] (aus dem Lese-Seam, mit ihrer „außen → innen"-Abbildung und der
 //! Präsenz-Prüfung) und die abgelegte Fenster-Zeile [`AnalysisWindowRow`] (Ausgangs-DTO, nur
 //! Fremdschlüssel). **Kommandos** — **zwei** eingehende, je eines pro einzweckigem Handler: der
-//! **feldlose** [`StartAnalysisCommand`] (der Anstoß, ein reiner Trigger; sein
-//! [`StartAnalysisCommandDecoder`] hat nichts zu deuten, weil kein Anker über die Wire reist) und
+//! **ankerlose** [`StartAnalysisCommand`] (der Anstoß, ein Trigger; sein
+//! [`StartAnalysisCommandDecoder`] deutet nur die Lauf-Identität, ADR-0016 — kein Anker reist über
+//! die Wire) und
 //! der [`AdvanceWindowCommand`] samt slice-geliefertem
 //! [`AdvanceWindowCommandDecoder`] (Envelope → Kommando, Shape Y; der Anker liegt als
 //! stringifizierter Tag-Stamp im `partition_key`). Dazu die ausgehende [`WindowClosedMessage`] (ein

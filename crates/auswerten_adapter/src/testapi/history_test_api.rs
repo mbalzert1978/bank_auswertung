@@ -31,6 +31,10 @@ pub struct HistoryTestApi {
 }
 
 impl HistoryTestApi {
+    /// Der Lauf, dem [`with_window`](Self::with_window) ein Fenster zuordnet und dessen Abschluss
+    /// [`run_history`](Self::run_history) fährt.
+    pub const DEFAULT_RUN: &str = "lauf-1";
+
     /// Neue TestApi mit leerer Fenster-Ablage und **noch nicht arrangierter** Eigene-Konten-Config.
     ///
     /// **[`with_own_accounts`](Self::with_own_accounts) ist Pflicht, nicht Kür** — dieselbe Linie wie
@@ -58,7 +62,20 @@ impl HistoryTestApi {
     /// gelesen wird.
     #[must_use]
     pub fn with_window(mut self, window_id: &str, window: AnalysisWindowRow) -> Self {
-        self.source.insert(window_id, window);
+        self.source.insert(Self::DEFAULT_RUN, window_id, window);
+        self
+    }
+
+    /// Arrangiert ein eingefrorenes Auswertungsfenster eines **bestimmten** Laufs — die Lage, in der
+    /// mehrere Läufe dieselbe Historie paginiert haben (ADR-0016).
+    #[must_use]
+    pub fn with_window_of_run(
+        mut self,
+        run: &str,
+        window_id: &str,
+        window: AnalysisWindowRow,
+    ) -> Self {
+        self.source.insert(run, window_id, window);
         self
     }
 
@@ -73,7 +90,8 @@ impl HistoryTestApi {
     /// Fährt die echte Kette (Decoder → Handler) für eine **Lauf-Spanne** und gibt die Auswertung
     /// über die ganze Zeitachse zurück (`Err` = terminaler [`EvaluationError`]).
     ///
-    /// Die Spanne wird dabei **so kodiert, wie `fenstern` sie publiziert** (`"{from}:{to}"`) und
+    /// Die Spanne wird dabei **so kodiert, wie `fenstern` sie publiziert** (`"{from}:{to}:{run}"`,
+    /// unter dem Lauf [`DEFAULT_RUN`](Self::DEFAULT_RUN)) und
     /// durch den echten Decoder geschickt — der Spec prüft damit auch die Envelope-Form mit, nicht
     /// nur den Handler.
     ///
@@ -81,7 +99,21 @@ impl HistoryTestApi {
     /// Wenn die Spanne nicht decodiert — eine unlesbare Envelope ist eine io-Sorge, nicht
     /// Handler-Eingabe; die Specs reichen stets eine echte Spanne herein.
     pub fn run_history(&self, from: i64, to: i64) -> Result<HistoryEvaluationRow, EvaluationError> {
-        let command = EvaluateHistoryCommandDecoder::decode(&format!("{from}:{to}"), "")
+        self.run_history_of(Self::DEFAULT_RUN, from, to)
+    }
+
+    /// Wie [`run_history`](Self::run_history), aber für den Abschluss des Laufs `run` — kodiert, wie
+    /// `fenstern` ihn publiziert (`"{from}:{to}:{run}"`).
+    ///
+    /// # Panics
+    /// Wenn die Envelope nicht decodiert (leerer Lauf) — die Specs reichen stets einen echten herein.
+    pub fn run_history_of(
+        &self,
+        run: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<HistoryEvaluationRow, EvaluationError> {
+        let command = EvaluateHistoryCommandDecoder::decode(&format!("{from}:{to}:{run}"), "")
             .expect("Lauf-Spanne als Envelope");
         HistoryEvaluationHandler::new(&self.source, self.own_accounts.clone()).handle(command)
     }

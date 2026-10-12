@@ -1,11 +1,11 @@
 use crate::entities::WindowedBooking;
 use crate::error::WindowError;
-use crate::value_objects::{BookingId, Currency, WindowSpan};
+use crate::value_objects::{BookingId, Currency, RunId, WindowSpan};
 
 /// Das **Auswertungsfenster** — das Aggregat, zu dem der Slice die N Buchungen einer Seite
 /// **N→1 reduziert** und das er in eigener Ablage einfriert
 /// ([ADR-0013](../../../docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md),
-/// Entscheidung A). Es trägt seine Lauf-Spanne, die **eine** Währung und die Fremdschlüssel auf
+/// Entscheidung A). Es gehört zu genau **einem** Lauf (ADR-0016) und trägt seine Lauf-Spanne, die **eine** Währung und die Fremdschlüssel auf
 /// genau die Zeilen, die zum Fenster gehören — die Zeilen selbst bleiben in der
 /// `obfuskiert`-Ablage (Aggregate referenzieren Fremd-Entitäten **nur per ID**, ADR-0012). Seine
 /// **eigene** Identität vergibt die Persistenz beim Ablegen.
@@ -16,6 +16,7 @@ use crate::value_objects::{BookingId, Currency, WindowSpan};
 /// einzige Währung** trägt. Ein leeres oder währungsgemischtes Fenster ist unkonstruierbar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalysisWindow {
+    run: RunId,
     span: WindowSpan,
     currency: Currency,
     bookings: Vec<BookingId>,
@@ -31,6 +32,7 @@ impl AnalysisWindow {
     ///   weitere aus, entsteht kein Fenster ([`WindowError::MixedCurrency`]) — die Domäne summiert
     ///   keine gemischten Währungen (ADR-0005).
     pub(crate) fn open(
+        run: RunId,
         span: WindowSpan,
         bookings: Vec<WindowedBooking>,
     ) -> Result<Self, WindowError> {
@@ -39,11 +41,18 @@ impl AnalysisWindow {
         rest.iter()
             .all(|booking| booking.currency() == &currency)
             .then(|| Self {
+                run,
                 span,
                 currency,
                 bookings: bookings.iter().map(|b| b.id().clone()).collect(),
             })
             .ok_or(WindowError::MixedCurrency)
+    }
+
+    /// Der Lauf, zu dem das Fenster gehört — genau einer (ADR-0016).
+    #[must_use]
+    pub fn run(&self) -> &RunId {
+        &self.run
     }
 
     #[must_use]

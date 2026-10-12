@@ -79,7 +79,8 @@ mutierbar, bricht die Garantie still.
 
 - **Zwei Kommandos, zwei Handler** (statt eines Handlers mit `Option<anchor>`), je ein
   `application_kernel::Handler`:
-  - **Anstoß (feldlos) — `StartAnalysis`:** ein reiner Auslöser auf der Outbox, **derselbe
+  - **Anstoß (feldlos) — `StartAnalysis`:** *(seit [ADR-0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md)
+    trägt er die Lauf-Identität im `partition_key` — weiterhin keinen Anker.)* ein reiner Auslöser auf der Outbox, **derselbe
     Kickoff-Mechanismus wie `einlesen`** (feldloser Trigger, Decoder immer `Some`). Dem Slice ist egal,
     **wer** ihn einreiht — **heute manuell** (`main`/CLI „auswerten"), **später** io's Broker beim
     Leerlaufen des Imports. Der **Start-Handler** liest **einmalig** `max(booking_day)` aus der DB

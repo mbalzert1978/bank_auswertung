@@ -31,7 +31,9 @@ use crate::models::{EvaluateHistoryCommand, HistoryEvaluationRow, OwnAccountsCon
 /// [`EvaluationError`] zurück; `io` spiegelt dessen **redigierte** `Display`. Kein `OutboxError`,
 /// keine Outbox-Mechanik.
 pub struct HistoryEvaluationHandler<'a> {
-    source: OccurrenceBridge<'a>,
+    /// Der Lese-Seam — die Bridge darüber entsteht **je Kommando**, weil sie dessen Lauf als Scope
+    /// trägt (ADR-0016).
+    seam: &'a dyn OccurrenceSeam,
     /// Die Eigene-Konten-Config — als rohes DTO verdrahtet und je `handle` gedeutet (die Deutung ist
     /// fehlbar, ein Konstruktor wäre es nicht).
     own_accounts: OwnAccountsConfig,
@@ -41,7 +43,7 @@ impl<'a> HistoryEvaluationHandler<'a> {
     /// Verdrahtet den Handler gegen den öffentlichen Lese-Seam und die Eigene-Konten-Config.
     pub fn new(source: &'a dyn OccurrenceSeam, own_accounts: OwnAccountsConfig) -> Self {
         Self {
-            source: OccurrenceBridge { seam: source },
+            seam: source,
             own_accounts,
         }
     }
@@ -58,7 +60,11 @@ impl Handler for HistoryEvaluationHandler<'_> {
     ) -> Result<HistoryEvaluationRow, EvaluationError> {
         // **Zuerst** die Config deuten: eine fehlerhafte Config ist terminal, **bevor** gelesen wird.
         let own_accounts = self.own_accounts.to_own_accounts()?;
-        DomainHandler::new(&self.source, &own_accounts)
+        let source = OccurrenceBridge {
+            seam: self.seam,
+            run: command.run(),
+        };
+        DomainHandler::new(&source, &own_accounts)
             .handle(EvaluateHistory::new(command.span()))
             .map(|evaluation| HistoryEvaluationRow::from(&evaluation))
     }

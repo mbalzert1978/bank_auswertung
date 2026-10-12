@@ -39,10 +39,13 @@ impl<'a> StartHandler<'a> {
 
     /// Eröffnet den Lauf: Anker lesen → erstes Fenster-Kommando publizieren. `Ok(())` = verarbeitet
     /// (auch beim leeren Bestand, dann ohne Publish); `Err(WindowError)` = terminaler Fehler.
-    pub fn handle(&self, _command: StartAnalysis) -> Result<(), WindowError> {
+    pub fn handle(&self, command: StartAnalysis) -> Result<(), WindowError> {
         match self.anchors.latest()? {
-            // Der jüngste Buchungstag eröffnet den Lauf — als Anker **und** als Lauf-Gipfel.
-            Some(top) => self.advance.publish(&AdvanceWindow::new(top, top)),
+            // Der jüngste Buchungstag eröffnet den Lauf — als Anker **und** als Lauf-Gipfel; die
+            // Lauf-Identität des Anstoßes reist von hier an mit (ADR-0016).
+            Some(top) => self
+                .advance
+                .publish(&AdvanceWindow::new(top, top, command.run().clone())),
             // Leerer Bestand: erfolgreich, aber ohne jede Nachricht.
             None => Ok(()),
         }

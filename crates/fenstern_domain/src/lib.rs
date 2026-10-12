@@ -23,7 +23,8 @@
 //! Redelivery. Die **Invarianten sitzen an der Konstruktion** von [`AnalysisWindow`] — **nicht
 //! leer** und **eine Währung** sind unkonstruierbar zu verletzen, nicht „geprüft" (ADR-0005).
 //!
-//! Davor steht der **Anstoß**: der [`StartHandler`] konsumiert das **feldlose** [`StartAnalysis`],
+//! Davor steht der **Anstoß**: der [`StartHandler`] konsumiert das **ankerlose** [`StartAnalysis`] (es trägt
+//! nur die Lauf-Identität, ADR-0016),
 //! liest den Initial-Anker **einmalig** über denselben [`WindowAnchor`]-Port (`max(booking_day)` —
 //! datenrelativ, keine Uhr) und publiziert damit das erste [`AdvanceWindow`]. Zwei Kommandos, zwei
 //! einzweckige Handler: der **Typ trägt die Absicht**, „leerer Anker" ist unkonstruierbar (ADR-0005).
@@ -51,5 +52,5 @@ pub use ports::{
 };
 pub use start_handler::StartHandler;
 pub use value_objects::{
-    BookingId, Currency, DayStamp, NonEmptyString, WindowDays, WindowId, WindowSpan,
+    BookingId, Currency, DayStamp, NonEmptyString, RunId, WindowDays, WindowId, WindowSpan,
 };

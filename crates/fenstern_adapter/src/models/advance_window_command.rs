@@ -1,5 +1,5 @@
 use application_kernel::{Command, CommandDecoder};
-use fenstern_domain::DayStamp;
+use fenstern_domain::{DayStamp, NonEmptyString, RunId};
 
 /// Der Dispatch-Key der **konsumierten** Nachricht — auf ihn löst `io`s Prozessor diesen Slice als
 /// Consumer auf. Prosa-Name im ADR: der **Fenster-Schritt**.
@@ -23,6 +23,7 @@ pub const CONSUMED_MESSAGE_TYPE: &str = "AdvanceWindow";
 pub struct AdvanceWindowCommand {
     anchor: i64,
     run_top: i64,
+    run: RunId,
 }
 
 impl AdvanceWindowCommand {
@@ -37,6 +38,11 @@ impl AdvanceWindowCommand {
     pub(crate) fn run_top(&self) -> DayStamp {
         DayStamp::new(self.run_top)
     }
+
+    /// Die **Lauf-Identität**, die unverändert durch die Selbst-Fortsetzung reist (ADR-0016).
+    pub(crate) fn run(&self) -> &RunId {
+        &self.run
+    }
 }
 
 impl Command for AdvanceWindowCommand {}
@@ -46,10 +52,11 @@ impl Command for AdvanceWindowCommand {}
 /// als **stringifizierter Tag-Stamp im `partition_key`** (ADR-0013, Entscheidung B: kein serde);
 /// der `content` ist leer.
 ///
-/// Der Schlüssel trägt **zwei** Tag-Stamps in der Form `"{anchor}:{run_top}"`: den Anker der Seite
-/// und den unveränderten **Lauf-Gipfel**, ohne den der terminierende Schritt die Lauf-Spanne nicht
-/// kennte (der Handler ist zustandslos). Ein `partition_key`, der diese Form **nicht** trägt (leer,
-/// blank, ein Teil fehlt oder ist keine Zahl), ist kein gültiger Anker → `None`, das `io` auf der
+/// Der Schlüssel trägt **zwei** Tag-Stamps und die Lauf-Identität in der Form
+/// `"{anchor}:{run_top}:{run}"`: den Anker der Seite, den unveränderten **Lauf-Gipfel**, ohne den der
+/// terminierende Schritt die Lauf-Spanne nicht kennte (der Handler ist zustandslos), und den **Lauf**,
+/// zu dem die Seite gehört (ADR-0016; zuletzt, weil er opak ist). Ein `partition_key`, der diese Form
+/// **nicht** trägt (leer, blank, ein Teil fehlt oder ist keine Zahl), ist kein gültiger Anker → `None`, das `io` auf der
 /// Envelope-Ebene behandelt (nicht als Handler-Fehler durchgereicht). **Parse, don't validate:** was
 /// hier durchkommt, sind echte `i64` — der Handler bekommt nie einen Text, den er noch deuten
 /// müsste.
@@ -59,10 +66,14 @@ impl CommandDecoder for AdvanceWindowCommandDecoder {
     type Command = AdvanceWindowCommand;
 
     fn decode(partition_key: &str, _content: &str) -> Option<Self::Command> {
-        let (anchor, run_top) = partition_key.trim().split_once(':')?;
+        let mut parts = partition_key.trim().splitn(3, ':');
+        let anchor = parts.next()?.trim().parse().ok()?;
+        let run_top = parts.next()?.trim().parse().ok()?;
+        let run = RunId::from(NonEmptyString::new(parts.next()?)?);
         Some(AdvanceWindowCommand {
-            anchor: anchor.trim().parse().ok()?,
-            run_top: run_top.trim().parse().ok()?,
+            anchor,
+            run_top,
+            run,
         })
     }
 }

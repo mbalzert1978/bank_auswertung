@@ -118,6 +118,7 @@ fn store_unavailable(message: &str) -> StoreUnavailable {
 /// sie außerhalb von `io` nicht konstruierbar und nicht lesbar (benennbar ist sie als
 /// `<FensternWindows as StoreSpec>::Prepared` schon — nur eben inert).
 pub struct WindowFields {
+    run_id: String,
     from_day: i64,
     to_day: i64,
     currency: String,
@@ -144,6 +145,7 @@ impl TryFrom<&AnalysisWindowRow> for WindowFields {
             store_unavailable("Fenster trägt mehr Buchungen als sich ordnen lassen")
         })?;
         Ok(Self {
+            run_id: window.run.clone(),
             from_day: window.from,
             to_day: window.to,
             currency: window.currency.clone(),
@@ -178,7 +180,13 @@ impl WindowRow {
         let fields = &self.fields;
         tx.execute(
             INSERT_WINDOW,
-            params![self.id, fields.from_day, fields.to_day, fields.currency],
+            params![
+                self.id,
+                fields.run_id,
+                fields.from_day,
+                fields.to_day,
+                fields.currency
+            ],
         )?;
         (0i64..)
             .zip(fields.bookings.iter())
@@ -206,18 +214,28 @@ const TABLES: &[TableSpec] = &[
     },
 ];
 
-/// Das Schema der **Kopf**-Tabelle: `auswertungsfenster` trägt die Spanne (als `i64`-Tag-Stamps) und
-/// die eine Währung unter der DB-vergebenen ID. `created_at`/`updated_at` (Epoch-Millis) tragen den
+/// Das Schema der **Kopf**-Tabelle: `auswertungsfenster` trägt den **Lauf**, die Spanne (als
+/// `i64`-Tag-Stamps) und die eine Währung unter der DB-vergebenen ID.
+///
+/// **`run_id`** ([ADR-0016](../../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)):
+/// jedes Fenster gehört zu genau **einem** Lauf — jeder Lauf paginiert die ganze Historie neu, also
+/// lägen ohne sie die Fenster aller Läufe ununterscheidbar nebeneinander. Die fenster-übergreifende
+/// Abfrage von `auswerten` scopt über diese Spalte; darum ist sie indiziert. Die Auswertungen eines
+/// Fensters gehören über ihre `window_id` demselben Lauf an — eine eigene Lauf-Spalte bräuchten sie
+/// nicht. `created_at`/`updated_at` (Epoch-Millis) tragen den
 /// Audit-Zeitstempel; die Tabelle ist append-only, darum fällt `updated_at` mit `created_at` zusammen.
 const SCHEMA_WINDOWS: &str = "\
 CREATE TABLE IF NOT EXISTS auswertungsfenster (
     id         TEXT    PRIMARY KEY,
+    run_id     TEXT    NOT NULL,
     from_day   INTEGER NOT NULL,
     to_day     INTEGER NOT NULL,
     currency   TEXT    NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
     updated_at INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
-);";
+);
+CREATE INDEX IF NOT EXISTS auswertungsfenster_run_id_idx
+    ON auswertungsfenster (run_id);";
 
 /// Das Schema der **Detail**-Tabelle: `auswertungsfenster_buchungen` trägt die Fremdschlüssel auf die
 /// obfuskierten Zeilen, **positionsgetreu** (`window_id`, `position`) — **kein** DB-`FOREIGN
@@ -237,8 +255,8 @@ CREATE INDEX IF NOT EXISTS auswertungsfenster_buchungen_window_id_idx
     ON auswertungsfenster_buchungen (window_id);";
 
 const INSERT_WINDOW: &str = "\
-INSERT INTO auswertungsfenster (id, from_day, to_day, currency, created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4,
+INSERT INTO auswertungsfenster (id, run_id, from_day, to_day, currency, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5,
     CAST(unixepoch('subsec') * 1000 AS INTEGER),
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
@@ -385,7 +403,7 @@ mod tests {
             Box::new(fenstern_consumer(window_days, &source, store)),
         );
 
-        outbox.enqueue(START_MESSAGE_TYPE, "")?;
+        outbox.enqueue(START_MESSAGE_TYPE, "lauf-1")?;
         drain(outbox, &dispatcher)
     }
 
@@ -464,8 +482,25 @@ mod tests {
             .collect();
         assert_eq!(
             history_complete,
-            vec![format!("{}:{}", stamp(2024, 6, 8), stamp(2024, 6, 20))],
-            "genau ein HistoryComplete mit der Lauf-Spanne (Boden der letzten Seite bis Lauf-Gipfel)"
+            vec![format!(
+                "{}:{}:lauf-1",
+                stamp(2024, 6, 8),
+                stamp(2024, 6, 20)
+            )],
+            "genau ein HistoryComplete mit der Lauf-Spanne (Boden der letzten Seite bis Lauf-Gipfel) \
+             und dem Lauf"
+        );
+        // Jedes Fenster gehört dem Lauf, den der Anstoß eröffnet hat (ADR-0016).
+        let fremde_laeufe: i64 = outbox.with_connection(|conn| {
+            conn.query_row(
+                "SELECT count(*) FROM auswertungsfenster WHERE run_id <> 'lauf-1';",
+                [],
+                |row| row.get(0),
+            )
+        })?;
+        assert_eq!(
+            fremde_laeufe, 0,
+            "jedes Fenster trägt den Lauf des Anstoßes"
         );
         Ok(())
     }

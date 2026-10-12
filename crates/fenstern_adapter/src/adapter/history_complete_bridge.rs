@@ -1,4 +1,4 @@
-use fenstern_domain::{HistoryCompletePublisher, WindowError, WindowSpan};
+use fenstern_domain::{HistoryCompletePublisher, RunId, WindowError, WindowSpan};
 
 use crate::abstractions::{PublishUnavailable, WindowPublishSeam};
 use crate::models::HistoryCompleteMessage;
@@ -14,11 +14,12 @@ pub(crate) struct HistoryCompleteBridge<'a> {
 }
 
 impl HistoryCompletePublisher for HistoryCompleteBridge<'_> {
-    fn publish(&self, span: &WindowSpan) -> Result<(), WindowError> {
+    fn publish(&self, run: &RunId, span: &WindowSpan) -> Result<(), WindowError> {
         self.seam
             .publish_history_complete(HistoryCompleteMessage::from_span(
                 span.from().value(),
                 span.to().value(),
+                run.as_str(),
             ))
             .map_err(
                 |PublishUnavailable { message }| WindowError::PublishFailed { reason: message },

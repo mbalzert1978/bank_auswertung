@@ -47,7 +47,9 @@ use einlesen_adapter::{Line, ReadTestApi};
 
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
-use fixtures::{QUELLE, erwartete_zeile, feld, gültiger_rohsatz};
+use fixtures::{
+    QUELLE, erwartete_zeile, feld, gültiger_rohsatz, rohsatz_mit_schlüssel, vorgemerkter_rohsatz,
+};
 
 // --- Eine gültige Zeile: genau ein Aggregat + genau ein Command -------------------
 
@@ -73,7 +75,7 @@ fn mehrere_zeilen_fächern_zu_je_einem_command_auf() {
     let api = ["EDEKA", "REWE", "ALDI"]
         .into_iter()
         .fold(ReadTestApi::new(), |api, name| {
-            let mut rohsatz = gültiger_rohsatz();
+            let mut rohsatz = rohsatz_mit_schlüssel(name);
             rohsatz.recipient_name = feld(name);
             api.with_line(rohsatz)
         });
@@ -166,7 +168,7 @@ fn der_terminale_fehlergrund_spiegelt_den_rohwert_nicht() {
 #[test]
 fn ein_fehlendes_pflichtfeld_scheitert_batch_atomar() {
     let gültige = gültiger_rohsatz();
-    let mut ohne_betrag = gültiger_rohsatz();
+    let mut ohne_betrag = rohsatz_mit_schlüssel("zeile-2");
     ohne_betrag.amount = None;
     let api = ReadTestApi::new().with_line(gültige).with_line(ohne_betrag);
 
@@ -192,7 +194,7 @@ fn ein_fehlendes_pflichtfeld_scheitert_batch_atomar() {
 #[test]
 fn ein_währungsbruch_über_den_batch_scheitert_terminal_redigiert() {
     let eur = gültiger_rohsatz(); // trägt bereits EUR
-    let mut usd = gültiger_rohsatz();
+    let mut usd = rohsatz_mit_schlüssel("zeile-2");
     usd.currency = feld("USD");
     let api = ReadTestApi::new().with_line(eur).with_line(usd);
 
@@ -216,7 +218,7 @@ fn ein_währungsbruch_über_den_batch_scheitert_terminal_redigiert() {
 #[test]
 fn gleiche_währung_in_anderer_schreibung_ist_kein_bruch() {
     let groß = gültiger_rohsatz(); // trägt EUR
-    let mut klein = gültiger_rohsatz();
+    let mut klein = rohsatz_mit_schlüssel("zeile-2");
     klein.currency = feld("eur");
     let api = ReadTestApi::new().with_line(groß).with_line(klein);
 
@@ -377,4 +379,101 @@ fn eine_gescheiterte_veröffentlichung_scheitert_terminal() {
         matches!(&ergebnis, Err(error) if error.to_string().contains(diagnose)),
         "erwartet terminaler Fehler mit durchgereichter io-Diagnose: {ergebnis:?}"
     );
+}
+
+// --- Zeilen-Schlüssel: ein neuer Import ergänzt (ADR-0016) -------------------------------
+// Ein Auszug, der zweimal eingelesen wird, ergibt denselben Bestand: eine Zeile, deren Schlüssel
+// schon abgelegt ist, wird weder erneut angelegt noch erneut publiziert — sonst legte `obfuskieren`
+// sie ein zweites Mal ab. Beobachtet an beiden Datenrückgaben der TestApi.
+
+#[test]
+fn ein_zweiter_import_derselben_zeile_legt_nichts_an_und_publiziert_nichts() {
+    let api = ReadTestApi::new().with_line(gültiger_rohsatz());
+    api.run(QUELLE).expect("erster Import");
+
+    api.run(QUELLE).expect("zweiter Import desselben Auszugs");
+
+    assert_eq!(api.stored_lines(), vec![erwartete_zeile()]);
+    assert_eq!(api.published_message_types(), vec!["Ingested"]);
+    assert_eq!(api.stored_ids(), api.published_partition_keys());
+}
+
+#[test]
+fn ein_neuer_import_ergaenzt_nur_die_unbekannten_zeilen() {
+    let api = ReadTestApi::new().with_line(gültiger_rohsatz());
+    api.run(QUELLE).expect("erster Import");
+    // Der nächste Auszug überlappt: er trägt die schon bekannte Zeile **und** eine neue.
+    let api = api.with_line(rohsatz_mit_schlüssel("zeile-2"));
+
+    api.run(QUELLE).expect("überlappender Import");
+
+    assert_eq!(
+        api.stored_lines().len(),
+        2,
+        "nur die neue Zeile kommt hinzu"
+    );
+    assert_eq!(api.published_message_types(), vec!["Ingested"; 2]);
+    assert_eq!(api.stored_ids(), api.published_partition_keys());
+}
+
+#[test]
+fn zwei_zeilen_mit_demselben_schluessel_scheitern_terminal_redigiert() {
+    // Die Quelle sagt eindeutige Schlüssel je Batch zu; ein Doppel hieße, eine echte Buchung still
+    // als „schon bekannt" zu verwerfen. Der Grund nennt den Schlüssel nicht.
+    let api = ReadTestApi::new()
+        .with_line(gültiger_rohsatz())
+        .with_line(gültiger_rohsatz());
+
+    let ergebnis = api.run(QUELLE);
+
+    assert!(
+        matches!(&ergebnis, Err(error)
+            if error.to_string().contains("row key") && !error.to_string().contains("zeile-1")),
+        "erwartet redigierter Schlüssel-Doppel-Fehler: {ergebnis:?}"
+    );
+    assert!(api.stored_lines().is_empty());
+    assert!(api.published_message_types().is_empty());
+}
+
+#[test]
+fn eine_zeile_ohne_schluessel_scheitert_wie_ein_fehlendes_pflichtfeld() {
+    let mut ohne_schlüssel = gültiger_rohsatz();
+    ohne_schlüssel.row_key = None;
+    let api = ReadTestApi::new().with_line(ohne_schlüssel);
+
+    let ergebnis = api.run(QUELLE);
+
+    assert!(
+        matches!(&ergebnis, Err(error) if error.to_string().contains("row_key")),
+        "erwartet redigierter Pflichtfeld-Fehler: {ergebnis:?}"
+    );
+    assert!(api.stored_lines().is_empty());
+}
+
+// --- Vorgemerktes: überspringen, vor der Pflichtfeld-Prüfung (ADR-0016) ------------------
+// Eine vorgemerkte Zeile hat eine leere Valuta — ein Pflichtfeld. Geprüft, ließe sie den ganzen
+// Auszug scheitern; sie ist aber noch keine Buchung. Die ACL verwirft sie darum vor jeder Prüfung:
+// der Import läuft durch, die Zeile zählt nicht.
+
+#[test]
+fn eine_vorgemerkte_zeile_bricht_den_import_nicht_ab_und_zaehlt_nicht() {
+    let api = ReadTestApi::new()
+        .with_line(vorgemerkter_rohsatz())
+        .with_line(gültiger_rohsatz());
+
+    api.run(QUELLE)
+        .expect("eine vorgemerkte Zeile bricht den Import nicht ab");
+
+    assert_eq!(api.stored_lines(), vec![erwartete_zeile()]);
+    assert_eq!(api.published_message_types(), vec!["Ingested"]);
+}
+
+#[test]
+fn ein_auszug_nur_aus_vorgemerktem_ergibt_nichts() {
+    let api = ReadTestApi::new().with_line(vorgemerkter_rohsatz());
+
+    api.run(QUELLE).expect("nichts Gebuchtes ist kein Fehler");
+
+    assert!(api.stored_lines().is_empty());
+    assert!(api.published_message_types().is_empty());
 }

@@ -20,14 +20,17 @@ use crate::models::{AnalysisWindowRow, RunHistoryRow};
 pub(crate) struct FakeOccurrenceSource {
     /// Die Fenster **je ID** — die `BTreeMap` legt sie in stabiler, eingabe-unabhängiger
     /// Reihenfolge ab, damit der Fake nicht selbst zur Quelle von Nichtdeterminismus wird.
-    windows: BTreeMap<String, AnalysisWindowRow>,
+    /// Je Fenster auch sein **Lauf**: der Fake spielt das Lauf-Scoping, das io über die
+    /// `run_id`-Spalte der Fenster-Tabelle legt (ADR-0016).
+    windows: BTreeMap<String, (String, AnalysisWindowRow)>,
     failure: Option<String>,
 }
 
 impl FakeOccurrenceSource {
-    /// Arrangiert ein eingefrorenes Auswertungsfenster unter seiner ID.
-    pub(crate) fn insert(&mut self, window_id: &str, window: AnalysisWindowRow) {
-        self.windows.insert(window_id.to_string(), window);
+    /// Arrangiert ein eingefrorenes Auswertungsfenster des Laufs `run` unter seiner ID.
+    pub(crate) fn insert(&mut self, run: &str, window_id: &str, window: AnalysisWindowRow) {
+        self.windows
+            .insert(window_id.to_string(), (run.to_string(), window));
     }
 
     /// Lässt jede Beschaffung terminal mit der gegebenen io-Diagnose scheitern.
@@ -37,7 +40,12 @@ impl FakeOccurrenceSource {
 }
 
 impl OccurrenceSeam for FakeOccurrenceSource {
-    fn history_in(&self, from: i64, to: i64) -> Result<RunHistoryRow, SourceUnavailable> {
+    fn history_in(
+        &self,
+        run: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<RunHistoryRow, SourceUnavailable> {
         if let Some(message) = self.failure.clone() {
             return Err(SourceUnavailable { message });
         }
@@ -46,7 +54,8 @@ impl OccurrenceSeam for FakeOccurrenceSource {
         let contributing = self
             .windows
             .values()
-            .map(|window| {
+            .filter(|(window_run, _)| window_run == run)
+            .map(|(_, window)| {
                 (
                     window.seed_marker.as_str(),
                     window

@@ -24,10 +24,12 @@ ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)).
 | [0013](0013-zeitfenster-collector-paginierender-analyse-kopf.md) | Zeitfenster-Schritt `fenstern`, zwei Analyse-Reichweiten | **maßgeblich** (akzeptiert, gebaut) | — (verfeinert 0008: Pipeline `einlesen → obfuskieren → fenstern → auswerten → report`) |
 | [0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md) | `io`-Persistenz über rusqlite, synchrone Spine, kein `sqlx` | **maßgeblich** (akzeptiert) | — |
 | [0015](0015-generischer-slice-store-ueber-storespec.md) | Generischer Slice-Store über `StoreSpec` | **maßgeblich** (akzeptiert, gebaut) | — |
+| [0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md) | Zeilen-Schlüssel, lauf-eigene Fenster, vorgemerkte Umsätze überspringen | **maßgeblich** (akzeptiert, gebaut) | — (verfeinert 0012: fachliche Zeilen-Identität neben der DB-ID; verfeinert 0013: Scope der fenster-übergreifenden Reichweite = Lauf) |
 
 ## Supersession-Graph (Kante zeigt vom Ablöser zum abgelösten ADR)
 
 ```
+0016 ──▶ 0012, 0013   (verfeinert: Zeilen-Schlüssel + Lauf-Identität als Scope; kanonisch in 0016)
 0013 ──▶ 0008   (verfeinert: Schritt `fenstern` + zwei Analyse-Reichweiten; kanonisch in 0013)
 0012 ──▶ 0008, 0011   (durchweg-terminale Fehler-Taktik + uniformes ID-Handoff; kanonisch in 0012)
 0011 ──▶ 0008, 0009   (Slice = reine Pipeline, Outbox-Mechanik + Kernel-Flip in io; kanonisch in 0011)

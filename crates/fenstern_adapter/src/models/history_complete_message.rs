@@ -9,8 +9,9 @@ pub(crate) const MESSAGE_TYPE: &str = "HistoryComplete";
 /// `auswerten` seine fenster-übergreifende Query auf genau diesen Lauf scopt (ADR-0013,
 /// Entscheidung E).
 ///
-/// Die Spanne reist als `partition_key` in der Form `"{from}:{to}"` — **kein serde**, wie überall im
-/// Slice; die beiden Tag-Stamps sind alles, was die Nachricht trägt. Der Typ ist **öffentlich, aber
+/// Spanne und Lauf reisen als `partition_key` in der Form `"{from}:{to}:{run}"` — **kein serde**,
+/// wie überall im Slice. Der **Lauf** ist der eigentliche Scope (ADR-0016): jeder Lauf paginiert
+/// dieselbe Historie, die Spanne allein grenzt Läufe nicht gegeneinander ab. Der Typ ist **öffentlich, aber
 /// opak** (private Felder, crate-interner Konstruktor): der Seam-Vertrag nennt ihn als Nutzlast,
 /// gebaut wird er nur hier im Adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,10 +20,10 @@ pub struct HistoryCompleteMessage {
 }
 
 impl HistoryCompleteMessage {
-    /// Trägt die Lauf-Spanne (beide Grenzen einschließlich).
-    pub(crate) fn from_span(from: i64, to: i64) -> Self {
+    /// Trägt die Lauf-Spanne (beide Grenzen einschließlich) und den Lauf.
+    pub(crate) fn from_span(from: i64, to: i64, run: &str) -> Self {
         Self {
-            span: format!("{from}:{to}"),
+            span: format!("{from}:{to}:{run}"),
         }
     }
 }

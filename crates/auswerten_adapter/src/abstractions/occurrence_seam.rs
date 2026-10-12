@@ -32,7 +32,9 @@ use crate::models::RunHistoryRow;
 /// dieser Spanne liegt nichts" — anders als beim Lesen **eines** Fensters per ID gibt es hier keinen
 /// ins Leere zeigenden Zeiger, den man von „nichts gefunden" unterscheiden müsste.
 pub trait OccurrenceSeam {
-    /// Liest die Historie aller Fenster **innerhalb** der Lauf-Spanne (beide Grenzen
-    /// einschließlich); `Err` = die Beschaffung misslang (terminal).
-    fn history_in(&self, from: i64, to: i64) -> Result<RunHistoryRow, SourceUnavailable>;
+    /// Liest die Historie aller Fenster des Laufs `run` **innerhalb** der Lauf-Spanne (beide
+    /// Grenzen einschließlich); Fenster anderer Läufe bleiben draußen (ADR-0016). `Err` = die
+    /// Beschaffung misslang (terminal).
+    fn history_in(&self, run: &str, from: i64, to: i64)
+    -> Result<RunHistoryRow, SourceUnavailable>;
 }

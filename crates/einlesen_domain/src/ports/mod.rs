@@ -18,4 +18,4 @@ pub use currency::Currencies;
 pub use event_sink::EventSink;
 pub use money::Money;
 pub use raw_line_source::RawLineSource;
-pub use store::Store;
+pub use store::{Recording, Store};

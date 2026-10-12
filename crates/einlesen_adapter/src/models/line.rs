@@ -33,6 +33,9 @@ impl From<einlesen_domain::Direction> for Direction {
 /// Werte dürfen lokal persistieren, kein Egress; darum bewusst **kein** `Serialize`-Guard).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
+    /// Der Zeilen-Schlüssel (opaker Digest der Quelle), an dem die Ablage einen erneuten Import
+    /// derselben Zeile erkennt (ADR-0016).
+    pub row_key: String,
     pub ordering_account: String,
     pub counter_account: Option<String>,
     pub amount_minor_units: u64,
@@ -59,6 +62,7 @@ impl From<&LineAggregate> for Line {
         let booking_day = aggregate.date().booking_day();
         let value_date = aggregate.date().value_date();
         Self {
+            row_key: aggregate.row_key().as_str().to_string(),
             ordering_account: aggregate.ordering_account().as_str().to_string(),
             counter_account: aggregate
                 .counter_account()

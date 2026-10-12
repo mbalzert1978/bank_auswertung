@@ -94,6 +94,39 @@ fn die_lauf_spanne_grenzt_den_lauf_gegen_frueher_ab() {
 }
 
 #[test]
+fn ein_spaeterer_lauf_zaehlt_die_fenster_eines_frueheren_nicht_mit() {
+    // Der Fall, den die Spanne allein **nicht** abfängt (ADR-0016): jeder Lauf paginiert die
+    // **ganze** Historie neu, also liegen die Fenster des früheren Laufs in **derselben** Spanne wie
+    // die des späteren. Nur die Lauf-Identität im `HistorieVollständig` grenzt sie ab — sonst zählte
+    // jede Buchung je Lauf einmal mehr.
+    let api = historie_api()
+        .with_window_of_run(
+            "lauf-1",
+            "fenster-frueher",
+            fenster(&[wiederkehrend(FEB_29, 1_999)]),
+        )
+        .with_window_of_run(
+            "lauf-2",
+            "fenster-jetzt",
+            fenster(&[wiederkehrend(FEB_29, 1_999)]),
+        );
+
+    let vorkommen_der_historie = api
+        .run_history_of("lauf-2", JAN_15, MAR_05)
+        .map(|auswertung| auswertung.occurrences);
+
+    assert_eq!(
+        vorkommen_der_historie,
+        Ok(vec![vorkommen(
+            &format!("COMPANY:{HAENDLER}"),
+            FEB_29,
+            1_999,
+            BookingDirection::Outgoing
+        )])
+    );
+}
+
+#[test]
 fn beide_grenzen_der_lauf_spanne_zaehlen_mit() {
     // Die Spanne ist **einschließlich** — so setzt `fenstern` sie, und eine Buchung genau auf der
     // Kante gehört zum Lauf. Ein `<`/`<=`-Fehler an dieser Stelle verlöre still den Rand-Tag.

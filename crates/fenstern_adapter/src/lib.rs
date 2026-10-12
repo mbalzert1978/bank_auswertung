@@ -7,7 +7,8 @@
 //! Outbox-Mechanik (Envelope, Consumer-Rolle, `UnitOfWork`) lebt vollständig in `io`.
 //!
 //! **Zwei einzweckige Handler (ADR-0013, Entscheidung B/D):** der [`StartHandler`] eröffnet den Lauf
-//! — er konsumiert das **feldlose** [`StartAnalysisCommand`] (registriert auf
+//! — er konsumiert das **ankerlose** [`StartAnalysisCommand`] (es trägt nur die Lauf-Identität,
+//! ADR-0016) (registriert auf
 //! [`START_MESSAGE_TYPE`]), beschafft den Initial-Anker über den Lese-Seam (`max(booking_day)`,
 //! datenrelativ, keine Uhr) und publiziert damit das erste Fenster-Kommando. Ein **leerer Bestand**
 //! ist dabei **kein Fehler**: der Lauf endet erfolgreich, ohne dass etwas publiziert wird — und weil

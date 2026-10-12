@@ -82,11 +82,11 @@ fn ein_start_analysis_treibt_die_kette_bis_zu_beiden_ergebnissen() {
     assert_eq!(
         db.committed_messages(),
         vec![
-            nachricht("AdvanceWindow", "19782:19782"),
+            nachricht("AdvanceWindow", "19782:19782:lauf-1"),
             nachricht("WindowClosed", "fenster-1"),
-            nachricht("AdvanceWindow", "19737:19782"),
+            nachricht("AdvanceWindow", "19737:19782:lauf-1"),
             nachricht("WindowClosed", "fenster-2"),
-            nachricht("HistoryComplete", "19708:19782"),
+            nachricht("HistoryComplete", "19708:19782:lauf-1"),
         ]
     );
 }
@@ -122,7 +122,7 @@ fn beide_auswerten_kommandotypen_werden_vom_selben_dispatcher_aufgeloest() {
     assert_eq!(
         dispatcher.dispatch(envelope(
             io::auswerten::CONSUMED_HISTORY_MESSAGE_TYPE,
-            "19708:19782"
+            "19708:19782:lauf-1"
         )),
         Ok(())
     );
@@ -158,9 +158,9 @@ fn ein_commit_fehler_rollt_kennzahl_und_nachrichten_gemeinsam_zurueck() {
     assert_eq!(
         db.committed_messages(),
         vec![
-            nachricht("AdvanceWindow", "19782:19782"),
+            nachricht("AdvanceWindow", "19782:19782:lauf-1"),
             nachricht("WindowClosed", "fenster-1"),
-            nachricht("AdvanceWindow", "19737:19782"),
+            nachricht("AdvanceWindow", "19737:19782:lauf-1"),
         ]
     );
 }

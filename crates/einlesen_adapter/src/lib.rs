@@ -47,13 +47,13 @@ mod testapi;
 
 pub use abstractions::{
     CalendarDay, CalendarSeam, CurrencySeam, DecodedAmount, MoneySeam, PublishSeam,
-    PublishUnavailable, ResolvedCurrency, Sign, SourceSeam, SourceUnavailable, StoreSeam,
-    StoreUnavailable,
+    PublishUnavailable, ResolvedCurrency, Sign, SourceSeam, SourceUnavailable, StoreOutcome,
+    StoreSeam, StoreUnavailable,
 };
 pub use handler::ReadingHandler;
 pub use models::{
     CONSUMED_MESSAGE_TYPE, Direction, IngestedMessage, Line, RawRecord, ReadCommand,
-    ReadCommandDecoder,
+    ReadCommandDecoder, RecordStatus,
 };
 pub use testapi::ReadTestApi;
 

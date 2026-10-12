@@ -5,7 +5,7 @@
 //! Outbox-Mechanik prüft der io-Integrationstest).
 //!
 //! Der Slice hat **zwei** einzweckige Handler und je ein eigenes Kommando. Der **Anstoß**
-//! konsumiert das **feldlose** `StartAnalysis` (`start`/`start_chain`): er beschafft den
+//! konsumiert das **ankerlose** `StartAnalysis` (es trägt nur die Lauf-Identität, ADR-0016) (`start`/`start_chain`): er beschafft den
 //! Initial-Anker über den Anker-Port (`max(booking_day)` — datenrelativ, **keine Uhr**, darum in den
 //! Specs allein über `with_obfuscated` arrangierbar) und publiziert damit das erste Fenster-Kommando.
 //! Auf **leerem** Bestand endet er **erfolgreich**, ohne irgendetwas zu publizieren.
@@ -29,7 +29,7 @@ use fixtures::{ANKER, UNTERGRENZE, WINDOW_DAYS, api, erwartetes_fenster, fenster
 
 #[test]
 fn ein_anstoss_ergibt_genau_ein_fenster_kommando_mit_dem_juengsten_buchungstag_als_anker() {
-    // Der Anstoß ist **feldlos** — er trägt keinen Anker, er *beschafft* ihn: der Start-Handler
+    // Der Anstoß ist **ankerlos** — er trägt keinen Anker, er *beschafft* ihn: der Start-Handler
     // liest ihn einmalig über den Anker-Port (`max(booking_day)`), also **datenrelativ** und
     // deterministisch, ohne Uhr (ADR-0013, Entscheidung D).
     let api = api()
@@ -265,6 +265,7 @@ fn die_seitengroesse_entscheidet_welche_buchungen_ins_fenster_fallen() {
     api.run(ANKER).expect("Seite mit einer Buchung");
 
     api.assert_stored(AnalysisWindowRow {
+        run: WindowingTestApi::DEFAULT_RUN.to_string(),
         from: ANKER - 49,
         to: ANKER,
         currency: "EUR".to_string(),
@@ -397,4 +398,32 @@ fn eine_zeile_ohne_id_scheitert_terminal_statt_einen_leeren_zeiger_durchzulassen
         Err(WindowError::MissingMandatoryField { field: "id" })
     );
     api.assert_nothing_emitted();
+}
+
+// --- Lauf-Identität: jedes Fenster gehört zu genau einem Lauf (ADR-0016) -----------------
+// Jeder Lauf paginiert die **ganze** Historie neu. Damit ein späterer Lauf die Fenster eines
+// früheren nicht mitzählt, trägt jedes Fenster und jede Nachricht der Kette die Identität des
+// Laufs, den der Anstoß eröffnet hat — unverändert vom Anstoß bis zum Abschluss.
+
+#[test]
+fn die_lauf_identitaet_reist_vom_anstoss_bis_in_jedes_fenster_und_den_abschluss() {
+    let api = WindowingTestApi::new()
+        .with_run("lauf-7")
+        .with_window_days(10)
+        .with_obfuscated(1000, zeile("juengste", "EUR"))
+        .with_obfuscated(900, zeile("aeltere", "EUR"));
+
+    api.start_chain().expect("zwei Seiten, ein Lauf");
+
+    api.assert_stored_windows(&[
+        AnalysisWindowRow {
+            run: "lauf-7".to_string(),
+            ..fenster(991, 1000, &["juengste"])
+        },
+        AnalysisWindowRow {
+            run: "lauf-7".to_string(),
+            ..fenster(891, 900, &["aeltere"])
+        },
+    ]);
+    api.assert_every_message_carries_run("lauf-7");
 }

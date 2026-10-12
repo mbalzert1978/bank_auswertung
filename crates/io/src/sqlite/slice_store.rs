@@ -229,6 +229,17 @@ impl<S: StoreSpec> SliceUnit<S> {
         Ok(id)
     }
 
+    /// Liest am **schon committeten** Bestand — der Zugriff, über den ein Store **vor** der Ablage
+    /// fragt, ob er eine Zeile schon kennt (`einlesen`s Zeilen-Schlüssel, ADR-0016). Läuft außerhalb
+    /// des Commit-Rands wie das Minten; ein unerreichbarer Store failt als redigierter
+    /// `StoreSpec::Error`.
+    pub(crate) fn read<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> rusqlite::Result<R>,
+    ) -> Result<R, S::Error> {
+        self.0.with_connection(f).map_err(S::unavailable)
+    }
+
     /// Probt **jedes** Ablage-Statement auf Präparierbarkeit (Store erreichbar?) und mintet dann die
     /// neue Zeilen-ID synchron an der DB. Geprobt, nicht ausgeführt. **Der einzige Ort, an dem eine
     /// [`MintedId`] entsteht** — sie kann darum nichts anderes sein als das, was `MINT_ID` geliefert hat.
