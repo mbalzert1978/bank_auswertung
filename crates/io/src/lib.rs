@@ -65,10 +65,11 @@
 //! **Das Kategorie-Register ist real** ([`auswerten::SqliteCategoryRegistry`],
 //! [Issue 0009](../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)): eine
 //! SQLite-Tabelle Fingerabdruck → Kategorie, die gelernte Korrekturen über jeden Neustart trägt.
-//! **Noch draußen:** das Kategorisierer-Orakel
-//! ([Issue 0011](../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)) — heute mit einer
-//! bewusst leeren Antwort erfüllt ([`auswerten::UnansweredCategorizer`]) und nur noch für Arten
-//! gefragt, die das Register nicht kennt — sowie der `report`-Presenter.
+//! **Das Kategorisierer-Orakel ist ein Chat** ([Issue 0011](../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)):
+//! im Lauf sammelt der [`auswerten::CollectingCategorizer`] die Anfragen der unbekannten Arten und
+//! antwortet leer; [`auswerten::chat_export`] schreibt sie am Ende eines gelungenen Laufs als Datei,
+//! [`auswerten::chat_import`] übernimmt die Antwort über das Register. **Noch draußen:** der
+//! `report`-Presenter.
 
 mod common;
 

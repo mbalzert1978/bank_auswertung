@@ -1,6 +1,8 @@
 //! **Das Programm** ([Issue 0083](../../../docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)):
 //! die dünnste denkbare Hülle um [`io::run::run`]. Sie liest sieben Pfade von der Kommandozeile, fährt
-//! **einen** Lauf und setzt den Exit-Code — mehr tut sie nicht.
+//! **einen** Lauf und setzt den Exit-Code — mehr tut sie nicht. Dazu kommt seit Issue 0011 der
+//! Unterbefehl `kategorien-import`, der eine Chat-Antwort über [`io::run::import_categories`] ins
+//! Kategorie-Register übernimmt, und die optionale Option `--kategorien-export`.
 //!
 //! **Warum so wenig.** Die Verdrahtung der Pipeline gehört in die Infrastruktur, nicht in die
 //! Kommandozeile: sie ist derselbe Lauf, ob ihn ein Terminal, ein Test oder später ein Scheduler
@@ -15,7 +17,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use io::run::{RunPaths, run};
+use io::auswerten::chat_import::ImportMode;
+use io::run::{ImportPaths, RunPaths, import_categories, run};
 
 /// Exit-Code eines gescheiterten Laufs — auch eines, der eine Nachricht aussondern musste.
 const FEHLGESCHLAGEN: u8 = 1;
@@ -26,22 +29,50 @@ const FALSCH_AUFGERUFEN: u8 = 2;
 fn main() -> ExitCode {
     let mut protocol = std::io::stderr();
 
-    let paths = match parse(std::env::args().skip(1)) {
-        Ok(paths) => paths,
+    let befehl = match parse(std::env::args().skip(1)) {
+        Ok(befehl) => befehl,
         Err(fehler) => {
             eprintln!("{fehler}\n\n{USAGE}");
             return ExitCode::from(FALSCH_AUFGERUFEN);
         }
     };
 
-    match run(&paths, &mut protocol) {
-        Ok(_report) => ExitCode::SUCCESS,
+    let ergebnis = match &befehl {
+        Befehl::Lauf(paths) => run(paths, &mut protocol).map(drop),
+        Befehl::KategorienImport { paths, mode } => {
+            import_categories(paths, *mode, &mut protocol).map(drop)
+        }
+    };
+    match ergebnis {
+        Ok(()) => ExitCode::SUCCESS,
         Err(fehler) => {
-            eprintln!("Lauf gescheitert: {fehler}");
+            eprintln!("{} gescheitert: {fehler}", befehl.name());
             ExitCode::from(FEHLGESCHLAGEN)
         }
     }
 }
+
+/// Was die Kommandozeile verlangt: einen **Lauf** oder den **Import** einer Chat-Antwort.
+#[derive(Debug)]
+enum Befehl {
+    Lauf(RunPaths),
+    KategorienImport {
+        paths: ImportPaths,
+        mode: ImportMode,
+    },
+}
+
+impl Befehl {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Lauf(_) => "Lauf",
+            Self::KategorienImport { .. } => "Kategorien-Import",
+        }
+    }
+}
+
+/// Der Unterbefehl für den Import einer Chat-Antwort.
+const KATEGORIEN_IMPORT: &str = "kategorien-import";
 
 const USAGE: &str = "\
 Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <datei> \
@@ -62,6 +93,23 @@ Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <dat
 
 Alle sieben sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
 
+  --kategorien-export <datei>
+                    optional: schreibt die Buchungsarten, die das Kategorie-Register noch nicht
+                    kennt, als JSON für einen Chat (nur bei einem gelungenen Lauf, Rechte 0600).
+                    Hinaus gehen nur Gläubiger-IDs, Firmennamen und bei Zahlungsdiensten (PayPal,
+                    Amazon, Klarna) der Verwendungszweck — ohne Wörter mit Ziffer oder @. Personen
+                    und Kartenzahlungen fehlen bewusst. Der Chat-Anbieter sieht damit, welche
+                    Firmen bei dir einziehen. Die Datei VOR dem Einfügen ansehen.
+
+Aufruf: bank-auswertung kategorien-import --db <datei> --antwort <datei> [--korrektur]
+
+  --db              dieselbe SQLite-Datei wie beim Lauf
+  --antwort         die Antwort aus dem Chat: {\"antworten\": [{\"fingerabdruck\": …, \"kategorie\": …}]}
+  --korrektur       ersetzt auch schon bekannte Kategorien; ohne den Schalter bleiben sie
+
+Zugeordnet wird nur über den exakten Fingerabdruck; weitere Felder werden nie gelesen.
+Exit 1, wenn die Datei abgewiesen wurde oder nichts gelernt, aber etwas verworfen wurde.
+
 Scheitert eine Nachricht, wird sie ausgesondert: der Lauf nennt sie am Ende und endet mit
 Exit 1, die übrigen laufen weiter. Ein späterer Lauf wird von ihr nicht aufgehalten; seine
 Schlussbilanz zählt sie als „früher ausgesondert“. Fehlt der Analyse deshalb eine Buchung,
@@ -70,8 +118,10 @@ steht dort „Analyse unvollständig“ — auch bei Exit 0. Neu einlesen holt s
 frische --db, siehe ADR-0017. Ein ausgesonderter Import-Auslöser dagegen: Auszug neu einlesen.
 
 Der Verwendungszweck wird vor der Weitergabe gescrubbt: IBANs, BICs und bekannte Namen
-(die vollständigen Namen aller Empfänger ohne Gläubiger-ID plus --personen) werden ersetzt. Das ist heuristisch und
-nicht beweisbar vollständig — ein Name, der nirgends bekannt ist, bleibt stehen.
+(die vollständigen Namen aller Empfänger ohne gültige Gläubiger-ID plus --personen) werden
+ersetzt. Das ist heuristisch und nicht beweisbar vollständig — ein Name, der nirgends bekannt
+ist, bleibt stehen. In --personen gehören darum auch PayPal-Freunde, Vornamen, der eigene Name
+und Personen mit eigener Gläubiger-ID (privater Vermieter, Verein).
 
 Mehrere Läufe in dieselbe --db sind gewollt: je eigenem Konto ein Lauf, auch wiederholt.
 Ein neuer Auszug ergänzt den Bestand; eine schon eingelesene Zeile wird an ihrem
@@ -115,6 +165,8 @@ struct Aufrufoptionen {
     own_accounts_config: Option<PathBuf>,
     persons_config: Option<PathBuf>,
     savings_config: Option<PathBuf>,
+    /// Optional — fehlt sie, entsteht kein Export.
+    category_export: Option<PathBuf>,
 }
 
 impl Aufrufoptionen {
@@ -131,6 +183,7 @@ impl Aufrufoptionen {
             "--eigene-konten" => Some(("--eigene-konten", &mut self.own_accounts_config)),
             "--personen" => Some(("--personen", &mut self.persons_config)),
             "--sparen" => Some(("--sparen", &mut self.savings_config)),
+            "--kategorien-export" => Some(("--kategorien-export", &mut self.category_export)),
             _ => None,
         }
     }
@@ -156,13 +209,77 @@ impl Aufrufoptionen {
             savings_config: self
                 .savings_config
                 .ok_or(Aufruffehler::OptionFehlt("--sparen"))?,
+            category_export: self.category_export,
         })
     }
 }
 
-/// Liest die sieben Pflicht-Optionen. Eine doppelt gesetzte Option gewinnt in ihrer letzten Nennung —
-/// die übliche Konvention, und die einzige, die ohne Sonderfall auskommt.
-fn parse(args: impl Iterator<Item = String>) -> Result<RunPaths, Aufruffehler> {
+/// Die Optionen des Unterbefehls `kategorien-import`, während sie eingesammelt werden.
+#[derive(Debug, Default)]
+struct ImportOptionen {
+    database: Option<PathBuf>,
+    answers: Option<PathBuf>,
+    correction: bool,
+}
+
+impl ImportOptionen {
+    fn feld(&mut self, option: &str) -> Option<(&'static str, &mut Option<PathBuf>)> {
+        match option {
+            "--db" => Some(("--db", &mut self.database)),
+            "--antwort" => Some(("--antwort", &mut self.answers)),
+            _ => None,
+        }
+    }
+
+    fn vollstaendig(self) -> Result<Befehl, Aufruffehler> {
+        Ok(Befehl::KategorienImport {
+            paths: ImportPaths {
+                database: self.database.ok_or(Aufruffehler::OptionFehlt("--db"))?,
+                answers: self.answers.ok_or(Aufruffehler::OptionFehlt("--antwort"))?,
+            },
+            mode: match self.correction {
+                true => ImportMode::Correct,
+                false => ImportMode::LearnUnknown,
+            },
+        })
+    }
+}
+
+/// Liest die Kommandozeile: beginnt sie mit `kategorien-import`, den Import, sonst einen Lauf. Eine
+/// doppelt gesetzte Option gewinnt in ihrer letzten Nennung — die übliche Konvention, und die einzige,
+/// die ohne Sonderfall auskommt.
+fn parse(args: impl Iterator<Item = String>) -> Result<Befehl, Aufruffehler> {
+    let mut args = args.peekable();
+    match args.next_if(|first| first == KATEGORIEN_IMPORT) {
+        Some(_) => parse_import(args),
+        None => parse_run(args).map(Befehl::Lauf),
+    }
+}
+
+/// Liest die Optionen des Imports — `--korrektur` ist ein Schalter ohne Wert.
+fn parse_import(args: impl Iterator<Item = String>) -> Result<Befehl, Aufruffehler> {
+    let mut args = args;
+    let mut optionen = ImportOptionen::default();
+
+    while let Some(option) = args.next() {
+        if option == "--korrektur" {
+            optionen.correction = true;
+            continue;
+        }
+        let Some((name, feld)) = optionen.feld(&option) else {
+            return Err(Aufruffehler::UnbekannteOption(option));
+        };
+        match args.next() {
+            Some(wert) => *feld = Some(PathBuf::from(wert)),
+            None => return Err(Aufruffehler::WertFehlt(name)),
+        }
+    }
+
+    optionen.vollstaendig()
+}
+
+/// Liest die sieben Pflicht-Optionen eines Laufs und die optionale `--kategorien-export`.
+fn parse_run(args: impl Iterator<Item = String>) -> Result<RunPaths, Aufruffehler> {
     let mut args = args;
     let mut optionen = Aufrufoptionen::default();
 
@@ -208,7 +325,7 @@ mod tests {
 
     #[test]
     fn sieben_optionen_ergeben_die_lauf_pfade() {
-        let paths = parse(vollstaendige_argumente().into_iter()).expect("vollständiger Aufruf");
+        let paths = parse_run(vollstaendige_argumente().into_iter()).expect("vollständiger Aufruf");
 
         assert_eq!(paths.database, PathBuf::from("lauf.sqlite"));
         assert_eq!(paths.transactions, PathBuf::from("auszug.csv"));
@@ -220,6 +337,92 @@ mod tests {
         );
         assert_eq!(paths.persons_config, PathBuf::from("personen.toml"));
         assert_eq!(paths.savings_config, PathBuf::from("sparen.toml"));
+        // Ohne die Option entsteht kein Export.
+        assert_eq!(paths.category_export, None);
+    }
+
+    #[expect(
+        clippy::panic,
+        reason = "let-else-Bindung des erwarteten Befehls: schlägt der Test laut fehl statt still zu überspringen"
+    )]
+    #[test]
+    fn die_export_option_ist_optional_und_traegt_ihr_ziel() {
+        let mut argumente = vollstaendige_argumente();
+        argumente.extend([
+            "--kategorien-export".to_string(),
+            "anfrage.json".to_string(),
+        ]);
+
+        let Ok(Befehl::Lauf(paths)) = parse(argumente.into_iter()) else {
+            panic!("erwartete einen Lauf");
+        };
+
+        assert_eq!(paths.category_export, Some(PathBuf::from("anfrage.json")));
+    }
+
+    fn import_argumente(weitere: &[&str]) -> Vec<String> {
+        [
+            "kategorien-import",
+            "--db",
+            "lauf.sqlite",
+            "--antwort",
+            "antwort.json",
+        ]
+        .iter()
+        .chain(weitere)
+        .map(|argument| (*argument).to_string())
+        .collect()
+    }
+
+    #[expect(
+        clippy::panic,
+        reason = "let-else-Bindung des erwarteten Befehls: schlägt der Test laut fehl statt still zu überspringen"
+    )]
+    #[test]
+    fn der_unterbefehl_liest_datenbank_und_antwort_ohne_korrektur() {
+        let Ok(Befehl::KategorienImport { paths, mode }) = parse(import_argumente(&[]).into_iter())
+        else {
+            panic!("erwartete den Import");
+        };
+
+        assert_eq!(paths.database, PathBuf::from("lauf.sqlite"));
+        assert_eq!(paths.answers, PathBuf::from("antwort.json"));
+        assert_eq!(mode, ImportMode::LearnUnknown);
+    }
+
+    #[expect(
+        clippy::panic,
+        reason = "let-else-Bindung des erwarteten Befehls: schlägt der Test laut fehl statt still zu überspringen"
+    )]
+    #[test]
+    fn der_schalter_korrektur_erlaubt_das_ersetzen() {
+        let Ok(Befehl::KategorienImport { mode, .. }) =
+            parse(import_argumente(&["--korrektur"]).into_iter())
+        else {
+            panic!("erwartete den Import");
+        };
+
+        assert_eq!(mode, ImportMode::Correct);
+    }
+
+    #[test]
+    fn der_import_ohne_antwort_nennt_die_fehlende_option() {
+        let argumente = ["kategorien-import", "--db", "lauf.sqlite"]
+            .iter()
+            .map(|argument| (*argument).to_string());
+
+        assert_eq!(
+            parse(argumente).map(|_| ()),
+            Err(Aufruffehler::OptionFehlt("--antwort"))
+        );
+    }
+
+    #[test]
+    fn der_import_kennt_keine_lauf_optionen() {
+        assert_eq!(
+            parse(import_argumente(&["--csv", "auszug.csv"]).into_iter()).map(|_| ()),
+            Err(Aufruffehler::UnbekannteOption("--csv".to_string()))
+        );
     }
 
     #[test]

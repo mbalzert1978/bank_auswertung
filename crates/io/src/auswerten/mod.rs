@@ -39,12 +39,14 @@ use crate::{
     MessageId, OutboxConsumer, TransactionError, TransactionalHandler, UnitFactory, run_in_unit,
 };
 
+pub mod chat_export;
+pub mod chat_import;
 mod oracle;
 mod registry;
 mod source;
 mod store;
 
-pub use oracle::UnansweredCategorizer;
+pub use oracle::CollectingCategorizer;
 pub(crate) use registry::LEARNED_CATEGORIES_TABLE;
 pub use registry::{LearnError, RejectCause, SqliteCategoryRegistry};
 pub use source::AuswertungsfensterSource;

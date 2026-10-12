@@ -155,6 +155,34 @@ impl SqliteCategoryRegistry {
                 message: error.to_string(),
             })
     }
+
+    /// Die Teilmenge der Kandidaten, die eine Auswertung **ausgegeben** hat
+    /// (`window_evaluation_fingerprints`), in deren Reihenfolge — dieselbe Frage, die [`learn`](Self::learn)
+    /// als letztes Netz stellt, hier vorab, damit der Chat-Import (Issue 0011) einen fremden Schlüssel
+    /// **einzeln** verwerfen kann, statt die ganze Datei abzuweisen. Verglichen wird **exakt**.
+    ///
+    /// # Errors
+    ///
+    /// [`RegistryUnavailable`], wenn die Auswertungen nicht lesbar waren (io-Diagnose, nie ein
+    /// Schlüssel).
+    pub fn issued_among(&self, candidates: &[String]) -> Result<Vec<String>, RegistryUnavailable> {
+        self.outbox
+            .with_connection(|conn| {
+                let mut statement = conn.prepare(SELECT_ISSUED)?;
+                candidates
+                    .iter()
+                    .filter_map(|candidate| {
+                        statement
+                            .query_row([candidate], |row| row.get::<_, bool>(0))
+                            .map(|issued| issued.then(|| candidate.clone()))
+                            .transpose()
+                    })
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .map_err(|error| RegistryUnavailable {
+                message: error.to_string(),
+            })
+    }
 }
 
 impl CategoryRegistrySeam for SqliteCategoryRegistry {

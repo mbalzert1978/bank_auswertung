@@ -32,6 +32,7 @@ fn pfade(db: &TempDbPath, csv: &str) -> RunPaths {
         own_accounts_config: fixture("lauf/konten.toml"),
         persons_config: fixture("lauf/namen.toml"),
         savings_config: fixture("lauf/sparen.toml"),
+        category_export: None,
     }
 }
 

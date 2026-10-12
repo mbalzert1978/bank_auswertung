@@ -1,0 +1,5 @@
+# Namensliste des Kategorien-Tests (Issue 0011) — frei erfunden. „Lisa Fiktiv" ist nie Empfänger
+# ohne Gläubiger-ID, steht aber im Verwendungszweck einer PayPal-Zahlung und im Namen einer Praxis:
+# genau dort darf sie nicht in den Chat-Export geraten.
+
+namen = ["Lisa Fiktiv"]

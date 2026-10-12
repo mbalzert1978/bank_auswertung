@@ -67,9 +67,10 @@ use auswerten_adapter::{OwnAccountsConfig, SavingsThresholdConfig};
 use obfuskierung_adapter::ObfuscatedMessage;
 
 use crate::Dispatcher;
+use crate::auswerten::chat_import::ImportError;
 use crate::auswerten::{
     AuswertenSqliteStore, AuswertungsfensterSource, CONSUMED_HISTORY_MESSAGE_TYPE,
-    CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, SqliteCategoryRegistry, UnansweredCategorizer,
+    CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, CollectingCategorizer, SqliteCategoryRegistry,
     consumer as auswerten_consumer, history_consumer,
 };
 use crate::config::{
@@ -94,9 +95,11 @@ use crate::sqlite::{DeadLetter, Delivery, SqliteOutbox};
 
 mod ack_sink;
 mod history_sink;
+mod kategorien;
 
 pub use ack_sink::AckSink;
 pub use history_sink::CountingHistorySink;
+pub use kategorien::{ImportPaths, import_categories};
 
 use application_kernel::PublishCommand;
 
@@ -138,6 +141,10 @@ pub struct RunPaths {
     /// Die Spar-Config (`jahresbetrag_ab_cent`): ab welchem Jahresbetrag ein Kostentreiber als
     /// Spar-Kandidat vorgeschlagen wird (Issue 0007).
     pub savings_config: PathBuf,
+    /// **Optional:** wohin der Chat-Export der unbekannten Buchungsarten geschrieben wird
+    /// ([Issue 0011](../../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)). Die Datei
+    /// entsteht nur, wenn der Lauf gelingt, und trägt nur die Anfragen **dieses** Laufs.
+    pub category_export: Option<PathBuf>,
 }
 
 /// Was der Lauf getan hat: die Zahl der verarbeiteten Nachrichten **je Typ**, die Zahl der
@@ -221,6 +228,14 @@ pub enum RunError {
     PendingImport { pending: String, requested: String },
     /// Die Broker-Schleife kam nach der intern gedeckelten Rundenzahl nicht zur Ruhe.
     NotConverging,
+    /// Der Lauf ist gelungen, aber der Chat-Export ließ sich nicht schreiben (Issue 0011) — eine alte
+    /// Export-Datei bleibt unverändert. Redigiert: nur die Zugriffs-Mechanik.
+    Export(String),
+    /// Der Import einer Chat-Antwort wurde als Ganzes abgewiesen — nichts gelernt (Issue 0011).
+    Import(ImportError),
+    /// Der Import hat **nichts** gelernt, aber Einträge verworfen — die Antwort passt nicht zu den
+    /// ausgegebenen Fingerabdrücken. Trägt nur die Zahl.
+    NothingLearned { discarded: usize },
     /// Das Lauf-Protokoll ließ sich nicht schreiben. Es **ist** Teil des Laufs: ein Lauf, dessen
     /// Protokoll verloren geht, gilt nicht als gelungen.
     Protocol(String),
@@ -248,6 +263,12 @@ impl std::fmt::Display for RunError {
                  entfernen"
             ),
             Self::NotConverging => f.write_str("die Broker-Schleife kam nicht zur Ruhe"),
+            Self::Export(diagnosis) => f.write_str(diagnosis),
+            Self::Import(error) => write!(f, "Kategorien-Import abgewiesen: {error}"),
+            Self::NothingLearned { discarded } => write!(
+                f,
+                "Kategorien-Import: nichts gelernt, {discarded} Eintrag/Einträge verworfen — passt                  die Antwort zum letzten Export?"
+            ),
             Self::Protocol(diagnosis) => write!(f, "Lauf-Protokoll nicht schreibbar: {diagnosis}"),
         }
     }
@@ -322,6 +343,9 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // ausgesondert, nicht offen (ADR-0017), und ein Lauf mit ausgesondertem `AdvanceWindow` oder
     // `WindowClosed` bleibt für immer unvollständig; ihn liest der Bericht nicht (er endete mit Exit 1).
     write_line(protocol, "Lauf: Analyse")?;
+    // Der Kategorisierer sammelt erst **jetzt**: Phase 1 kann einen liegengebliebenen alten Lauf zu
+    // Ende geführt haben, dessen Anfragen nicht in den Export dieses Laufs gehören (Issue 0011).
+    adapters.categorizer.start_collecting();
     let occurrences_before = occurrences.count();
     let candidates_before = occurrences.candidates();
     enqueue(&outbox, START_MESSAGE_TYPE, &mint_run_id(&outbox)?)?;
@@ -329,7 +353,17 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
 
     report.occurrences = occurrences.count().saturating_sub(occurrences_before);
     report.savings_candidates = occurrences.candidates().saturating_sub(candidates_before);
-    finish(&outbox, protocol, report, dead_lettered)
+    let report = finish(&outbox, protocol, report, dead_lettered)?;
+    // Erst nach einem **gelungenen** Lauf (ADR-0016 C): kein Export eines halben Laufs.
+    if let Some(target) = &paths.category_export {
+        kategorien::export(
+            target,
+            &adapters.registry,
+            &adapters.categorizer.take(),
+            protocol,
+        )?;
+    }
+    Ok(report)
 }
 
 /// Schließt den Lauf ab: liest den Stand der **Datei** — wie viele Buchungen der Analyse fehlen, wie
@@ -369,7 +403,8 @@ struct Adapters {
     /// gefragt. Es liest, schreibt im Lauf nichts — darum ein geliehener Seam hier und kein Store in
     /// [`Stores`]; seine Tabelle legt trotzdem allein der Schema-Besitzer an.
     registry: SqliteCategoryRegistry,
-    categorizer: UnansweredCategorizer,
+    /// Das Orakel des Laufs: sammelt ab Phase 2 die Anfragen für den Chat-Export (Issue 0011).
+    categorizer: CollectingCategorizer,
 }
 
 impl Adapters {
@@ -381,7 +416,7 @@ impl Adapters {
             obfuskiert_windows: ObfuskiertWindowSource::new(outbox.clone()),
             analysis_windows: AuswertungsfensterSource::new(outbox.clone()),
             registry: SqliteCategoryRegistry::new(outbox.clone()),
-            categorizer: UnansweredCategorizer,
+            categorizer: CollectingCategorizer::default(),
         }
     }
 }
@@ -911,3 +946,6 @@ mod speicher_tests;
 
 #[cfg(test)]
 mod aderlass_tests;
+
+#[cfg(test)]
+mod kategorien_tests;
