@@ -1,5 +1,10 @@
 # Zeitfenster-Schritt `fenstern` als paginierender Analyse-Kopf, zwei Analyse-Reichweiten
 
+> **Verfeinert durch [ADR-0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md):** der Anstoß
+> trägt die **Lauf-Identität**, jedes Fenster gehört genau einem Lauf, und der Scope der
+> fenster-übergreifenden Reichweite ist der **Lauf** (die Spanne allein grenzt Läufe nicht ab). Wo
+> dieser Text „feldlos" oder „die Lauf-Spanne scopt" sagt, gilt ADR-0016.
+>
 > **Status: Akzeptiert und gebaut** (Kette 0036–0045 in `main`, gegen Fakes; das reale `io`
 > — SQLite/`rusqlite` (synchron, [ADR-0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)),
 > Tag-Stamp-Persistenz, Config-Loader — bleibt bewusst der letzte Bauschritt).
@@ -79,9 +84,10 @@ mutierbar, bricht die Garantie still.
 
 - **Zwei Kommandos, zwei Handler** (statt eines Handlers mit `Option<anchor>`), je ein
   `application_kernel::Handler`:
-  - **Anstoß (feldlos) — `StartAnalysis`:** *(seit [ADR-0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md)
-    trägt er die Lauf-Identität im `partition_key` — weiterhin keinen Anker.)* ein reiner Auslöser auf der Outbox, **derselbe
-    Kickoff-Mechanismus wie `einlesen`** (feldloser Trigger, Decoder immer `Some`). Dem Slice ist egal,
+  - **Anstoß (ankerlos) — `StartAnalysis`:** ein Auslöser auf der Outbox, **derselbe
+    Kickoff-Mechanismus wie `einlesen`**. *(Ursprünglich feldlos mit Decoder immer `Some`; seit
+    [ADR-0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md) trägt er die **Lauf-Identität** im
+    `partition_key`, und ein Schlüssel ohne Lauf ist keine gültige Envelope — weiterhin kein Anker.)* Dem Slice ist egal,
     **wer** ihn einreiht — **heute manuell** (`main`/CLI „auswerten"), **später** io's Broker beim
     Leerlaufen des Imports. Der **Start-Handler** liest **einmalig** `max(booking_day)` aus der DB
     (Port `WindowAnchor`, Entscheidung D) und publiziert `AdvanceWindow{anchor: max}`.
@@ -95,7 +101,8 @@ mutierbar, bricht die Garantie still.
        from)`:**
        - liefert die Query **einen** Tag → `AdvanceWindow{anchor: dieser Tag}` (die Kette geht weiter);
        - liefert sie **nichts** → **`HistorieVollständig{Lauf-Spanne}`** (die Historie ist erschöpft,
-         siehe Entscheidung E) statt eines Self-Continue.
+         siehe Entscheidung E) statt eines Self-Continue. *(Seit ADR-0016 trägt er zusätzlich den
+         Lauf: `HistorieVollständig{Lauf, Lauf-Spanne}`.)*
 
     Store + **beide** Publishes committen **atomar** zusammen oder gar nicht. Die Unit-of-Work trägt das
     bereits: `einlesen` publiziert schon **N** Nachrichten je Lauf in **einer** Unit; neu ist nur, dass
@@ -198,8 +205,8 @@ zweite gespeicherte Sicht.
    rechnet die periodische Analyse **innerhalb** des Zeitraums — Cashflow je Zeitraum,
    Gebühren-Klassifikation, Pareto **innerhalb** des Fensters.
 2. **Fenster-übergreifend — Handler auf `HistorieVollständig`:** eine **Read-Port-Query über alle
-   `Auswertungsfenster`-Aggregate des Laufs** (die mitgetragene Lauf-Spanne scopt sie auf genau diesen
-   Lauf) — **synchron, terminal, im Handler**. Die **Wiederkehr-Erkennung** liest daraus die
+   `Auswertungsfenster`-Aggregate des Laufs** (*seit ADR-0016 scopt sie der mitgetragene **Lauf**;
+   die Spanne allein tat es nicht, weil jeder Lauf dieselbe Historie paginiert*) — **synchron, terminal, im Handler**. Die **Wiederkehr-Erkennung** liest daraus die
    `(Fingerabdruck, Richtung, Betrag, Tag)`-Vorkommen; das **Netting** (Umbuchungen raus,
    [Issue 0005](../issues/0005-wiederkehr-erkennung.md) „arbeitet auf genetteten Abflüssen") läuft **in**
    der Query-Aktion vor der Rhythmus-Prüfung. Die Query darf optional auf **Kostentreiber-Fingerabdrücke**

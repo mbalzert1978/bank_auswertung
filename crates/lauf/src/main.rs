@@ -68,9 +68,9 @@ Ein neuer Auszug ergänzt den Bestand; eine schon eingelesene Zeile wird an ihre
 Zeilen-Schlüssel wiedererkannt und nicht erneut gezählt. Jeder Lauf wertet alle Konten
 der --db gemeinsam aus; maßgeblich ist der jüngste Lauf. Vorgemerkte Umsätze werden
 übersprungen und kommen gebucht mit einem späteren Auszug.
-GRENZE: ein Export darf keinen Tag mittendrin abschneiden — überlappen sich zwei Auszüge,
-muss jeder den gemeinsamen Tag vollständig tragen. Sonst können gleiche Buchungen dieses
-Tages ohne Kundenreferenz verloren gehen (ADR-0016).";
+GRENZE: ein Tag muss vollständig im Export stehen — überlappen sich zwei Auszüge, muss
+jeder den gemeinsamen Tag ganz tragen. Sonst können gleiche Buchungen dieses Tages als
+schon bekannt gelten und verloren gehen (ADR-0016).";
 
 /// Warum die Kommandozeile nicht trägt. **Redigiert wie alles andere:** die Meldung nennt die
 /// **Option**, nie den übergebenen Wert — ein Pfad kann Kontonamen tragen, und ein verrutschtes

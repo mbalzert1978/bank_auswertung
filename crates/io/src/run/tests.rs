@@ -302,7 +302,8 @@ type Monatszahl = (i64, i64, String, i64, i64);
 /// **Die Zahlen des jüngsten Laufs** — das, was eine Auswertung zeigt: wie viele Buchungen seine
 /// Fenster tragen, der Cashflow je Monat, die Umbuchungen je Monat und Rolle, die Gebühren je Monat
 /// und Konto, und die Zahl der Vorkommen der fenster-übergreifenden Reichweite. Gescopt über die
-/// `run_id` des zuletzt abgelegten Fensters: genau das, was „der jüngste Lauf" heißt.
+/// **größte** `run_id` — der Vertrag für „der jüngste Lauf" (ADR-0016): die Identität beginnt mit dem
+/// Startzeitpunkt des Laufs.
 #[derive(Debug, PartialEq, Eq)]
 struct Zahlen {
     fenster_buchungen: i64,
@@ -314,11 +315,10 @@ struct Zahlen {
 
 fn zahlen_des_juengsten_laufs(paths: &RunPaths, report: &RunReport) -> rusqlite::Result<Zahlen> {
     let conn = rusqlite::Connection::open(&paths.database)?;
-    let lauf: String = conn.query_row(
-        "SELECT run_id FROM auswertungsfenster ORDER BY rowid DESC LIMIT 1;",
-        [],
-        |row| row.get(0),
-    )?;
+    let lauf: String =
+        conn.query_row("SELECT max(run_id) FROM auswertungsfenster;", [], |row| {
+            row.get(0)
+        })?;
     let fenster_buchungen = conn.query_row(
         "SELECT count(*) FROM auswertungsfenster_buchungen b \
          JOIN auswertungsfenster w ON w.id = b.window_id WHERE w.run_id = ?1;",
@@ -458,6 +458,44 @@ fn ein_zweiter_lauf_zaehlt_keine_fenster_eines_frueheren_laufs_mit() -> rusqlite
         3 * fenster_eines_laufs,
         "je Lauf derselbe Satz Fenster — keiner wächst mit den früheren"
     );
+    Ok(())
+}
+
+/// Die größte `run_id` der Fenster — „der jüngste Lauf".
+fn juengster_lauf(paths: &RunPaths) -> rusqlite::Result<String> {
+    rusqlite::Connection::open(&paths.database)?.query_row(
+        "SELECT max(run_id) FROM auswertungsfenster;",
+        [],
+        |row| row.get(0),
+    )
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn der_juengste_lauf_ist_der_mit_der_groessten_lauf_identitaet() -> rusqlite::Result<()> {
+    // Der Vertrag, auf den der Bericht (0012) baut: jeder neue Lauf trägt eine größere Identität als
+    // alle früheren, also ist `max(run_id)` der jüngste — ohne `rowid`, die ein `VACUUM` neu vergibt.
+    let db = TempDbPath::new("lauf_ordnung");
+    let paths = lauf_pfade(&db);
+    let mut bisher: Vec<String> = Vec::new();
+
+    for _ in 0..3 {
+        lauf(&paths);
+        let juengster = juengster_lauf(&paths)?;
+        assert!(
+            bisher.iter().all(|frueher| *frueher < juengster),
+            "{juengster} muss größer sein als {bisher:?}"
+        );
+        assert!(
+            !juengster.contains(':'),
+            "die Identität steht zuletzt im Schlüssel"
+        );
+        bisher.push(juengster);
+    }
     Ok(())
 }
 

@@ -222,7 +222,7 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   the periodic metric **within** the window — today the **month cashflow**, **netted** — plus the
   window's **distinct fingerprints**, and stores the result. The **window-spanning** reach
   (`HistoryEvaluationHandler`, consuming `HistorieVollständig` — a **different** dispatch key, scoped
-  to the run by the run span in the `partition_key`) runs **one** read-port query over **all** windows
+  to the run by the run id (ADR-0016) in the `partition_key`, next to the run span) runs **one** read-port query over **all** windows
   of the run and **returns** the occurrences of the whole timeline **plus the recurring outflows**
   in them — it **stores nothing** (the aggregates are the sole truth; idempotence follows from
   querying immutable snapshots, not dedupe logic). The **recurrence detection**
@@ -398,14 +398,16 @@ command line was wrong. The invented fixtures under
 **Many runs, one `--db`** ([ADR-0016](docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md),
 [0088](docs/issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md)) — one
 run per own account, repeats included, into the **same** database. A new import **adds**: every line
-carries a **row key** (ordering account + end-to-end reference + amount when the reference is filled,
-otherwise all columns; plus the running number of equal lines within the file), stored as a SipHash
-digest, and a known key is neither stored nor published again. Every run still re-paginates the
+carries a **row key** (ordering account + end-to-end reference + amount + booking day when the
+reference is filled, otherwise all columns; plus the running number of equal **booked** lines within
+the file — `Umsatz vorgemerkt` gets no key), stored as a SipHash digest, and a known key is neither
+stored nor published again. Every run still re-paginates the
 **whole** obfuscated history (all accounts), but its windows carry its **run id**, and the
 window-spanning query scopes over the run — so the **latest** run shows all accounts together and
-the same run repeated gives the same numbers (the old 53 → 159 → 318 growth is gone). `Umsatz
-vorgemerkt` lines are skipped before the presence check. **Limit:** an export must not cut a day in
-the middle (equal lines without a reference on that day could otherwise be taken for known ones). A
+the same run repeated gives the same numbers (the old 53 → 159 → 318 growth is gone). „The latest
+run" is the one with the **greatest** `run_id` (it starts with the run's UTC start time). `Umsatz
+vorgemerkt` lines are skipped before the presence check. **Limit (both key paths):** a day must
+stand **completely** in an export — otherwise equal lines of that day could be taken for known ones. A
 leftover trigger from a *failed* run is still caught (`RunError::PendingImport`). Schema version is
 **2**; a version-1 file without data is migrated, one **with** data is rejected (its lines cannot be
 keyed retroactively) — use a fresh `--db` and re-import.

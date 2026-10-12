@@ -22,8 +22,29 @@ pub const CONSUMED_HISTORY_MESSAGE_TYPE: &str = "HistoryComplete";
 /// braucht nur die Beschaffung (die Lese-Bridge legt ihn als Scope an den Seam); die Domäne bleibt
 /// lauf-blind und sieht nur die Spanne.
 pub struct EvaluateHistoryCommand {
-    run: String,
+    run: RunScope,
     span: RunSpan,
+}
+
+/// Der **Lauf**, auf den die fenster-übergreifende Query gescopt wird — adapter-eigen, weil nur die
+/// Beschaffung ihn braucht (die Domäne bleibt lauf-blind, ADR-0016). Ein Newtype statt `String`:
+/// **parse, don't validate** — gebaut wird er allein im Decoder aus einem nicht-leeren, getrimmten
+/// Schlüsselteil; wer ihn in der Hand hält, hält einen echten Lauf. Opak: er wird nur an den Seam
+/// durchgereicht, nie gedeutet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RunScope(String);
+
+impl RunScope {
+    /// Parst den Lauf-Teil eines Schlüssels: getrimmt; leer → `None`.
+    fn parse(raw: &str) -> Option<Self> {
+        let trimmed = raw.trim();
+        (!trimmed.is_empty()).then(|| Self(trimmed.to_string()))
+    }
+
+    /// Der Lauf als Zeichenkette — für den Seam, der ihn als `WHERE`-Parameter braucht.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl EvaluateHistoryCommand {
@@ -33,8 +54,9 @@ impl EvaluateHistoryCommand {
         self.span
     }
 
-    /// Die opake Lauf-Identität — nie leer (der Decoder weist einen Schlüssel ohne Lauf ab).
-    pub(crate) fn run(&self) -> &str {
+    /// Der Lauf, auf den die Query gescopt wird — nie leer (der Decoder weist einen Schlüssel ohne
+    /// Lauf ab).
+    pub(crate) fn run(&self) -> &RunScope {
         &self.run
     }
 }
@@ -63,11 +85,11 @@ impl CommandDecoder for EvaluateHistoryCommandDecoder {
         let mut parts = partition_key.trim().splitn(3, ':');
         let from = parts.next()?.trim().parse().ok()?;
         let to = parts.next()?.trim().parse().ok()?;
-        let run = parts.next()?.trim();
+        let run = RunScope::parse(parts.next()?)?;
         // `RunSpan::spanning` ordnet die Eckpunkte selbst — eine verdrehte Spanne ist damit
         // unkonstruierbar statt „geprüft" (ADR-0005), und es gibt hier keinen Zweig dafür.
-        (!run.is_empty()).then(|| EvaluateHistoryCommand {
-            run: run.to_string(),
+        Some(EvaluateHistoryCommand {
+            run,
             span: RunSpan::spanning(DayStamp::new(from), DayStamp::new(to)),
         })
     }

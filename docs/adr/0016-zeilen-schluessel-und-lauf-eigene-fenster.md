@@ -33,22 +33,36 @@ Vor diesem ADR ergaben mehrere Läufe in **eine** Datei falsche Zahlen, aus drei
 ### A — Jede eingelesene Zeile trägt einen Zeilen-Schlüssel
 
 - **Zusammensetzung** (Rahmen von Markus):
-  - ist die **Kundenreferenz (End-to-End)** gefüllt: **Auftragskonto + Kundenreferenz**;
-  - sonst **Rückfall**: Auftragskonto + **alle Spalten** der Zeile;
-  - in beiden Fällen dazu die **laufende Nummer gleicher Zeilen innerhalb des Imports** (die erste
-    gleiche Zeile trägt 1, die zweite 2). So zählen zwei echte, gleiche Buchungen am selben Tag
-    beide, und ein überlappender Auszug, der sie wieder trägt, erzeugt dieselben Schlüssel.
+  - ist die **Kundenreferenz (End-to-End)** gefüllt: **Auftragskonto + Kundenreferenz** (dazu Betrag
+    und Buchungstag, siehe unten);
+  - sonst **Rückfall**: Auftragskonto + **alle Spalten** der Zeile (darunter der Buchungstag);
+  - in beiden Fällen dazu die **laufende Nummer gleicher gebuchter Zeilen innerhalb des Imports**
+    (die erste gleiche Zeile trägt 1, die zweite 2). So zählen zwei echte, gleiche Buchungen am
+    selben Tag beide, und ein überlappender Auszug, der sie wieder trägt, erzeugt dieselben
+    Schlüssel.
+  - In Code ein Summentyp (`RowIdentity::Reference { account, reference, amount, day }` |
+    `RowIdentity::AllColumns(..)`) mit `digest(occurrence)`.
 - **Detail: der Betrag gehört zum Kundenreferenz-Schlüssel.** Eine Rücklastschrift wiederholt die
   Kundenreferenz der ursprünglichen Lastschrift. Ohne den (vorzeichenbehafteten) Betrag erkennte ein
   späterer Auszug die Rückbuchung als „schon bekannt" und verschluckte sie. Der Betrag einer
   gebuchten Zeile ändert sich zwischen zwei Exporten nicht; er kostet also nichts.
+- **Detail: der Buchungstag gehört zum Kundenreferenz-Schlüssel** (Review-Runde 1, Etikett
+  `kundenreferenz/2`). Manche Gläubiger nutzen Monat für Monat **dieselbe** Referenz zum selben
+  Betrag. Ohne den Tag zählte die laufende Nummer über die ganze Datei: Auszug A (April–Juni) und
+  Auszug B (Mai–Juli) erzeugten je die Nummern 1–3, und B's Juli sähe aus wie A's April — er fehlte
+  still, obwohl kein Tag abgeschnitten war. Mit dem Tag zählt die Nummer, wie beim Rückfall-Weg, nur
+  innerhalb eines Tages.
+- **Detail: nur Gebuchtes wird durchgezählt.** Der Buchungsstand steht **vor** der Nummerierung fest;
+  eine vorgemerkte Zeile bekommt **keinen** Schlüssel und verschiebt keine Nummer. Sonst trüge
+  dieselbe gebuchte Zeile neben ihrem vorgemerkten Zwilling eine andere Nummer als im nächsten
+  Auszug, in dem der Zwilling gebucht ist.
 - **Detail: `NOTPROVIDED` zählt als leer.** Das ist der SEPA-Platzhalter für „keine Referenz";
   sonst teilten sich alle Zahlungen ohne Referenz eines Kontos **einen** Schlüssel.
-- **Die Grenze des Rückfall-Schlüssels:** die laufende Nummer zählt innerhalb **einer** Datei.
-  **Ein Export darf keinen Tag mittendrin abschneiden.** Schneidet Auszug A einen Tag ab und trägt
-  Auszug B die übrigen, gleichen Zeilen jenes Tages, beginnen sie in B wieder bei Nummer 1 und sehen
-  aus wie die schon bekannten — sie gingen verloren. Überlappen sich zwei Auszüge, muss jeder den
-  gemeinsamen Tag **vollständig** tragen. (Steht auch im Hilfetext des Programms.)
+- **Die Grenze — für beide Wege dieselbe:** die laufende Nummer zählt gleiche Zeilen eines **Tages**
+  innerhalb **einer** Datei. **Ein Tag muss vollständig im Export stehen.** Schneidet Auszug A einen
+  Tag ab und trägt Auszug B die übrigen, gleichen Zeilen jenes Tages, beginnen sie in B wieder bei
+  Nummer 1 und sehen aus wie die schon bekannten — sie gingen verloren. Überlappen sich zwei Auszüge,
+  muss jeder den gemeinsamen Tag **vollständig** tragen. (Steht auch im Hilfetext des Programms.)
 - **Wo er entsteht: in `io`, in der CSV-Quelle.** Welche Spalte die Kundenreferenz ist und was „alle
   Spalten" heißt, ist **Format-Wissen** — es gehört hinter den Quell-Seam
   (`.rules/common/architektur.md`). Die Quelle reicht den Schlüssel als opake Zeichenkette im
@@ -64,7 +78,7 @@ Vor diesem ADR ergaben mehrere Läufe in **eine** Datei falsche Zahlen, aus drei
   eingelesene Zeile — der Bestand verdoppelte sich still. Der Digest soll nichts verbergen (die Zeile
   liegt daneben ohnehin roh), sondern nur nicht mehr ablegen als nötig. 128 Bit halten eine
   zufällige Kollision, die eine echte Buchung als „bekannt" verwürfe, praktisch aus. Ein Etikett mit
-  Versionsziffer (`kundenreferenz/1`, `alle-spalten/1`) trennt die beiden Arten und macht eine
+  Versionsziffer (`kundenreferenz/2`, `alle-spalten/1`) trennt die beiden Arten und macht eine
   spätere Änderung der Ableitung sichtbar.
 - **`einlesen_lines.row_key` ist `NOT NULL UNIQUE`.** Der Index trägt zugleich die Frage vor jeder
   Ablage.
@@ -91,9 +105,15 @@ Vor diesem ADR ergaben mehrere Läufe in **eine** Datei falsche Zahlen, aus drei
 - **Jeder Lauf paginiert weiter die ganze obfuskierte Historie** — aller Konten. Genau deshalb zeigt
   der **jüngste** Lauf alle Konten gemeinsam, und derselbe Lauf mehrfach ergibt dieselben Zahlen.
 - **Die Lauf-Identität entsteht dort, wo der Lauf beginnt:** `io::run` mintet sie beim Anstoß der
-  Analyse an der DB (`randomblob`, 128 Bit, opak — wie jede andere ID) und reiht sie als
-  `partition_key` des `StartAnalysis` ein. Der Anstoß ist eine Wurzel-Nachricht des Laufs, so wie der
-  Import-Auslöser seine Quelle benennt.
+  Analyse an der DB und reiht sie als `partition_key` des `StartAnalysis` ein. Der Anstoß ist eine
+  Wurzel-Nachricht des Laufs, so wie der Import-Auslöser seine Quelle benennt.
+- **Sie trägt die Ordnung der Läufe — „der jüngste Lauf" ist ein Vertrag:** die Identität beginnt mit
+  dem UTC-Startzeitpunkt auf die Millisekunde in fester Breite (`20261012T134501.123`), gefolgt von
+  64 Bit Zufall. **Der jüngste Lauf ist der mit der lexikografisch größten `run_id`.** Bewusst nicht
+  SQLites `rowid` (ein `VACUUM` darf sie neu vergeben) und keine eigene Lauf-Nummer-Tabelle. Läufe auf
+  einer Datei sind seriell und dauern länger als eine Millisekunde; zwei gleiche Zeitstempel gibt es
+  nicht. Die Grenze: eine rückwärts gestellte Systemuhr bräche die Ordnung — das Programm vertraut der
+  Uhr der Maschine. Den Vertrag nutzt der Bericht (Issue 0012).
 - **Sie reist als Wert durch die Nachrichten**, nicht als Envelope-ID — der Slice bleibt
   Outbox-blind ([ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md)):
   - `StartAnalysis` → `"{run}"`,
@@ -114,8 +134,9 @@ Vor diesem ADR ergaben mehrere Läufe in **eine** Datei falsche Zahlen, aus drei
   für eine Identität, die außer den Fenstern niemand liest. Die Fenster tragen den Lauf; „der
   jüngste Lauf" ist der des zuletzt abgelegten Fensters.
 - **Ein liegengebliebener Lauf** (Analyse terminal gescheitert) wird beim nächsten Programmstart
-  unter **seiner** alten Lauf-Identität zu Ende geführt; der neue Lauf daneben hat seine eigene.
-  Keiner zählt die Fenster des anderen.
+  unter **seiner** alten Lauf-Identität zu Ende geführt (in Phase 1, die alle offenen Nachrichten
+  abarbeitet); der neue Lauf daneben hat seine eigene. Keiner zählt die Fenster des anderen, und die
+  Vorkommens-Zahl im Lauf-Bericht nennt nur die des neuen Laufs.
 
 ### D — `einlesen` überspringt `Umsatz vorgemerkt` vor der Pflichtfeld-Prüfung
 

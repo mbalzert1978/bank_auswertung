@@ -65,7 +65,7 @@ use crate::obfuskierung::{
 };
 use crate::outbox::OutboxHandler;
 use crate::schema::{self, SchemaError, VersionMismatch};
-use crate::sqlite::{MINT_ID, SqliteOutbox};
+use crate::sqlite::SqliteOutbox;
 
 mod ack_sink;
 mod history_sink;
@@ -266,11 +266,16 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // Der Anstoß trägt die **Lauf-Identität** (ADR-0016): jedes Fenster dieses Laufs und sein
     // Abschluss tragen sie weiter, und die fenster-übergreifende Abfrage sieht nur die Fenster
     // **dieses** Laufs — obwohl er, wie jeder Lauf, die ganze obfuskierte Historie neu paginiert.
+    //
+    // Gezählt werden nur die Vorkommen **dieses** Laufs: hat Phase 1 einen liegengebliebenen alten
+    // Lauf zu Ende geführt (seine Nachrichten lagen noch offen), steckt dessen Zählung schon im
+    // Abnehmer und wird hier abgezogen.
     write_line(protocol, "Lauf: Analyse")?;
+    let occurrences_before = occurrences.count();
     enqueue(&outbox, START_MESSAGE_TYPE, &mint_run_id(&outbox)?)?;
     drain(&outbox, &dispatcher, protocol, &mut report)?;
 
-    report.occurrences = occurrences.count();
+    report.occurrences = occurrences.count().saturating_sub(occurrences_before);
     write_summary(protocol, &report)?;
     Ok(report)
 }
@@ -584,14 +589,26 @@ fn register<'a>(
     }
 }
 
-/// Vergibt die Identität eines neuen Analyse-Laufs — an der DB gemintet wie jede andere ID
-/// (128 Bit Zufall), opak und ohne Bezug zu irgendeinem Rohwert. Sie entsteht **hier**, wo der Lauf
-/// beginnt; der `fenstern`-Slice reicht sie nur durch (ADR-0016).
+/// Vergibt die Identität eines neuen Analyse-Laufs — an der DB gemintet, ohne Bezug zu irgendeinem
+/// Rohwert. Sie entsteht **hier**, wo der Lauf beginnt; der `fenstern`-Slice reicht sie nur durch
+/// (ADR-0016).
+///
+/// **Sie trägt die Ordnung der Läufe** (ADR-0016, „der jüngste Lauf"): vorn der UTC-Startzeitpunkt
+/// auf die Millisekunde in fester Breite (`20261012T134501.123`), dahinter 64 Bit Zufall gegen jede
+/// Verwechslung. Der jüngste Lauf ist darum der mit der **lexikografisch größten** `run_id` — ein
+/// Vertrag an der Spalte selbst, nicht an SQLites `rowid` (die ein `VACUUM` neu vergeben darf). Läufe
+/// auf einer Datei sind seriell und dauern länger als eine Millisekunde; zwei Läufe mit demselben
+/// Zeitstempel gibt es darum nicht. Kein `:` darin — die Identität steht zuletzt in den
+/// `partition_key`s.
 fn mint_run_id(outbox: &SqliteOutbox) -> Result<String, RunError> {
     outbox
-        .with_connection(|conn| conn.query_row(MINT_ID, [], |row| row.get(0)))
+        .with_connection(|conn| conn.query_row(MINT_RUN_ID, [], |row| row.get(0)))
         .map_err(backbone)
 }
+
+/// Startzeitpunkt (UTC, ms, feste Breite) + 64 Bit Zufall — siehe [`mint_run_id`].
+const MINT_RUN_ID: &str =
+    "SELECT strftime('%Y%m%dT%H%M%f', 'now') || '-' || lower(hex(randomblob(8)));";
 
 /// Reiht eine Wurzel-Nachricht ein und verwirft ihre ID: der Lauf zeigt auf nichts, er stößt nur an.
 fn enqueue(outbox: &SqliteOutbox, message_type: &str, key: &str) -> Result<(), RunError> {

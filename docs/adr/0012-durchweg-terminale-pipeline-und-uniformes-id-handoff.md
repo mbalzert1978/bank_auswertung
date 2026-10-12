@@ -1,5 +1,9 @@
 # Durchweg-terminale Pipeline und uniformes ID-Handoff
 
+> **Verfeinert durch [ADR-0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md):** neben der von
+> der Persistenz vergebenen ID trägt jede eingelesene Zeile einen fachlichen **Zeilen-Schlüssel**; eine
+> schon bekannte Zeile wird weder erneut abgelegt noch publiziert. Das ID-Handoff selbst bleibt.
+
 Dieses ADR **verfeinert/supersedet in Teilen** [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)
 (§ „Der Handler arbeitet auf Domänen-Typen", Envelope-Konvention) und
 [ADR-0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Entscheidung B — Fehler-Taktik).

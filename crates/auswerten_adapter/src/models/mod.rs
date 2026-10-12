@@ -40,6 +40,7 @@ pub use analysis_window_row::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, WindowBookingRow,
 };
 pub use category_exchange::{CategoryAnswerRow, CategoryRequestRow, CategoryRow};
+pub(crate) use evaluate_history_command::RunScope;
 pub use evaluate_history_command::{
     CONSUMED_HISTORY_MESSAGE_TYPE, EvaluateHistoryCommand, EvaluateHistoryCommandDecoder,
 };

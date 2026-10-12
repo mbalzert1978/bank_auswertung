@@ -1,6 +1,7 @@
 use auswerten_domain::{EvaluationError, OccurrenceSource, RunHistory, RunSpan};
 
 use crate::abstractions::{OccurrenceSeam, SourceUnavailable};
+use crate::models::RunScope;
 
 /// Die **Port-Bridge** der fenster-übergreifenden Reichweite: erfüllt
 /// `auswerten_domain::OccurrenceSource` und mappt ihn auf den öffentlichen [`OccurrenceSeam`] (den
@@ -21,13 +22,13 @@ use crate::abstractions::{OccurrenceSeam, SourceUnavailable};
 /// muss den Lauf dafür nicht kennen.
 pub(crate) struct OccurrenceBridge<'a> {
     pub(crate) seam: &'a dyn OccurrenceSeam,
-    pub(crate) run: &'a str,
+    pub(crate) run: &'a RunScope,
 }
 
 impl OccurrenceSource for OccurrenceBridge<'_> {
     fn history_in(&self, span: RunSpan) -> Result<RunHistory, EvaluationError> {
         self.seam
-            .history_in(self.run, span.from().value(), span.to().value())
+            .history_in(self.run.as_str(), span.from().value(), span.to().value())
             .map_err(
                 |SourceUnavailable { message }| EvaluationError::SourceUnavailable {
                     reason: message,

@@ -17,10 +17,10 @@
 //! zwei Dinge leitet der Reader zusätzlich ab, weil sie **Format-Wissen** sind und darum hierher
 //! gehören, nicht in den Slice:
 //!
-//! - den **Zeilen-Schlüssel** je Zeile — Auftragskonto + Kundenreferenz (End-to-End) + Betrag, wenn
-//!   die Kundenreferenz gefüllt ist; sonst **alle** Spalten. Dazu kommt die **laufende Nummer**
-//!   gleicher Zeilen innerhalb dieser Datei, damit zwei echte, gleiche Buchungen am selben Tag beide
-//!   zählen. Abgelegt wird nur ein **Digest** (SipHash-1-3, 128 Bit, fester Schlüssel), nie die
+//! - den **Zeilen-Schlüssel** je gebuchter Zeile — Auftragskonto + Kundenreferenz (End-to-End) +
+//!   Betrag + Buchungstag, wenn die Kundenreferenz gefüllt ist; sonst **alle** Spalten. Dazu kommt
+//!   die **laufende Nummer** gleicher gebuchter Zeilen innerhalb dieser Datei, damit zwei echte,
+//!   gleiche Buchungen am selben Tag beide zählen. Eine vorgemerkte Zeile bekommt keinen. Abgelegt wird nur ein **Digest** (SipHash-1-3, 128 Bit, fester Schlüssel), nie die
 //!   Bestandteile im Klartext;
 //! - den **Buchungsstand** aus der `Info`-Spalte: `Umsatz vorgemerkt` → [`RecordStatus::Pending`],
 //!   alles andere → gebucht. Überspringen tut die Zeile erst die ACL des Slice.
@@ -72,8 +72,9 @@ const ROW_KEY_HASH_KEYS: (u64, u64) = (0x7a65_696c_656e_2d73, 0x6368_6c75_6573_7
 
 /// Unterscheidet die beiden Schlüssel-Arten im Digest, damit ein Kundenreferenz-Schlüssel nie mit
 /// einem Alle-Spalten-Schlüssel zusammenfallen kann. Die angehängte Ziffer ist die Version der
-/// Ableitung — ändert sie sich je, erkennt kein Import mehr eine früher eingelesene Zeile.
-const END_TO_END_LABEL: &str = "kundenreferenz/1";
+/// Ableitung — ändert sie sich je, erkennt kein Import mehr eine früher eingelesene Zeile. Version 2
+/// nahm den Buchungstag in den Kundenreferenz-Weg auf (ADR-0016).
+const REFERENCE_LABEL: &str = "kundenreferenz/2";
 const ALL_COLUMNS_LABEL: &str = "alle-spalten/1";
 
 /// Der echte Quell-Seam: liest die CSV-CAMT-v8-Datei am gehaltenen Pfad. Der Pfad wird erst beim
@@ -120,9 +121,9 @@ fn read_records(path: &Path) -> Result<Vec<RawRecord>, SourceUnavailable> {
 /// Bildet eine geparste Zeile positionsbasiert auf das Seam-DTO ab. Weder Präsenz- noch
 /// Ein-Währung-Prüfung finden **hier** statt (beide liegen formatunabhängig in der Adapter-ACL,
 /// `SourceBridge`) — der Reader liefert nur die rohen Zellen; eine leere Zelle wird zu `None`.
-fn into_raw_record(record: &StringRecord, row_key: String) -> RawRecord {
+fn into_raw_record(record: &StringRecord, row_key: Option<String>) -> RawRecord {
     RawRecord {
-        row_key: Some(row_key),
+        row_key,
         status: status(record),
         ordering_account: cell(record, COL_ORDERING_ACCOUNT),
         booking_day: cell(record, COL_BOOKING_DAY),
@@ -146,69 +147,111 @@ fn status(record: &StringRecord) -> RecordStatus {
     }
 }
 
-/// Die Zeilen-Schlüssel aller Zeilen der Datei, in Lesereihenfolge. Je Zeile ihre **Identität**
-/// ([`identity`]) plus die laufende Nummer, die gleiche Identitäten **in dieser Datei** durchzählt:
+/// Die Zeilen-Schlüssel aller Zeilen der Datei, in Lesereihenfolge. Je **gebuchter** Zeile ihre
+/// [`RowIdentity`] plus die laufende Nummer, die gleiche Identitäten **in dieser Datei** durchzählt:
 /// die erste gleiche Zeile trägt 1, die zweite 2. So zählen zwei echte, gleiche Buchungen beide, und
 /// ein überlappender Auszug, der dieselben Zeilen in derselben Reihenfolge wieder trägt, erzeugt
 /// dieselben Schlüssel.
 ///
-/// **Die Grenze** (ADR-0016): die Nummer zählt innerhalb **einer** Datei. Schneidet ein Export einen
-/// Tag mittendrin ab, trägt der nächste Export die übrigen gleichen Zeilen jenes Tages ab Nummer 1 —
-/// und sie sähen aus wie die schon bekannten. Ein Export darf darum keinen Tag mittendrin abschneiden.
-fn row_keys(rows: &[StringRecord]) -> Vec<String> {
+/// **Nur Gebuchtes wird gezählt.** Der Buchungsstand steht **vor** der Nummerierung fest: eine
+/// vorgemerkte Zeile bekommt **keinen** Schlüssel (`None` — die ACL verwirft sie ohnehin vor jeder
+/// Prüfung) und verschiebt keine Nummer. Sonst trüge dieselbe gebuchte Zeile in einem Auszug mit
+/// vorgemerktem Zwilling eine andere Nummer als im nächsten, wo der Zwilling gebucht ist.
+///
+/// **Die Grenze** (ADR-0016): beide Identitäten tragen den Buchungstag, also zählt die Nummer
+/// innerhalb **eines Tages einer Datei**. Schneidet ein Export einen Tag mittendrin ab, trägt der
+/// nächste Export die übrigen gleichen Zeilen jenes Tages ab Nummer 1 — und sie sähen aus wie die
+/// schon bekannten. Ein Tag muss darum **vollständig** im Export stehen.
+fn row_keys(rows: &[StringRecord]) -> Vec<Option<String>> {
     rows.iter()
-        .scan(HashMap::<Vec<String>, u64>::new(), |seen, row| {
-            let identity = identity(row);
-            let occurrence = seen.entry(identity.clone()).or_insert(0);
-            *occurrence += 1;
-            Some(digest(&identity, *occurrence))
+        .scan(HashMap::<RowIdentity, u64>::new(), |seen, row| {
+            Some(match status(row) {
+                RecordStatus::Pending => None,
+                RecordStatus::Booked => {
+                    let identity = RowIdentity::of(row);
+                    let occurrence = seen.entry(identity.clone()).or_insert(0);
+                    *occurrence += 1;
+                    Some(identity.digest(*occurrence))
+                }
+            })
         })
         .collect()
 }
 
-/// Die **Identität** einer Zeile, aus der ihr Schlüssel entsteht — ein Etikett gefolgt von den
-/// Bestandteilen:
-///
-/// - mit gefüllter **Kundenreferenz** (End-to-End): Auftragskonto + Kundenreferenz + Betrag. Der
-///   Betrag steht dabei, weil eine Rücklastschrift die Kundenreferenz der ursprünglichen Lastschrift
-///   wiederholt — ohne ihn verschluckte ein späterer Auszug die Rückbuchung als „schon bekannt";
-/// - **ohne** sie: alle Spalten der Zeile (das Auftragskonto ist die erste).
-fn identity(row: &StringRecord) -> Vec<String> {
-    let trimmed = |index| row.get(index).map(str::trim).unwrap_or_default();
-    let reference = trimmed(COL_END_TO_END);
-    let has_reference =
-        !reference.is_empty() && !reference.eq_ignore_ascii_case(END_TO_END_PLACEHOLDER);
-    if has_reference {
-        [
-            END_TO_END_LABEL,
-            trimmed(COL_ORDERING_ACCOUNT),
-            reference,
-            trimmed(COL_AMOUNT),
-        ]
-        .into_iter()
-        .map(str::to_string)
-        .collect()
-    } else {
-        std::iter::once(ALL_COLUMNS_LABEL)
-            .chain(row.iter().map(str::trim))
-            .map(str::to_string)
-            .collect()
-    }
+/// Die **Identität** einer gebuchten Zeile, aus der ihr Schlüssel entsteht — ein Summentyp der beiden
+/// Wege aus ADR-0016:
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RowIdentity {
+    /// Mit gefüllter **Kundenreferenz** (End-to-End): Auftragskonto + Kundenreferenz + Betrag +
+    /// Buchungstag. Der Betrag steht dabei, weil eine Rücklastschrift die Kundenreferenz der
+    /// ursprünglichen Lastschrift wiederholt; der **Buchungstag**, weil manche Gläubiger dieselbe
+    /// Referenz Monat für Monat wiederverwenden — ohne ihn zählte die laufende Nummer über die ganze
+    /// Datei, und ein überlappender Auszug verschluckte still den neuen Monat.
+    Reference {
+        account: String,
+        reference: String,
+        amount: String,
+        day: String,
+    },
+    /// **Ohne** sie: alle Spalten der Zeile (das Auftragskonto ist die erste, der Buchungstag die
+    /// zweite).
+    AllColumns(Vec<String>),
 }
 
-/// Der Digest aus Identität und laufender Nummer: 32 Hex-Zeichen (128 Bit). Jeder Bestandteil geht
-/// **längen-präfixiert** ein, damit verschobene Zellgrenzen (`"ab";"c"` gegen `"a";"bc"`) nicht
-/// denselben Digest ergeben. Die 128 Bit halten eine zufällige Kollision — die eine echte Buchung
-/// still als „schon bekannt" verwürfe — praktisch aus.
-fn digest(identity: &[String], occurrence: u64) -> String {
-    let (key0, key1) = ROW_KEY_HASH_KEYS;
-    let mut hasher = SipHasher13::new_with_keys(key0, key1);
-    identity.iter().for_each(|part| {
-        hasher.write_u64(u64::try_from(part.len()).unwrap_or(u64::MAX));
-        hasher.write(part.as_bytes());
-    });
-    hasher.write_u64(occurrence);
-    format!("{:032x}", hasher.finish128().as_u128())
+impl RowIdentity {
+    /// Liest die Identität einer Zeile; `NOTPROVIDED` zählt wie eine leere Kundenreferenz.
+    fn of(row: &StringRecord) -> Self {
+        let trimmed = |index| {
+            row.get(index)
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let reference = trimmed(COL_END_TO_END);
+        if reference.is_empty() || reference.eq_ignore_ascii_case(END_TO_END_PLACEHOLDER) {
+            Self::AllColumns(row.iter().map(|cell| cell.trim().to_string()).collect())
+        } else {
+            Self::Reference {
+                account: trimmed(COL_ORDERING_ACCOUNT),
+                reference,
+                amount: trimmed(COL_AMOUNT),
+                day: trimmed(COL_BOOKING_DAY),
+            }
+        }
+    }
+
+    /// Das Etikett und die Bestandteile, in fester Reihenfolge — die eine Stelle, an der die Variante
+    /// zu Bytes wird.
+    fn parts(&self) -> (&'static str, Vec<&str>) {
+        match self {
+            Self::Reference {
+                account,
+                reference,
+                amount,
+                day,
+            } => (REFERENCE_LABEL, vec![account, reference, amount, day]),
+            Self::AllColumns(cells) => (
+                ALL_COLUMNS_LABEL,
+                cells.iter().map(String::as_str).collect(),
+            ),
+        }
+    }
+
+    /// Der Digest aus Identität und laufender Nummer: 32 Hex-Zeichen (128 Bit). Etikett und jeder
+    /// Bestandteil gehen **längen-präfixiert** ein, damit verschobene Zellgrenzen (`"ab";"c"` gegen
+    /// `"a";"bc"`) nicht denselben Digest ergeben. Die 128 Bit halten eine zufällige Kollision — die
+    /// eine echte Buchung still als „schon bekannt" verwürfe — praktisch aus.
+    fn digest(&self, occurrence: u64) -> String {
+        let (key0, key1) = ROW_KEY_HASH_KEYS;
+        let mut hasher = SipHasher13::new_with_keys(key0, key1);
+        let (label, parts) = self.parts();
+        std::iter::once(label).chain(parts).for_each(|part| {
+            hasher.write_u64(u64::try_from(part.len()).unwrap_or(u64::MAX));
+            hasher.write(part.as_bytes());
+        });
+        hasher.write_u64(occurrence);
+        format!("{:032x}", hasher.finish128().as_u128())
+    }
 }
 
 /// Liest die Zelle an `index`: getrimmt, leer/fehlend → `None` (der Domänen-`NonEmptyString` trimmt
@@ -335,6 +378,52 @@ mod tests {
             .collect();
 
         assert_eq!(status, vec![RecordStatus::Pending, RecordStatus::Booked]);
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn ueberlappende_auszuege_mit_wiederkehrender_referenz_schluesseln_jeden_monat_eigen()
+    -> Result<(), SourceUnavailable> {
+        // Der Fall aus Review-Runde 1: ein Gläubiger nutzt Monat für Monat dieselbe Kundenreferenz
+        // und denselben Betrag. Auszug A trägt April–Juni, Auszug B Mai–Juli. Ohne den Buchungstag
+        // im Schlüssel zählte die laufende Nummer über die Datei, und B's Juli sah aus wie A's April.
+        let a = schluessel("referenz_wiederholt_a.csv")?; // Juni, Mai, April
+        let b = schluessel("referenz_wiederholt_b.csv")?; // Juli, Juni, Mai
+
+        assert!(paarweise_verschieden(&a), "{a:?}");
+        assert!(paarweise_verschieden(&b), "{b:?}");
+        assert_eq!(b.get(1), a.first(), "Juni wird wiedererkannt");
+        assert_eq!(b.get(2), a.get(1), "Mai wird wiedererkannt");
+        assert!(
+            b.first().is_some_and(|juli| !a.contains(juli)),
+            "der Juli ist neu"
+        );
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn eine_vorgemerkte_zeile_bekommt_keinen_schluessel_und_verschiebt_keine_nummer()
+    -> Result<(), SourceUnavailable> {
+        // Heute vorgemerkt neben der schon gebuchten gleichen Abbuchung, im nächsten Auszug nur noch
+        // gebucht: die gebuchte Zeile muss in beiden Auszügen denselben Schlüssel tragen.
+        let mit_vorgemerkter = schluessel("referenz_vorgemerkt.csv")?;
+        let nur_gebucht = schluessel("referenz_gebucht.csv")?;
+
+        assert_eq!(
+            mit_vorgemerkter.first(),
+            Some(&None),
+            "die vorgemerkte Zeile"
+        );
+        assert_eq!(mit_vorgemerkter.get(1), nur_gebucht.first());
+        assert!(nur_gebucht.first().is_some_and(Option::is_some));
         Ok(())
     }
 }

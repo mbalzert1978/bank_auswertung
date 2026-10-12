@@ -655,4 +655,29 @@ mod tests {
         assert_eq!(ingested_partition_keys(&outbox)?.len(), 1);
         Ok(())
     }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn zwei_ueberlappende_auszuege_mit_wiederkehrender_referenz_verlieren_keinen_monat()
+    -> rusqlite::Result<()> {
+        // Der Repro aus Review-Runde 1, gegen echtes SQLite: April–Juni, dann Mai–Juli, dieselbe
+        // Kundenreferenz und derselbe Betrag jeden Monat. Vier Monate, vier Zeilen — der Juli fehlt
+        // nicht still.
+        let outbox = SqliteOutbox::open_in_memory()?;
+        let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
+
+        deliver(&outbox, store.clone(), "referenz_wiederholt_a.csv")?;
+        deliver(&outbox, store.clone(), "referenz_wiederholt_b.csv")?;
+
+        let monate: Vec<u8> = store
+            .lines()?
+            .into_iter()
+            .map(|(_, line)| line.booking_day.month)
+            .collect();
+        assert_eq!(monate, vec![6, 5, 4, 7]);
+        Ok(())
+    }
 }

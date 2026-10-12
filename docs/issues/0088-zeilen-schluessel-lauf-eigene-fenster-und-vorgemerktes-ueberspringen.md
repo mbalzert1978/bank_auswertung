@@ -74,12 +74,13 @@ Die Schema-Änderung ist die **erste echte Migration** auf dem Versionsanker aus
 ## Wie es gebaut wurde
 
 - **Zeilen-Schlüssel (`einlesen`).** Die CSV-Quelle in `io` (`crates/io/src/einlesen/source.rs`)
-  leitet je Zeile den Schlüssel ab — Auftragskonto + Kundenreferenz + Betrag, wenn die Referenz
-  gefüllt ist (`NOTPROVIDED` zählt als leer), sonst alle Spalten; dazu die laufende Nummer gleicher
-  Zeilen in der Datei — und legt nur einen SipHash-128-Digest mit festem Schlüssel in den neuen
-  `RawRecord.row_key`. Der Slice trägt ihn als `RowKey` durch; die ACL weist doppelte Schlüssel im
-  Batch ab (`SourceError::DuplicateRowKey`) und verlangt ihn als Pflichtfeld. `einlesen_lines.row_key`
-  ist `NOT NULL UNIQUE`.
+  leitet je **gebuchter** Zeile den Schlüssel ab (`RowIdentity`): Auftragskonto + Kundenreferenz +
+  Betrag + Buchungstag, wenn die Referenz gefüllt ist (`NOTPROVIDED` zählt als leer), sonst alle
+  Spalten; dazu die laufende Nummer gleicher gebuchter Zeilen in der Datei. Eine vorgemerkte Zeile
+  bekommt keinen Schlüssel und verschiebt keine Nummer. Abgelegt wird nur ein SipHash-128-Digest mit
+  festem Schlüssel in `RawRecord.row_key`. Der Slice trägt ihn als `RowKey` durch; die ACL weist
+  doppelte Schlüssel im Batch ab (`SourceError::DuplicateRowKey`) und verlangt ihn als Pflichtfeld.
+  `einlesen_lines.row_key` ist `NOT NULL UNIQUE`.
 - **Ein neuer Import ergänzt.** Der `Store`-Port antwortet `Recording::New(id) | AlreadyKnown`
   (Seam: `StoreOutcome`); der Handler publiziert nur Neues. Der io-Store fragt vorher den committeten
   Bestand (`SliceUnit::read`, neu und generisch).
@@ -98,4 +99,19 @@ Die Schema-Änderung ist die **erste echte Migration** auf dem Versionsanker aus
   vorgemerkte), `zwei_gleiche.csv`, `vorgemerkt.csv`, `kundenreferenz.csv`.
 - **Doku:** CLAUDE.md und der `lauf`-Hilfetext beschreiben jetzt „mehrere Läufe, eine `--db`" samt
   der Grenze statt der alten „frische `--db`"-Warnung.
+
+### Review-Runde 1
+
+- **Datenverlust behoben:** der Kundenreferenz-Schlüssel trägt jetzt den Buchungstag (Etikett
+  `kundenreferenz/2`); wiederkehrende Referenzen zum selben Betrag in überlappenden Auszügen verlieren
+  keinen Monat mehr —
+  `einlesen::store::tests::zwei_ueberlappende_auszuege_mit_wiederkehrender_referenz_verlieren_keinen_monat`,
+  `einlesen::source::tests::ueberlappende_auszuege_mit_wiederkehrender_referenz_schluesseln_jeden_monat_eigen`.
+- Nur gebuchte Zeilen werden durchnummeriert —
+  `einlesen::source::tests::eine_vorgemerkte_zeile_bekommt_keinen_schluessel_und_verschiebt_keine_nummer`.
+- Identität als Summentyp `RowIdentity`; Lauf-Scope in `auswerten` als Newtype `RunScope`.
+- „Jüngster Lauf" = größte `run_id` (beginnt mit dem UTC-Startzeitpunkt) —
+  `run::tests::der_juengste_lauf_ist_der_mit_der_groessten_lauf_identitaet`.
+- Die Vorkommens-Zahl im Lauf-Bericht zählt nur den neuen Lauf.
+- ADR-0012/0013 tragen „verfeinert durch ADR-0016".
 
