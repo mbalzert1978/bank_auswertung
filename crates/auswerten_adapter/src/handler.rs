@@ -5,7 +5,7 @@ use crate::abstractions::{
     AnalysisWindowSeam, CategorizerSeam, CategoryRegistrySeam, EvaluationStoreSeam,
 };
 use crate::adapter::{CategorizerBridge, RegistryBridge, RepositoryBridge, SourceBridge};
-use crate::models::{ConfigRejected, EvaluateWindowCommand, OwnAccountsConfig};
+use crate::models::{EvaluateWindowCommand, OwnAccountsConfig};
 
 /// Der **`application_kernel::Handler` des Slice** für die **pro-Fenster**-Reichweite: die reine
 /// `Command → Domäne → Response`-Pipeline, über die `io`s generische `OutboxConsumer` den Slice
@@ -58,15 +58,7 @@ impl Handler for WindowEvaluationHandler<'_> {
     fn handle(&self, command: EvaluateWindowCommand) -> Result<(), EvaluationError> {
         // **Zuerst** die Config deuten: eine fehlerhafte Config ist terminal, **bevor** irgendetwas
         // gelesen oder abgelegt wird — sie beträfe jede Buchung des Fensters, nicht eine.
-        let own_accounts =
-            self.own_accounts
-                .to_own_accounts()
-                .map_err(|rejected| match rejected {
-                    ConfigRejected::MissingMandatoryField { field } => {
-                        EvaluationError::MissingMandatoryField { field }
-                    }
-                    ConfigRejected::UnknownAccountRole => EvaluationError::UnknownAccountRole,
-                })?;
+        let own_accounts = self.own_accounts.to_own_accounts()?;
         DomainHandler::new(
             &self.source,
             &self.repository,

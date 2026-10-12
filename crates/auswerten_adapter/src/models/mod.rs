@@ -7,8 +7,11 @@
 //!
 //! Die **fenster-übergreifende** Reichweite bringt ihr eigenes Paar mit: den
 //! [`EvaluateHistoryCommand`] samt [`EvaluateHistoryCommandDecoder`] (die **Lauf-Spanne** liegt im
-//! `partition_key`, Form `"{from}:{to}"`, wie `fenstern` sie setzt) und die [`OccurrenceRow`] als
-//! **Ausgangs**-DTO — zurückgegeben, **nicht** abgelegt (kein Vorkommens-/Fold-Log).
+//! `partition_key`, Form `"{from}:{to}"`, wie `fenstern` sie setzt), die gelesene
+//! [`RunHistoryRow`] (Eingang) und die [`HistoryEvaluationRow`] als **Ausgangs**-DTO — die
+//! [`OccurrenceRow`]s der Zeitachse und die [`RecurrenceRow`]s der Wiederkehr-Erkennung (samt
+//! [`RecurrenceRhythm`]/[`PriceIncreaseRow`]), zurückgegeben, **nicht** abgelegt (kein
+//! Vorkommens-/Fold-Log).
 //!
 //! Das **Kategorisierer-Orakel** bringt drei mit: die [`CategoryRequestRow`] als **Egress-DTO**
 //! (hinaus — sie trägt die compilerfeste „kein `Serialize`"-Sperre), die [`CategoryAnswerRow`]
@@ -26,8 +29,10 @@ mod analysis_window_row;
 mod category_exchange;
 mod evaluate_history_command;
 mod evaluate_window_command;
+mod history_evaluation_row;
 mod occurrence_row;
 mod own_accounts_config;
+mod run_history_row;
 mod window_evaluation_row;
 
 pub use account_role_vocabulary::account_role_label;
@@ -41,9 +46,12 @@ pub use evaluate_history_command::{
 pub use evaluate_window_command::{
     CONSUMED_MESSAGE_TYPE, EvaluateWindowCommand, EvaluateWindowCommandDecoder,
 };
+pub use history_evaluation_row::{
+    HistoryEvaluationRow, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow,
+};
 pub use occurrence_row::OccurrenceRow;
-pub(crate) use own_accounts_config::ConfigRejected;
 pub use own_accounts_config::{OwnAccountRow, OwnAccountsConfig};
+pub use run_history_row::RunHistoryRow;
 pub use window_evaluation_row::{
     CounterAccountRow, FeeRow, InternalTransferRow, MonthlyCashflowRow, WindowEvaluationRow,
 };

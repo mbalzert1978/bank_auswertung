@@ -38,7 +38,7 @@
 
 use auswerten_adapter::{
     AnalysisWindowRow, AnalysisWindowSeam, BookingDirection, BookingRecipient, OccurrenceSeam,
-    SourceUnavailable, WindowBookingRow,
+    RunHistoryRow, SourceUnavailable, WindowBookingRow,
 };
 use rusqlite::{OptionalExtension, params};
 
@@ -115,16 +115,27 @@ impl AnalysisWindowSeam for AuswertungsfensterSource {
 }
 
 impl OccurrenceSeam for AuswertungsfensterSource {
-    /// Liest die Buchungen **aller** Fenster **innerhalb** der Lauf-Spanne `[from … to]` (beide
+    /// Liest die Historie **aller** Fenster **innerhalb** der Lauf-Spanne `[from … to]` (beide
     /// Grenzen einschließlich) in **einer** Query über die Fenster-Tabellen im Join auf `obfuskiert`.
-    /// Ein **leerer** Vektor ist kein Fehler, sondern die gültige Auskunft „in dieser Spanne liegt
-    /// nichts"; `Err` = die Beschaffung misslang (terminal). **Kein Seed-Marker** — die
-    /// fenster-übergreifende Reichweite ordnet keine Gegenkonten ein, sie sammelt Vorkommen.
-    fn bookings_in(&self, from: i64, to: i64) -> Result<Vec<WindowBookingRow>, SourceUnavailable> {
-        self.raw_bookings(SELECT_RUN_BOOKINGS, &[&from, &to])?
-            .iter()
-            .map(RawBooking::to_booking)
-            .collect()
+    /// Eine Historie **ohne** Buchungen ist kein Fehler, sondern die gültige Auskunft „in dieser
+    /// Spanne liegt nichts"; `Err` = die Beschaffung misslang (terminal).
+    ///
+    /// **Mit Seed-Marker** (Issue 0005): die Wiederkehr-Erkennung nettet Umbuchungen auf Token heraus
+    /// und muss dafür wissen, unter welcher Tokenisierung die Gegenkonto-Token entstanden. Gelesen
+    /// wird er wie beim Einzel-Fenster — über dieselbe Funktion, die auch hier erzwingt, dass **alle**
+    /// Buchungen denselben tragen.
+    fn history_in(&self, from: i64, to: i64) -> Result<RunHistoryRow, SourceUnavailable> {
+        let raw = self.raw_bookings(SELECT_RUN_BOOKINGS, &[&from, &to])?;
+        let seed_marker = window_seed_marker(&raw)?;
+        Ok(RunHistoryRow {
+            // Wie beim Einzel-Fenster: „kein Marker" wird erst hier zur leeren Zelle — und die ACL
+            // verlangt ihn nur, wenn auch Buchungen da sind.
+            seed_marker: seed_marker.map_or_else(String::new, SeedMarker::into_string),
+            bookings: raw
+                .iter()
+                .map(RawBooking::to_booking)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 }
 
@@ -225,9 +236,9 @@ impl RawBooking {
     }
 }
 
-/// Leitet den **einen** Seed-Marker des Fensters aus seinen Zeilen ab und **erzwingt dabei die
-/// Fenster-Invariante**: alle Buchungen eines Fensters stammen aus **einer** Tokenisierung, tragen
-/// also denselben Marker. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
+/// Leitet den **einen** Seed-Marker des Fensters — bzw. der Lauf-Historie — aus seinen Zeilen ab
+/// und **erzwingt dabei die Invariante**: alle Buchungen eines Fensters (und eines Laufs) stammen aus
+/// **einer** Tokenisierung, tragen also denselben Marker. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
 /// **terminal + redigiert** statt still einen Marker der ersten Zeile zu wählen — sonst könnte die
 /// `SeedMarker`-Schranke der Domäne stillschweigend verfälscht werden.
 ///
@@ -245,7 +256,7 @@ fn window_seed_marker(raw: &[RawBooking]) -> Result<Option<SeedMarker>, SourceUn
         .any(|booking| booking.seed_marker != first.seed_marker)
     {
         return Err(unavailable_message(
-            "Fenster trägt Buchungen aus unterschiedlichen Tokenisierungen",
+            "Buchungen aus unterschiedlichen Tokenisierungen",
         ));
     }
     Ok(Some(first.seed_marker()))
@@ -356,12 +367,12 @@ mod tests {
 
     /// Ebenso terminal failt die fenster-übergreifende Query ohne die Fenster-Tabellen.
     #[test]
-    fn bookings_in_ohne_fenster_tabelle_failt_terminal() -> rusqlite::Result<()> {
+    fn history_in_ohne_fenster_tabelle_failt_terminal() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         let source = AuswertungsfensterSource::new(outbox);
 
         source
-            .bookings_in(0, 1_000_000)
+            .history_in(0, 1_000_000)
             .expect_err("ohne Fenster-Tabellen muss die Query terminal failen");
         Ok(())
     }

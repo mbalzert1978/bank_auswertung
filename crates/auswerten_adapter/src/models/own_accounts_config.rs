@@ -1,4 +1,6 @@
-use auswerten_domain::{AccountRole, AccountToken, NonEmptyString, OwnAccounts, SeedMarker};
+use auswerten_domain::{
+    AccountRole, AccountToken, EvaluationError, NonEmptyString, OwnAccounts, SeedMarker,
+};
 
 use crate::models::account_role_vocabulary::parse_role;
 
@@ -81,4 +83,18 @@ impl OwnAccountRow {
 pub(crate) enum ConfigRejected {
     MissingMandatoryField { field: &'static str },
     UnknownAccountRole,
+}
+
+impl From<ConfigRejected> for EvaluationError {
+    /// Die abgelehnte Config auf den nackten Domänen-Fehler — **eine** Abbildung für **beide**
+    /// Reichweiten, die die Config deuten. Redigiert wie ihre Quelle: der statische Feldname, sonst
+    /// nichts.
+    fn from(rejected: ConfigRejected) -> Self {
+        match rejected {
+            ConfigRejected::MissingMandatoryField { field } => {
+                EvaluationError::MissingMandatoryField { field }
+            }
+            ConfigRejected::UnknownAccountRole => EvaluationError::UnknownAccountRole,
+        }
+    }
 }

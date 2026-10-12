@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use auswerten_adapter::OccurrenceRow;
+use auswerten_adapter::HistoryEvaluationRow;
 
 use crate::auswerten::OccurrenceSink;
 
@@ -9,9 +9,10 @@ use crate::auswerten::OccurrenceSink;
 /// Vorkommen und wirft sie fort.
 ///
 /// **Warum zählen und nicht mehr.** Diese Reichweite *gibt ihr Ergebnis zurück, statt es abzulegen* —
-/// die Aggregate sind die alleinige Wahrheit. Wer damit rechnet, ist der Wiederkehr-Analyzer
-/// ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)); bis der steht, hat der Lauf
-/// niemanden, dem er die Zeitachse reichen könnte. Sie zu **zählen** macht immerhin beobachtbar, dass
+/// die Aggregate sind die alleinige Wahrheit. Die Wiederkehr-Erkennung
+/// ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)) rechnet schon **in** der
+/// Reichweite; wer ihr Ergebnis liest, ist der Bericht (Issue 0012) — bis der steht, hat der Lauf
+/// niemanden, dem er es reichen könnte. Sie zu **zählen** macht immerhin beobachtbar, dass
 /// die Reichweite lief und wie viel sie sah — ohne einen einzigen Wert zu drucken. Ein Vorkommen trägt
 /// Fingerabdruck, Tag und Betrag; nichts davon gehört in eine Ausgabe, und die reine Anzahl ist kein
 /// Rohwert.
@@ -32,7 +33,8 @@ impl CountingOccurrenceSink {
 }
 
 impl OccurrenceSink for CountingOccurrenceSink {
-    fn receive(&self, occurrences: Vec<OccurrenceRow>) {
-        self.count.set(self.count.get() + occurrences.len());
+    fn receive(&self, evaluation: HistoryEvaluationRow) {
+        self.count
+            .set(self.count.get() + evaluation.occurrences.len());
     }
 }

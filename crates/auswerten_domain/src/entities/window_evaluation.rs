@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::entities::AnalysisWindow;
 use crate::value_objects::WindowedBooking;
 use crate::value_objects::{
-    AccountRole, BookingKind, Category, CategoryAnswer, CounterAccount, Currency, Fee, Fingerprint,
+    BookingKind, Category, CategoryAnswer, CounterAccount, Currency, Fee, Fingerprint,
     InternalTransfer, Month, MonthlyCashflow, OwnAccounts, WindowId,
 };
 
@@ -71,7 +71,7 @@ impl WindowEvaluation {
             snapshot
                 .bookings()
                 .iter()
-                .filter(|booking| transfer_role(booking, own_accounts).is_none())
+                .filter(|booking| booking.transfer_role(own_accounts).is_none())
                 .map(|booking| ((), booking)),
         );
         // Die andere Seite: dieselben Monats-Buckets, aber je **Rolle des Gegenkontos** getrennt —
@@ -80,7 +80,7 @@ impl WindowEvaluation {
             snapshot
                 .bookings()
                 .iter()
-                .filter_map(|booking| Some((transfer_role(booking, own_accounts)?, booking))),
+                .filter_map(|booking| Some((booking.transfer_role(own_accounts)?, booking))),
         );
         // Und die **Überlagerung**: was die Bank innerhalb desselben Cashflows selbst einzog, je
         // Monat und belastetem Konto. Sie liest aus **derselben** Menge wie der Cashflow oben — nur
@@ -90,7 +90,7 @@ impl WindowEvaluation {
             snapshot
                 .bookings()
                 .iter()
-                .filter(|booking| transfer_role(booking, own_accounts).is_none())
+                .filter(|booking| booking.transfer_role(own_accounts).is_none())
                 .filter(|booking| booking.kind() == BookingKind::Fee)
                 .map(|booking| (booking.ordering_account().clone(), booking)),
         );
@@ -208,31 +208,6 @@ impl WindowEvaluation {
     #[must_use]
     pub fn categories(&self) -> &[CategoryAnswer] {
         &self.categories
-    }
-}
-
-/// Entscheidet für **eine** Buchung, ob sie eine Umbuchung ist: `Some(role)`, wenn ihr Gegenkonto in
-/// der Eigen-Menge liegt — dann trägt sie die Rolle **dieses Gegenkontos** —, sonst `None`.
-///
-/// **Ein einzelnes Bein genügt als Nachweis.** Man könnte auf das *Paar* warten (Abgang hier,
-/// Zugang dort) und nur netten, wenn beide vorliegen. Genau das wäre aber nur richtig, wenn beide
-/// Konten im selben Lauf und im selben Fenster stünden: bei nur einem eingelesenen Auszug, an einer
-/// Fenstergrenze oder bei einer Umbuchung über den Monatswechsel bliebe das Gegenstück aus, und die
-/// Umbuchung zählte wieder als Ausgabe. Seit die Auflösung **auf Token** arbeitet (ADR-0013,
-/// Entscheidung F), ist das Paar auch nicht nötig: „das Gegenkonto ist meines" steht schon an der
-/// einen Zeile.
-///
-/// **Keine Gegenseite ist keine eigene.** Eine Entgeltzeile hat gar kein Gegenkonto — sie ist echter
-/// Abfluss und bleibt im Cashflow (CONTEXT.md, „Umbuchungskosten": die Gebühr *für* eine Umbuchung
-/// ist selbst keine). Genau daran hängt, dass beide Analyzer koexistieren: die Umbuchung fällt
-/// heraus, die Gebühr für sie bleibt und wird von [`Fee`] zusätzlich herausgehoben.
-fn transfer_role(booking: &WindowedBooking, own_accounts: &OwnAccounts) -> Option<AccountRole> {
-    match booking
-        .counter_account()
-        .map(|token| own_accounts.resolve(token))
-    {
-        Some(CounterAccount::Own(role)) => Some(role),
-        Some(CounterAccount::Foreign) | None => None,
     }
 }
 

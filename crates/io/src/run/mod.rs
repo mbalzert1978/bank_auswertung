@@ -506,7 +506,7 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
                 &adapters.analysis_windows,
                 &adapters.registry,
                 &adapters.categorizer,
-                own_accounts,
+                own_accounts.clone(),
                 stores.auswerten.clone(),
             )),
         )?;
@@ -515,6 +515,7 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
             CONSUMED_HISTORY_MESSAGE_TYPE,
             Box::new(history_consumer(
                 &adapters.analysis_windows,
+                own_accounts,
                 occurrences.clone(),
                 stores.auswerten,
             )),

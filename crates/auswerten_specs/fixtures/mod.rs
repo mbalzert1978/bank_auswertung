@@ -18,7 +18,8 @@
 use auswerten_adapter::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRequestRow, CategoryRow,
     CounterAccountRow, EvaluationTestApi, FeeRow, HistoryTestApi, InternalTransferRow,
-    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, WindowBookingRow,
+    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, PriceIncreaseRow,
+    RecurrenceRhythm, RecurrenceRow, WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -309,11 +310,12 @@ pub(crate) fn gegenkonto_eingang(
 /// zusammenfinden.
 pub(crate) const HAENDLER: &str = "DE98ZZZ09999999999";
 
-/// Eine TestApi der **zweiten** Reichweite mit leerer Fenster-Ablage. Sie braucht **keine**
-/// Eigene-Konten-Config: dieser Handler ordnet keine Gegenkonten ein, er sammelt Vorkommen ein —
-/// einzweckig wie der erste (ADR-0013, Entscheidung E).
+/// Eine TestApi der **zweiten** Reichweite mit leerer Fenster-Ablage und **leerer**
+/// Eigene-Konten-Config unter dem Normalfall-Seed-Marker — jedes Gegenkonto ist dann fremd. Die
+/// Config braucht diese Reichweite für das **Netting der Wiederkehr** (Issue 0005): ein Dauerauftrag
+/// aufs eigene Konto ist kein Kosten-Treiber.
 pub(crate) fn historie_api() -> HistoryTestApi {
-    HistoryTestApi::new()
+    HistoryTestApi::new().with_own_accounts(eigene_konten(&[]))
 }
 
 /// Eine Buchung **derselben wiederkehrenden Art** an einem Buchungstag — derselbe Händler, also
@@ -345,6 +347,81 @@ pub(crate) fn vorkommen(
         booking_day,
         amount_minor_units: minor_units,
         direction,
+    }
+}
+
+// --- Die Wiederkehr-Erkennung (Issue 0005) -------------------------------------
+
+// Ein **monatlicher** Takt über ein halbes Jahr, jeweils am 15. — 2024 (Tage seit Epoche).
+/// 2024-02-15
+pub(crate) const FEB_15: i64 = 19_768;
+/// 2024-03-15
+pub(crate) const MAR_15: i64 = 19_797;
+/// 2024-04-15
+pub(crate) const APR_15: i64 = 19_828;
+/// 2024-05-15
+pub(crate) const MAI_15: i64 = 19_858;
+
+// Ein **jährlicher** Takt am Monatsanfang — die Lage, die nur die Sicht über **alle** Fenster belegt.
+/// 2023-03-01
+pub(crate) const MAERZ_2023: i64 = 19_417;
+/// 2024-03-01 (366 Tage später — 2024 ist ein Schaltjahr)
+pub(crate) const MAERZ_2024: i64 = 19_783;
+/// 2025-03-03 (ein Montag: der 1. fiel aufs Wochenende, die Lastschrift rutschte)
+pub(crate) const MAERZ_2025: i64 = 20_150;
+
+/// Die Gläubiger-ID des **Zahlungsintermediärs** PayPal — eine der in der Domäne hinterlegten
+/// Durchleiter-IDs (öffentlich, kein personenbezogener Wert).
+pub(crate) const PAYPAL: &str = "LU96ZZZ0000000000000000058";
+
+/// Das Konto-Token eines **eigenen Sparkontos** — erfunden, wie alle Token hier.
+pub(crate) const SPARKONTO: &str = "KONTO_SPAR";
+
+/// Eine Abbuchung **über einen Durchleiter**: die Gegenpartei ist PayPal, der eigentliche Händler
+/// steht nur im Verwendungszweck — samt einer **je Buchung wechselnden** Referenznummer, wie sie
+/// echte PayPal-Zwecke tragen.
+pub(crate) fn ueber_paypal(booking_day: i64, minor_units: u64, purpose: &str) -> WindowBookingRow {
+    firma(
+        booking_day,
+        minor_units,
+        PAYPAL,
+        "PayPal Europe S.a.r.l. et Cie S.C.A.",
+        Some(purpose),
+    )
+}
+
+/// Ein **Dauerauftrag** an eine Privatperson auf ein Gegenkonto, das nur als Token vorliegt — je
+/// nach Eigene-Konten-Config eine Umbuchung (das Token ist meines) oder ein echter Abfluss.
+pub(crate) fn dauerauftrag(booking_day: i64, minor_units: u64, konto: &str) -> WindowBookingRow {
+    WindowBookingRow {
+        counter_account: Some(konto.to_string()),
+        ..person(booking_day, minor_units, "PERSON_7")
+    }
+}
+
+/// Ein erwarteter **wiederkehrender Abfluss** ohne Preissteigerung, belastet auf dem Normalfall-Konto.
+pub(crate) fn wiederkehr(
+    fingerprint: &str,
+    rhythm: RecurrenceRhythm,
+    typical: u64,
+    annual: u64,
+) -> RecurrenceRow {
+    RecurrenceRow {
+        fingerprint: fingerprint.to_string(),
+        rhythm,
+        typical_amount_minor_units: typical,
+        annual_amount_minor_units: annual,
+        price_increase: None,
+        charged_account: EIGENES_KONTO.to_string(),
+    }
+}
+
+/// Eine erwartete **Preissteigerung**: ab dem Stichtag `since` wird `after` statt `before` abgebucht.
+pub(crate) fn preissteigerung(since: i64, before: u64, after: u64) -> PriceIncreaseRow {
+    PriceIncreaseRow {
+        since_day: since,
+        before_minor_units: before,
+        after_minor_units: after,
     }
 }
 

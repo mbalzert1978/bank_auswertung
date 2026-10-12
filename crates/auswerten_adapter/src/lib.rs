@@ -22,12 +22,22 @@
 //! `fenstern` weiß, wann die Historie erschöpft ist. Die Nachricht trägt die **Lauf-Spanne** im
 //! `partition_key` (`"{from}:{to}"`), die die Query auf **genau diesen Lauf** scopt — ohne sie
 //! flössen die Aggregate früherer Läufe **lautlos** mit ein. Er führt **eine** Query über **alle**
-//! Fenster des Laufs ([`OccurrenceSeam`]) und **gibt** die [`OccurrenceRow`]s der ganzen Zeitachse
-//! **zurück**; er legt **nichts** ab. Kein Vorkommens-/Fold-Log, keine Akkumulation, keine zweite
-//! persistierte Sicht — die Aggregate sind die alleinige Wahrheit, und die Idempotenz folgt daraus
-//! statt aus Dedupe-Logik: eine Query über unveränderliche Snapshots antwortet auf erneute
-//! Zustellung identisch. Die **Wiederkehr-Erkennung** selbst
-//! ([Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md)) setzt auf diesen Vorkommen auf.
+//! Fenster des Laufs ([`OccurrenceSeam`]) und **gibt** die [`HistoryEvaluationRow`] **zurück** — die
+//! [`OccurrenceRow`]s der ganzen Zeitachse und die darin erkannten **wiederkehrenden Abflüsse**
+//! ([`RecurrenceRow`], [Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md)): je
+//! Buchungsart Takt ([`RecurrenceRhythm`]), typischer Betrag, **Jahresbetrag**, ggf. die jüngste
+//! Preissteigerung ([`PriceIncreaseRow`]) und das belastete Konto. Er legt **nichts** ab. Kein
+//! Vorkommens-/Fold-Log, keine Akkumulation, keine zweite persistierte Sicht — die Aggregate sind
+//! die alleinige Wahrheit, und die Idempotenz folgt daraus statt aus Dedupe-Logik: eine Query über
+//! unveränderliche Snapshots antwortet auf erneute Zustellung identisch.
+//!
+//! **So ruft ein späterer Schritt die Wiederkehr ab** (Pareto 0007, Bericht 0012, Chat-Export 0011):
+//! [`HistoryEvaluationHandler::new`] mit dem Lese-Seam und der Eigene-Konten-Config verdrahten, die
+//! Lauf-Spanne über den [`EvaluateHistoryCommandDecoder`] zum Kommando machen (`"{from}:{to}"`, wie
+//! `fenstern`s `HistorieVollständig` sie trägt) und `Handler::handle` rufen — die Antwort ist die
+//! [`HistoryEvaluationRow`]. Die Wiederkehr arbeitet auf **genetteten** Abflüssen: ein Dauerauftrag
+//! aufs eigene Konto ist eine Umbuchung, kein Kosten-Treiber; darum braucht auch diese Reichweite die
+//! Eigene-Konten-Config und prüft deren Seed-Marker.
 //!
 //! **Das Gegenkonto wird auf Token eingeordnet** (ADR-0013, Entscheidung F): der Adapter nimmt die
 //! **token-orientierte** Eigene-Konten-Config ([`OwnAccountsConfig`]) als **Wert** entgegen — io
@@ -59,7 +69,9 @@
 //! **Öffentliche Fläche:** die beiden Fluent-TestApis ([`EvaluationTestApi`]/[`HistoryTestApi`]),
 //! das gelesene Fenster ([`AnalysisWindowRow`]/[`WindowBookingRow`]/[`BookingDirection`]), das
 //! abgelegte Ergebnis ([`WindowEvaluationRow`]/[`MonthlyCashflowRow`]/[`CounterAccountRow`]), die
-//! zurückgegebenen Vorkommen ([`OccurrenceRow`]), die Eigene-Konten-Config
+//! zurückgegebene Historien-Auswertung ([`HistoryEvaluationRow`] mit [`OccurrenceRow`]/
+//! [`RecurrenceRow`]/[`RecurrenceRhythm`]/[`PriceIncreaseRow`]), die gelesene Lauf-Historie
+//! ([`RunHistoryRow`]), die Eigene-Konten-Config
 //! ([`OwnAccountsConfig`]/[`OwnAccountRow`]), die von `io` erfüllten Seams samt ihren
 //! Seam-Fehlern und die beiden Slice-Verträge ([`WindowEvaluationHandler`] +
 //! [`EvaluateWindowCommand`]/[`EvaluateWindowCommandDecoder`]/[`CONSUMED_MESSAGE_TYPE`];
@@ -71,13 +83,9 @@
 //!
 //! **Was das Einhängen der fenster-übergreifenden Reichweite verlangt:** ihr Ergebnis wird
 //! **zurückgegeben, nicht abgelegt** — es lebt allein in der `Handler::Response`. Das ist der Preis
-//! dafür, dass es **keine** zweite persistierte Sicht gibt (kein Vorkommens-/Fold-Log), und keine
-//! Übergangserscheinung: wer diese Reichweite konsumiert, muss die Response **entgegennehmen**, denn
-//! sonst verpufft ihr Ergebnis. Ein Consumer-Vertrag der Form `Result<(), _>` trägt sie nicht — er
-//! muss dafür um einen Rückgabewert wachsen oder die Reichweite bekommt einen direkten Abnehmer (der
-//! Wiederkehr-Analyzer aus [Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md) ist der
-//! naheliegende). Hier **keine** Mechanik auf Vorrat: die Reichweite steht, ihr Abnehmer entscheidet
-//! die Form.
+//! dafür, dass es **keine** zweite persistierte Sicht gibt (kein Vorkommens-/Fold-Log): wer diese
+//! Reichweite konsumiert, muss die Response **entgegennehmen**, sonst verpufft ihr Ergebnis. io reicht
+//! sie darum an einen direkten Abnehmer weiter.
 //!
 //! **Datenschutz:** der Slice liegt **stromabwärts** der Obfuskierungs-Grenze. Er sieht **nie einen
 //! strukturellen Identifikator** — im Sinn von CONTEXT.md („Obfuskierung"): eigene IBAN/Kontonr.,
@@ -97,8 +105,10 @@
 //! **Der Guard ist eingezogen:** seit dem Kategorisierer-Orakel hat der Slice ein **Egress-DTO**,
 //! die [`CategoryRequestRow`] — der eine Punkt, an dem Daten die Maschine verlassen. Der
 //! `assert_not_impl_any!`-„kein `Serialize`"-Guard liegt auf ihr, dieselbe Linie, die
-//! `obfuskierung` auf `ObfuscatedBooking` zieht. Die Report-Ausgabe bekommt ihren eigenen, wenn sie
-//! gebaut wird.
+//! `obfuskierung` auf `ObfuscatedBooking` zieht. Seit der Wiederkehr-Erkennung trägt ihn auch die
+//! [`HistoryEvaluationRow`] samt ihren Teilen: sie ist das, was Bericht und Chat-Export lesen werden,
+//! also ein **Egress-Kandidat** — wer sie hinausreichen will, muss das ausdrücklich tun, nicht per
+//! `derive`.
 
 mod abstractions;
 mod adapter;
@@ -117,8 +127,10 @@ pub use models::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, CONSUMED_HISTORY_MESSAGE_TYPE,
     CONSUMED_MESSAGE_TYPE, CategoryAnswerRow, CategoryRequestRow, CategoryRow, CounterAccountRow,
     EvaluateHistoryCommand, EvaluateHistoryCommandDecoder, EvaluateWindowCommand,
-    EvaluateWindowCommandDecoder, FeeRow, InternalTransferRow, MonthlyCashflowRow, OccurrenceRow,
-    OwnAccountRow, OwnAccountsConfig, WindowBookingRow, WindowEvaluationRow, account_role_label,
+    EvaluateWindowCommandDecoder, FeeRow, HistoryEvaluationRow, InternalTransferRow,
+    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, PriceIncreaseRow,
+    RecurrenceRhythm, RecurrenceRow, RunHistoryRow, WindowBookingRow, WindowEvaluationRow,
+    account_role_label,
 };
 pub use testapi::{EvaluationTestApi, HistoryTestApi};
 
@@ -131,7 +143,9 @@ pub use auswerten_domain::EvaluationError;
 
 #[cfg(test)]
 mod datenschutz {
-    use super::CategoryRequestRow;
+    use super::{
+        CategoryRequestRow, HistoryEvaluationRow, OccurrenceRow, PriceIncreaseRow, RecurrenceRow,
+    };
     use serde::{Deserialize, Serialize};
     use static_assertions::assert_not_impl_any;
 
@@ -140,4 +154,12 @@ mod datenschutz {
     // einzubetten, das hinausgeht, muss ein **Compile-Fehler** sein, keine Review-Beobachtung.
     // Dieselbe Linie, die `obfuskierung` an der Datenschutz-Grenze auf `ObfuscatedBooking` zieht.
     assert_not_impl_any!(CategoryRequestRow: Serialize, Deserialize<'static>);
+
+    // Das **Wiederkehr-Ergebnis** ist das, was der Bericht (Issue 0012) und der Chat-Export (Issue
+    // 0011) lesen werden — ein Egress-Kandidat. Es trägt nur Fingerabdrücke, Beträge, Tag-Stamps und
+    // Konto-Token; dass niemand per `derive` eine Abkürzung nach draußen baut, sichert der Compiler.
+    assert_not_impl_any!(HistoryEvaluationRow: Serialize, Deserialize<'static>);
+    assert_not_impl_any!(RecurrenceRow: Serialize, Deserialize<'static>);
+    assert_not_impl_any!(PriceIncreaseRow: Serialize, Deserialize<'static>);
+    assert_not_impl_any!(OccurrenceRow: Serialize, Deserialize<'static>);
 }

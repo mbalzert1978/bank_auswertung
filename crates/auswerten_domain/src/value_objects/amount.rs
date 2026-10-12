@@ -27,6 +27,13 @@ impl Amount {
     pub(crate) fn plus(self, other: Self) -> Self {
         Self(self.0.saturating_add(other.0))
     }
+
+    /// Vervielfacht den Betrag — die Hochrechnung vom typischen Betrag eines wiederkehrenden Abflusses
+    /// auf sein Jahr. **Sättigend** aus demselben Grund wie [`plus`](Self::plus).
+    #[must_use]
+    pub(crate) fn times(self, factor: u64) -> Self {
+        Self(self.0.saturating_mul(factor))
+    }
 }
 
 /// Die Richtung eines Umsatzes — der einzige Ort, an dem das Vorzeichen lebt (ADR-0005), sodass ein

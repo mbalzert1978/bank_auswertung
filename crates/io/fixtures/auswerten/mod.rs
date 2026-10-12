@@ -31,9 +31,9 @@ use std::rc::Rc;
 use auswerten_adapter::{
     AnalysisWindowRow, AnalysisWindowSeam, BookingDirection, BookingRecipient, CategorizerSeam,
     CategorizerUnavailable, CategoryAnswerRow, CategoryRegistrySeam, CategoryRequestRow,
-    CategoryRow, CounterAccountRow, EvaluationStoreSeam, FeeRow, InternalTransferRow,
-    MonthlyCashflowRow, OccurrenceRow, OccurrenceSeam, OwnAccountRow, OwnAccountsConfig,
-    RegistryUnavailable, WindowBookingRow, WindowEvaluationRow,
+    CategoryRow, CounterAccountRow, EvaluationStoreSeam, FeeRow, HistoryEvaluationRow,
+    InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OccurrenceSeam, OwnAccountRow,
+    OwnAccountsConfig, RegistryUnavailable, RunHistoryRow, WindowBookingRow, WindowEvaluationRow,
 };
 use fenstern_adapter::{ObfuscatedRow, ObfuscatedWindowSeam};
 use io::Dispatcher;
@@ -178,12 +178,12 @@ impl OccurrenceSeam for FakeJoin<'_> {
     /// Die fenster-übergreifende Query: **alle** Fenster, die in der Lauf-Spanne liegen, mit ihren
     /// Buchungen — **eine** Query über viele Fenster, nicht N+1 Lesevorgänge (so wie der Seam-Vertrag
     /// es beschreibt). Die Spanne scopt auf **diesen** Lauf; Fenster früherer Läufe fallen heraus.
-    fn bookings_in(
+    fn history_in(
         &self,
         from: i64,
         to: i64,
-    ) -> Result<Vec<WindowBookingRow>, auswerten_adapter::SourceUnavailable> {
-        Ok(self
+    ) -> Result<RunHistoryRow, auswerten_adapter::SourceUnavailable> {
+        let bookings = self
             .db
             .committed
             .borrow()
@@ -196,7 +196,16 @@ impl OccurrenceSeam for FakeJoin<'_> {
                     .iter()
                     .filter_map(|id| self.bestand.zeile(id).cloned())
             })
-            .collect())
+            .collect::<Vec<_>>();
+        Ok(RunHistoryRow {
+            // Eine Tokenisierung je Lauf — der Marker steht nur da, wo Buchungen sind.
+            seed_marker: if bookings.is_empty() {
+                String::new()
+            } else {
+                SEED_MARKER.to_string()
+            },
+            bookings,
+        })
     }
 }
 
@@ -244,10 +253,10 @@ impl CategorizerSeam for FakeOrakel {
 
 // --- Der Abnehmer der fenster-übergreifenden Reichweite ---------------------------------
 
-/// Der **direkte Abnehmer** der zurückgegebenen Vorkommen: die zweite Reichweite legt **nichts** ab
-/// (kein Vorkommens-/Fold-Log), ihr Ergebnis lebt allein in der Response. Hier sammelt es der Test
-/// ein — später der Wiederkehr-Analyzer
-/// ([0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)).
+/// Der **direkte Abnehmer** der zurückgegebenen Auswertung: die zweite Reichweite legt **nichts** ab
+/// (kein Vorkommens-/Fold-Log), ihr Ergebnis lebt allein in der Response. Hier sammelt der Test
+/// deren Vorkommen ein; die Wiederkehr darin
+/// ([0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)) spezifizieren die `auswerten`-Specs.
 #[derive(Clone, Default)]
 pub(crate) struct FakeSenke {
     empfangen: Rc<RefCell<Vec<Vec<OccurrenceRow>>>>,
@@ -262,8 +271,8 @@ impl FakeSenke {
 }
 
 impl OccurrenceSink for FakeSenke {
-    fn receive(&self, occurrences: Vec<OccurrenceRow>) {
-        self.empfangen.borrow_mut().push(occurrences);
+    fn receive(&self, evaluation: HistoryEvaluationRow) {
+        self.empfangen.borrow_mut().push(evaluation.occurrences);
     }
 }
 
@@ -465,6 +474,7 @@ pub(crate) fn dispatcher_mit<'a>(
             io::auswerten::CONSUMED_HISTORY_MESSAGE_TYPE,
             Box::new(io::auswerten::history_consumer(
                 &verdrahtung.join,
+                eigene_konten(),
                 verdrahtung.senke.clone(),
                 db,
             )),
