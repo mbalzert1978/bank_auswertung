@@ -62,6 +62,7 @@ use crate::obfuskierung::{
     SeededObfuscator, consumer as obfuskierung_consumer,
 };
 use crate::outbox::OutboxHandler;
+use crate::schema::{self, SchemaError, VersionMismatch};
 use crate::sqlite::SqliteOutbox;
 
 mod ack_sink;
@@ -89,8 +90,10 @@ const MAX_ROUNDS: usize = 4096;
 /// Verwechslungsgefahr.
 #[derive(Debug, Clone)]
 pub struct RunPaths {
-    /// Die SQLite-Datei, in der Outbox **und** alle vier Ergebnis-Tabellen liegen. Sie wird bei Bedarf
-    /// angelegt; ein bestehender Bestand bleibt erhalten (at-least-once, resumierbar).
+    /// Die SQLite-Datei, in der Outbox **und** alle vier Ergebnis-Tabellen liegen. Eine frische Datei
+    /// bekommt Schema und Versionsstempel; eine passend gestempelte wird mit ihrem Bestand
+    /// weiterbenutzt (at-least-once, resumierbar); eine mit abweichender Version bricht den Lauf ab
+    /// ([`RunError::SchemaVersion`]).
     pub database: PathBuf,
     /// Die CSV-CAMT-v8-Datei, aus der `einlesen` seinen Batch beschafft.
     pub transactions: PathBuf,
@@ -146,6 +149,10 @@ pub enum RunError {
     /// Das transaktionale Rückgrat (SQLite-Datei, Tabellen) ließ sich nicht öffnen oder anlegen. Trägt
     /// die durchgereichte io-Diagnose — Zugriffs-Mechanik, kein Zeileninhalt.
     Backbone(String),
+    /// Die Datenbank-Datei trägt eine **andere Schema-Version** als dieses Programm (Issue 0084) — auch
+    /// eine ungestempelte Datei mit Tabellen (Version 0). Der Lauf bricht ab, **bevor** er etwas in die
+    /// Datei schreibt. Trägt nur die beiden Versionsnummern, nie den Pfad.
+    SchemaVersion(VersionMismatch),
     /// Zwei Consumer auf demselben Dispatch-Key — ein Verdrahtungsfehler, der nicht still verschluckt
     /// wird. Der Key ist statisch.
     DuplicateConsumer { message_type: String },
@@ -173,6 +180,7 @@ impl std::fmt::Display for RunError {
         match self {
             Self::Config(error) => write!(f, "Konfiguration: {error}"),
             Self::Backbone(diagnosis) => write!(f, "Rückgrat nicht verfügbar: {diagnosis}"),
+            Self::SchemaVersion(mismatch) => mismatch.fmt(f),
             Self::DuplicateConsumer { message_type } => {
                 write!(f, "doppelte Registrierung für {message_type}")
             }
@@ -200,6 +208,15 @@ impl From<ConfigError> for RunError {
     }
 }
 
+impl From<SchemaError> for RunError {
+    fn from(error: SchemaError) -> Self {
+        match error {
+            SchemaError::VersionMismatch(mismatch) => Self::SchemaVersion(mismatch),
+            SchemaError::Unavailable(diagnosis) => Self::Backbone(diagnosis),
+        }
+    }
+}
+
 /// Fährt **einen vollständigen Pipeline-Lauf** gegen die realen `io`-Adapter und schreibt dabei das
 /// redigierte Lauf-Protokoll nach `protocol`.
 ///
@@ -213,9 +230,12 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let own_accounts =
         EigeneKontenConfig::load(&paths.own_accounts_config)?.to_own_accounts_config(seed);
 
-    let outbox = SqliteOutbox::open(&AppConfig::new(&paths.database)).map_err(backbone)?;
+    // Der **einzige** Weg, auf dem die Datei ihr Schema bekommt (Issue 0084): frisch → angelegt und
+    // gestempelt, passend gestempelt → benutzt, jede andere Version → Abbruch, bevor etwas geschrieben
+    // wird.
+    let outbox = schema::open(&AppConfig::new(&paths.database))?;
     let adapters = Adapters::new(&outbox, paths);
-    let stores = Stores::open(&outbox)?;
+    let stores = Stores::new(&outbox);
     let occurrences = CountingOccurrenceSink::default();
     let dispatcher = DispatcherBuilder::new(&outbox, &adapters, stores)
         .window_days(window_days)
@@ -272,7 +292,8 @@ impl Adapters {
 
 /// Die vier Ergebnis-Stores — je einer pro Slice, alle auf **demselben** Rückgrat. Anders als
 /// [`Adapters`] werden sie **besessen** in die Consumer verschoben, tragen also keine eigene
-/// Lebenszeit und dürfen im [`DispatcherBuilder`] selbst geöffnet werden.
+/// Lebenszeit und dürfen im [`DispatcherBuilder`] selbst geöffnet werden. Ihre Tabellen legen sie
+/// **nicht** an — das hat [`schema::open`] beim Öffnen des Rückgrats schon getan.
 struct Stores {
     einlesen: EinlesenSqliteStore,
     obfuskierung: ObfuskierungSqliteStore,
@@ -281,13 +302,13 @@ struct Stores {
 }
 
 impl Stores {
-    fn open(outbox: &SqliteOutbox) -> Result<Self, RunError> {
-        Ok(Self {
-            einlesen: EinlesenSqliteStore::new(outbox.clone()).map_err(backbone)?,
-            obfuskierung: ObfuskierungSqliteStore::new(outbox.clone()).map_err(backbone)?,
-            fenstern: FensternSqliteStore::new(outbox.clone()).map_err(backbone)?,
-            auswerten: AuswertenSqliteStore::new(outbox.clone()).map_err(backbone)?,
-        })
+    fn new(outbox: &SqliteOutbox) -> Self {
+        Self {
+            einlesen: EinlesenSqliteStore::new(outbox.clone()),
+            obfuskierung: ObfuskierungSqliteStore::new(outbox.clone()),
+            fenstern: FensternSqliteStore::new(outbox.clone()),
+            auswerten: AuswertenSqliteStore::new(outbox.clone()),
+        }
     }
 }
 
@@ -702,8 +723,7 @@ mod tests {
     /// Zählt über eine **eigene** Verbindung auf die Lauf-Datenbank — der Lauf ist da längst beendet,
     /// die Zählung sieht also nur committete Zeilen.
     fn zaehle(paths: &RunPaths, sql: &str) -> rusqlite::Result<i64> {
-        SqliteOutbox::open(&AppConfig::new(&paths.database))?
-            .with_connection(|conn| conn.query_row(sql, [], |row| row.get(0)))
+        rusqlite::Connection::open(&paths.database)?.query_row(sql, [], |row| row.get(0))
     }
 
     /// Die Zahl noch **offener** Nachrichten — nach einem gelungenen Lauf muss sie null sein.
@@ -894,6 +914,120 @@ mod tests {
             "zwei Läufe über dieselbe Datei importieren zweimal"
         );
         assert_eq!(offene_nachrichten(&paths)?, 0, "und beide laufen leer");
+        Ok(())
+    }
+
+    /// Ein Pragma-Wert der Lauf-Datei, über eine **eigene** Verbindung gelesen.
+    fn pragma(paths: &RunPaths, name: &str) -> rusqlite::Result<i64> {
+        rusqlite::Connection::open(&paths.database)?
+            .pragma_query_value(None, name, |row| row.get(0))
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+                  trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+    )]
+    #[test]
+    fn eine_frische_datenbank_traegt_die_schema_version_und_der_lauf_geht_durch()
+    -> rusqlite::Result<()> {
+        let db = TempDbPath::new("lauf_schema_frisch");
+        let paths = lauf_pfade(&db);
+        let mut protokoll = Vec::new();
+
+        run(&paths, &mut protokoll).expect("der Lauf auf frischer Datei gelingt");
+
+        assert_eq!(
+            pragma(&paths, "user_version")?,
+            schema::SCHEMA_VERSION,
+            "die frische Datei trägt die Schema-Version des Programms"
+        );
+        assert_eq!(offene_nachrichten(&paths)?, 0);
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+                  trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+    )]
+    #[test]
+    fn ein_zweiter_lauf_gegen_dieselbe_datei_legt_nichts_neu_an_und_laeuft_durch()
+    -> rusqlite::Result<()> {
+        let db = TempDbPath::new("lauf_schema_wieder");
+        let paths = lauf_pfade(&db);
+        let mut protokoll = Vec::new();
+        run(&paths, &mut protokoll).expect("erster Lauf");
+        // SQLites eigener Schema-Zähler wächst mit **jeder** Schema-Änderung — bleibt er stehen, wurde
+        // nichts angelegt.
+        let schema_vorher = pragma(&paths, "schema_version")?;
+
+        run(&paths, &mut protokoll).expect("zweiter Lauf auf derselben Datei");
+
+        assert_eq!(
+            pragma(&paths, "schema_version")?,
+            schema_vorher,
+            "der zweite Lauf darf das Schema nicht anfassen"
+        );
+        assert_eq!(pragma(&paths, "user_version")?, schema::SCHEMA_VERSION);
+        assert_eq!(offene_nachrichten(&paths)?, 0);
+        Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+                  trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+    )]
+    #[test]
+    fn eine_datei_mit_abweichender_schema_version_laesst_den_lauf_terminal_und_redigiert_scheitern()
+    -> rusqlite::Result<()> {
+        // Eine Datei aus der Zeit **vor** dem Stempel: sie trägt Tabellen samt Rohwerten, aber keinen
+        // Versionsstempel (also Version 0). Genau so sähe eine echte Alt-Datei aus.
+        let db = TempDbPath::new("lauf_schema_alt");
+        let paths = lauf_pfade(&db);
+        rusqlite::Connection::open(&paths.database)?.execute_batch(&format!(
+            "CREATE TABLE einlesen_lines (iban TEXT, name TEXT, zweck TEXT);
+             INSERT INTO einlesen_lines VALUES ('{}', '{}', '{}');",
+            ROHWERTE[0], ROHWERTE[2], ROHWERTE[3]
+        ))?;
+        let schema_vorher = pragma(&paths, "schema_version")?;
+        let mut protokoll = Vec::new();
+
+        let fehler = run(&paths, &mut protokoll).expect_err("eine Alt-Datei ist terminal");
+
+        assert!(
+            matches!(&fehler, RunError::SchemaVersion(mismatch)
+                if mismatch.found() == 0 && mismatch.expected() == schema::SCHEMA_VERSION),
+            "der Abbruch muss die beiden Versionen nennen: {fehler:?}"
+        );
+        // Redigiert: kein Rohwert der Datei, und auch nicht ihr Pfad oder Dateiname.
+        let meldung = fehler.to_string();
+        let dateiname = paths
+            .database
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        for verboten in ROHWERTE
+            .iter()
+            .map(ToString::to_string)
+            .chain([paths.database.to_string_lossy().into_owned(), dateiname])
+        {
+            assert!(
+                !meldung.contains(&verboten),
+                "die Meldung darf `{verboten}` nicht enthalten: {meldung}"
+            );
+        }
+        assert!(meldung.contains("Schema-Version 0"), "{meldung}");
+        // Terminal **vor** dem ersten Schreiben: kein Stempel, keine Tabelle, nichts protokolliert.
+        assert_eq!(pragma(&paths, "user_version")?, 0);
+        assert_eq!(pragma(&paths, "schema_version")?, schema_vorher);
+        assert!(
+            protokoll.is_empty(),
+            "vor dem Abbruch wird nichts angestoßen"
+        );
         Ok(())
     }
 

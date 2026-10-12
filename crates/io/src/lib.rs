@@ -79,6 +79,7 @@ pub mod einlesen;
 pub mod fenstern;
 pub mod obfuskierung;
 pub mod run;
+pub mod schema;
 pub mod sqlite;
 
 pub use common::outbox;

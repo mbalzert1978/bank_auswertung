@@ -24,7 +24,9 @@
 //! Vereinheitlichung passiert **vor** dem ersten durable Write. Wenn der Persistenz-Lebenszyklus
 //! (Binary + produktives `open`) kommt, gehört ein `PRAGMA user_version`-Achsen-Stempel dazu, damit
 //! eine **künftige** Achsen-Änderung fail-fast statt still korrumpiert — heute wäre der Stempel wirkungslos
-//! (jede bestehende DB stünde ununterscheidbar auf `user_version = 0`).
+//! (jede bestehende DB stünde ununterscheidbar auf `user_version = 0`). **Seit Issue 0084 steht dieser
+//! Stempel:** [`schema::open`](crate::schema::open) stempelt jede frische Datei und weist eine
+//! abweichende Version ab — eine künftige Achsen-Änderung ist dort eine Migration.
 
 use chrono::{Datelike, NaiveDate};
 

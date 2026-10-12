@@ -297,10 +297,14 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   message-coupled** — nobody consumes `Obfuscated`, nobody publishes `StartAnalysis` — so the run has
   **two phases** and acks `Obfuscated` through an `AckSink`; (b) registry and oracle had no
   fulfilment at all, hence the empty-answering adapters above.
-- **No schema owner, no version stamp** — every result store creates its own schema on
-  construction, so any file found on disk is indistinguishable at version 0 and a later migration
-  (e.g. the day-stamp axis) has nothing to hook onto
-  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)).
+- ~~**No schema owner, no version stamp**~~ — **built**
+  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)):
+  [`io::schema::open`](crates/io/src/schema.rs) is the **one** place a database gets its schema (outbox
+  + all four result stores, in one transaction) and stamps it via `PRAGMA user_version`
+  (`SCHEMA_VERSION`). Same version → used as is; any other version — including an unstamped file that
+  already has tables (version 0) — fails the run terminally and redacted (`RunError::SchemaVersion`,
+  versions only). The stores no longer create tables (`SliceStore::new` is DDL-free; their own-table
+  creation is a `#[cfg(test)]` path). A migration *n → n+1* is one more arm in `schema::ensure`.
 - **No dead-letter** — a terminally failing message stays **open** in the outbox and is
   redelivered by every later run; nothing counts attempts. This is the question
   [ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) explicitly
@@ -322,7 +326,7 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   realistic savings candidate; what the report should state). One **HITL** item is now open on 0006
   too: which booking texts his bank actually sets for fees.
 - **Towards a safe operation** — the schema owner + version stamp
-  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)) and the
+  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md), **built**) and the
   dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
   now that runs happen, a file on disk and a poisoned message both need an owner.
 
@@ -436,8 +440,8 @@ each step runnable/valuable against fakes, real `io` last:
    **Open:** `Speicher` for DTOs + category register, and the `Kategorisierer` oracle.
 7. **The run itself** — **done for the kick-off** (issue 0083): the `lauf` bin crate + `io::run`
    enqueue the triggers and turn the broker loop against the real adapters; the pipeline now runs
-   outside tests. **Open in this step:** the one schema owner + version stamp (0084) and the
-   dead-letter that keeps a poisoned message from being redelivered forever (0085).
+   outside tests. The one schema owner + version stamp is **built** (0084). **Open in this
+   step:** the dead-letter that keeps a poisoned message from being redelivered forever (0085).
 8. **`report`** HTML output.
 9. **Iteration** — review together, learn corrections, name savings.
 

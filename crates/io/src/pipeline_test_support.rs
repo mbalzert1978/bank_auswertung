@@ -113,7 +113,7 @@ pub(crate) fn seed_through(
     fixture: &str,
 ) -> rusqlite::Result<()> {
     // Stufe einlesen: realer Store + reale Seams über der Fixture.
-    let einlesen_store = EinlesenSqliteStore::new(outbox.clone())?;
+    let einlesen_store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
     let einlesen_source = csv_source(fixture);
     let einlesen = einlesen_consumer(
         &einlesen_source,
@@ -138,7 +138,7 @@ pub(crate) fn seed_through(
     // Stufe obfuskierung: realer Store, reale Lese-Quelle, realer Obfuskator über allen Ingested.
     let source = EinlesenRowSource::new(outbox.clone());
     let obfuscator = SeededObfuscator;
-    let obfuskierung_store = ObfuskierungSqliteStore::new(outbox.clone())?;
+    let obfuskierung_store = ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
     let obfuskierung = obfuskierung_consumer(&source, &obfuscator, SEED, obfuskierung_store);
     let mut stage2 = Dispatcher::new();
     register_fresh(&mut stage2, OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung));
@@ -152,7 +152,7 @@ pub(crate) fn seed_through(
 
 /// RAII-Wächter über einen eindeutigen temporären DB-Pfad: löscht die Datei beim Fallenlassen — auch
 /// wenn ein `assert!` den Test abbricht. Hier statt in einem einzelnen Testmodul, weil ihn jeder Test
-/// braucht, der das **datei-gestützte** Rückgrat prüft ([`SqliteOutbox::open`]) statt des flüchtigen
+/// braucht, der das **datei-gestützte** Rückgrat prüft ([`schema::open`](crate::schema::open)) statt des flüchtigen
 /// In-Memory-Rückgrats: die Resume-Zusage über einen Prozess-Neustart und der reale Lauf
 /// ([`run`](crate::run)).
 pub(crate) struct TempDbPath(std::path::PathBuf);

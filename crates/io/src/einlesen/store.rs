@@ -196,9 +196,9 @@ fn direction_token(direction: Direction) -> &'static str {
     }
 }
 
-/// Die **eine** Tabelle des Slice mit ihrem DDL und ihrem Ablage-`INSERT`. Anlegen,
-/// Audit-Spalten-Nachrüstung und Preflight laufen alle über diese Liste — eine Tabelle, die eines
-/// davon verpasst, ist gar nicht erst deklarierbar.
+/// Die **eine** Tabelle des Slice mit ihrem DDL und ihrem Ablage-`INSERT`. Anlegen (durch den
+/// Schema-Besitzer, [`schema`](crate::schema)) und Preflight laufen beide über diese Liste — eine
+/// Tabelle, die eines davon verpasst, ist gar nicht erst deklarierbar.
 const TABLES: &[TableSpec] = &[TableSpec {
     name: "einlesen_lines",
     ddl: SCHEMA,
@@ -404,7 +404,7 @@ mod tests {
     fn eine_fixture_zeile_landet_feldtreu_in_der_tabelle_und_publiziert_einen_zeiger()
     -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = EinlesenSqliteStore::new(outbox.clone())?;
+        let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
 
         let outcomes = deliver(&outbox, store.clone(), "gueltig.csv")?;
 
@@ -437,10 +437,11 @@ mod tests {
     #[test]
     fn ein_unerreichbarer_store_failt_terminal_und_redigiert_ohne_zu_publizieren()
     -> rusqlite::Result<()> {
-        // Ein Store **ohne** seine Ergebnis-Tabelle (bewusst an `new` vorbeigebaut) ist unerreichbar:
+        // Ein Store **ohne** seine Ergebnis-Tabelle (das Test-Rückgrat trägt nur die Outbox, und `new`
+        // legt seit Issue 0084 kein Schema an) ist unerreichbar:
         // die Ablage failt synchron und terminal, bevor irgendetwas committet.
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = EinlesenSqliteStore::without_schema(outbox.clone());
+        let store = EinlesenSqliteStore::new(outbox.clone());
 
         let outcomes = deliver(&outbox, store, "gueltig.csv")?;
 
@@ -465,7 +466,7 @@ mod tests {
         // Der Batch trägt eine gültige **und** eine kaputte Zeile (Pflichtfeld leer). Der Handler baut
         // erst **alle** Aggregate — die kaputte Zeile steigt aus, bevor die erste Ablage passiert.
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = EinlesenSqliteStore::new(outbox.clone())?;
+        let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
 
         let outcomes = deliver(&outbox, store.clone(), "batch_eine_kaputt.csv")?;
 
@@ -497,7 +498,7 @@ mod tests {
         // — **nicht** die feste Skala 2. Am committeten Betrag abgelesen, nicht als io-Unit-Test.
         for (fixture, currency) in [("jpy.csv", "JPY"), ("bhd.csv", "BHD")] {
             let outbox = SqliteOutbox::open_in_memory()?;
-            let store = EinlesenSqliteStore::new(outbox.clone())?;
+            let store = EinlesenSqliteStore::with_own_tables(outbox.clone())?;
 
             let outcomes = deliver(&outbox, store.clone(), fixture)?;
 

@@ -154,7 +154,7 @@ mod tests {
     fn read_einer_unbekannten_id_ist_ok_none() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         // Legt die (leere) einlesen_lines-Tabelle an.
-        EinlesenSqliteStore::new(outbox.clone())?;
+        EinlesenSqliteStore::with_own_tables(outbox.clone())?;
         let source = EinlesenRowSource::new(outbox);
 
         assert!(
