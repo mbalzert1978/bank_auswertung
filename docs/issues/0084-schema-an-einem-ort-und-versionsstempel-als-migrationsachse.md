@@ -1,7 +1,7 @@
 ---
 id: "0084"
 title: "Schema an einem Ort und Versionsstempel als Migrationsachse"
-status: open
+status: closed
 ---
 
 # Schema an einem Ort und Versionsstempel als Migrationsachse

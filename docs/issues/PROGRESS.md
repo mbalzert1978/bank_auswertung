@@ -10,8 +10,8 @@ begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
 
 | Schritt | Ticket | GitHub | Status | Commit |
 |---|---|---|---|---|
-| 0 Aufräumen | — | — | erledigt | (Schritt-0-Commit) |
-| 1 Schema-Version | [0084](0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md) | #101 | offen | — |
+| 0 Aufräumen | — | — | erledigt | ee6697d |
+| 1 Schema-Version | [0084](0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md) | #101 | erledigt | c836e74 |
 | 2 Zeilen-Schlüssel + lauf-eigene Fenster | [0088](0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md) | #105 | offen (nach 1) | — |
 | 3a Wiederkehr | [0005](0005-wiederkehr-erkennung.md) | #94 | offen | — |
 | 3b Scrubbing | [0010](0010-scrubbing-regeln-fuer-obfuskiertertext.md) | #97 | offen | — |

@@ -189,7 +189,7 @@ Die getroffenen Weichen im Einzelnen:
   `schema::tests::jede_tabelle_traegt_die_audit_spalten`.
 - **Name, DDL und Insert einer Tabelle stehen beisammen** (`TableSpec`), statt als drei
   parallele Listen (`tables()`/`schema()`/`inserts()`) pro `impl` von Hand konsistent gehalten
-  zu werden. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen über **dieselbe** Liste,
+  zu werden. Anlegen, Audit-Spalten-Nachrüstung (seit 0084 entfallen, s. Nachtrag oben) und Preflight laufen über **dieselbe** Liste,
   also bekommt jede deklarierte Tabelle alle drei oder existiert nicht — die frühere Drift
   („in `schema()` angelegt, in `tables()` vergessen") ist nicht mehr darstellbar, ohne dass
   dafür SQL geparst werden müsste (das wäre die schlechtere Magie und gegen den
