@@ -1,0 +1,4 @@
+# Fenster-Config des Vier-Konten-Nachweises. 30 Tage je Seite: die Buchungen reichen vom März 2025
+# bis Juni 2026, also läuft die Paginierung über viele Fenster — und springt über die Lücke zwischen
+# den beiden Jahresbeiträgen.
+window_days = 30

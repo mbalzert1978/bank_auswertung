@@ -733,3 +733,6 @@ mod kategorien_tests;
 
 #[cfg(test)]
 mod bericht_tests;
+
+#[cfg(test)]
+mod e2e_tests;

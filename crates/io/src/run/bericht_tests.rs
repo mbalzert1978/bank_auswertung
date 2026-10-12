@@ -36,8 +36,9 @@ fn bericht(paths: &RunPaths) -> std::io::Result<String> {
 /// Die **Rohwerte** eines CSV-Auszugs, die nie im Bericht stehen dürfen — aus der Datei selbst
 /// gelesen, damit der Test mit der Fixture mitwächst: jede IBAN (Auftragskonto und Gegenkonto), jede
 /// BIC und jeder Name einer Gegenpartei **ohne** Gläubiger-ID (also einer fail-safe Person).
-/// Platzhalter wie `0` (vorgemerkte Zeilen) zählen nicht.
-fn rohwerte(csv: &Path) -> std::io::Result<Vec<String>> {
+/// Platzhalter wie `0` (vorgemerkte Zeilen) zählen nicht. Auch der Vier-Konten-Nachweis
+/// (`e2e_tests`) zieht seine verbotenen Werte hierüber — eine Abgrenzung, nicht zwei.
+pub(super) fn rohwerte(csv: &Path) -> std::io::Result<Vec<String>> {
     const AUFTRAGSKONTO: usize = 0;
     const GLAEUBIGER_ID: usize = 5;
     const EMPFAENGER: usize = 11;

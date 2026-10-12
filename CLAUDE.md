@@ -458,7 +458,12 @@ Exit code `0` = the outbox ran empty and the report is written (log and report s
 unvollständig" if an earlier run dead-lettered a booking), `1` = this run dead-lettered a message (named, redacted — the message is out
 of delivery and does not block later runs), `2` = the command line was wrong. The invented fixtures under
 [`crates/io/fixtures/lauf/`](crates/io/fixtures/lauf/) plus
-[`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example.
+[`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example. The **four-account
+proof** (plan „Projekt fertig" 1–4) lives in [`crates/io/fixtures/e2e/`](crates/io/fixtures/e2e/)
+(one invented CSV per own account — Giro, Haushalt, Spar, Vorlauf — plus configs, convention in its
+`README.md`) and [`io::run::e2e_tests`](crates/io/src/run/e2e_tests.rs): four runs into one file, the
+same four again give the same numbers, and
+`bericht_und_export_von_vier_konten_tragen_keine_iban_keine_bic_keinen_klarnamen`.
 
 **Many runs, one `--db`** ([ADR-0016](docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md),
 [0088](docs/issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md)) — one

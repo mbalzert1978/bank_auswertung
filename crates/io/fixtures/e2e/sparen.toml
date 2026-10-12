@@ -1,0 +1,3 @@
+# Spar-Config des Vier-Konten-Nachweises: ab 100,00 € Jahresbetrag ist ein Kostentreiber ein
+# Spar-Kandidat. Niedrig genug, dass Abo, Strom, Versicherung und Miete darüber liegen.
+jahresbetrag_ab_cent = 10000

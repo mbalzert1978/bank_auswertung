@@ -1,0 +1,3 @@
+# Seed-Config des Vier-Konten-Nachweises: ein **markanter** Wert, der in keiner Fixture sonst
+# vorkommt — der Leak-Test sucht ihn in Bericht und Export. Erfunden, kein echter Produktions-Seed.
+seed = 7319468205

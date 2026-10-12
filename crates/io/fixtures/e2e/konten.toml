@@ -1,0 +1,24 @@
+# Eigene-Konten-Config des Vier-Konten-Nachweises (Abschlussplan, „Projekt fertig" 1–4).
+#
+# **Dateiname bewusst `konten.toml`, nicht `eigene-konten.toml`:** Letzterer ist per .gitignore
+# ausgeschlossen, damit eine ECHTE Kontendatei nie im Repository landet (wie `fixtures/lauf/`).
+#
+# **Frei erfunden:** Bankleitzahl 100 000 00 (Bundesbank — dort führt keine Privatperson ein Konto),
+# erfundene Kontonummer, **gültige** Prüfziffer, damit der Loader (mod 97) sie annimmt. Je Konto liegt
+# eine CSV in diesem Ordner.
+
+[[konto]]
+iban  = "DE27 1000 0000 0000 0041 01"
+rolle = "Giro"
+
+[[konto]]
+iban  = "DE16100000000000004202"
+rolle = "Haushalt"
+
+[[konto]]
+iban  = "DE05100000000000004303"
+rolle = "Spar"
+
+[[konto]]
+iban  = "DE91100000000000004404"
+rolle = "Vorlauf"

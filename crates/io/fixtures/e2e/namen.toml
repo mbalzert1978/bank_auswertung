@@ -1,0 +1,8 @@
+# Namensliste des Vier-Konten-Nachweises — das Gegenstück zur lokalen `personen.toml` (die per
+# .gitignore ausgeschlossen ist; darum heißt diese Datei anders).
+#
+# **Frei erfunden.** „Tilda Erfunden" ist nie Empfängerin einer Buchung, steht aber im
+# Verwendungszweck einer Zahlung über den Durchleiter (`giro.csv`, 08.06.2026) und im Namen einer
+# Praxis mit Gläubiger-ID — genau dort darf sie weder in den Bericht noch in den Chat-Export geraten.
+
+namen = ["Tilda Erfunden"]
