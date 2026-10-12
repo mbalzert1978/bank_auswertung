@@ -1,6 +1,10 @@
 //! **Der HTML-Bericht** ([Issue 0012](../../../../docs/issues/0012-html-bericht.md)): die Ausgabe
 //! dieses Programms — die **Analyse der Domäne**, nicht „was das LLM sagte" (ADR-0004).
 //!
+//! **Was er ist** ([ADR-0018](../../../../docs/adr/0018-bericht-als-io-formatierer-am-ende-eines-laufs.md)):
+//! ein `io`-Formatierer am Ende eines Exit-0-Laufs — kein Outbox-Consumer, kein eigener Port, keine
+//! eigene Crate.
+//!
 //! **Wann er entsteht** ([ADR-0016](../../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)):
 //! am Ende eines Laufs, der die Outbox leer laufen lässt (Exit 0), und er liest **genau** die
 //! `run_id`, die dieser Lauf gemintet hat. Nach Exit 1 gibt es keinen Bericht; eine ältere Datei am
@@ -9,21 +13,19 @@
 //!
 //! **Woraus er besteht:**
 //!
-//! - das Ergebnis der fenster-übergreifenden Reichweite **dieses** Laufs (Cashflow je Konto und
-//!   Monat, Pareto-Ranking, Spar-Kandidaten, Wiederkehr), wie der Lauf es entgegengenommen hat;
-//! - die je Fenster abgelegten Umbuchungen und Gebühren des Laufs ([`source`]);
+//! - das Ergebnis der fenster-übergreifenden Reichweite **dieses** Laufs, wie der Lauf es
+//!   entgegengenommen hat — die **einzige** Quelle jeder Zahl: Cashflow je Konto und Monat,
+//!   Umbuchungen, Gebühren, Pareto-Ranking, Spar-Kandidaten, Wiederkehr;
+//! - die gescrubbten Firmennamen der Buchungen des Laufs ([`source`]), gefiltert gegen die lokale
+//!   Namensliste;
 //! - die Kategorie je Treiber **allein** aus dem Kategorie-Register
 //!   (`SqliteCategoryRegistry::categories_of`); fehlt ein Eintrag, steht „unbekannt" da;
 //! - wie viele Buchungen der Analyse fehlen (ADR-0017) — dann steht oben ein Hinweis.
 //!
-//! **Warum hier und keine eigene Slice-Triade:** der Bericht rechnet nichts — er beschriftet und
-//! formatiert, was die Domäne errechnet hat. HTML ist Format-Wissen und gehört darum nach `io`, wie
-//! das CSV-Format beim Einlesen. Eine Triade (`report_domain`/`_adapter`/`_specs`) hätte keine
-//! Domänen-Regel zu tragen; kein ADR verlangt sie (YAGNI).
 
 use std::path::Path;
 
-use auswerten_adapter::{HistoryEvaluationRow, OwnAccountRow};
+use auswerten_adapter::HistoryEvaluationRow;
 
 use crate::auswerten::SqliteCategoryRegistry;
 use crate::sqlite::SqliteOutbox;
@@ -45,8 +47,9 @@ pub(crate) struct RunFacts<'a> {
     /// Das Ergebnis der fenster-übergreifenden Reichweite dieses Laufs — leer, wenn der Bestand leer
     /// war und kein Fenster entstand.
     pub(crate) history: HistoryEvaluationRow,
-    /// Die tokenisierte Eigene-Konten-Config — die Quelle der Konto-Rollen.
-    pub(crate) own_accounts: Vec<OwnAccountRow>,
+    /// Die lokale Namensliste (`personen.toml`) — ein Firmenname, der einen davon nennt, erscheint
+    /// nicht; dann steht nur die Gläubiger-ID da.
+    pub(crate) persons: Vec<String>,
 }
 
 /// Warum kein Bericht entstand. Redigiert: eine io-Diagnose (Zugriffs-Mechanik), nie ein Zeileninhalt
@@ -60,8 +63,8 @@ pub(crate) fn write(
     target: &Path,
     facts: RunFacts<'_>,
 ) -> Result<(), ReportError> {
-    let details = outbox
-        .with_connection(|conn| source::read_run(conn, facts.run_id))
+    let company_names = outbox
+        .with_connection(|conn| source::company_names(conn, facts.run_id))
         .map_err(|error| ReportError(error.to_string()))?;
     let categories = SqliteCategoryRegistry::new(outbox.clone())
         .categories_of(&model::driver_fingerprints(&facts.history))
@@ -69,11 +72,9 @@ pub(crate) fn write(
     let bericht = model::Bericht::compose(&model::ReportInputs {
         incomplete: facts.incomplete,
         history: facts.history,
-        transfers: details.transfers,
-        fees: details.fees,
         categories,
-        own_accounts: facts.own_accounts,
-        company_names: details.company_names,
+        company_names,
+        persons: facts.persons,
     });
     file::replace(target, &bericht.render()).map_err(|error| ReportError(error.to_string()))
 }

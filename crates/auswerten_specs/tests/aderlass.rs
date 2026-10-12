@@ -13,8 +13,9 @@
 //! Schwelle erreicht — ein Vorschlag, kein LLM.
 
 use auswerten_adapter::{
-    BookingDirection, CostDriverRow, DriverRankRow, EvaluationError, HistoryEvaluationRow,
-    HistoryTestApi, RecurrenceRhythm, RecurrenceRow, SavingsCandidateRow, WindowBookingRow,
+    BookingDirection, CostDriverRow, DriverRankRow, EvaluationError, FeeRow, HistoryEvaluationRow,
+    HistoryTestApi, InternalTransferRow, RecurrenceRhythm, RecurrenceRow, SavingsCandidateRow,
+    WindowBookingRow,
 };
 
 #[path = "../fixtures/mod.rs"]
@@ -111,6 +112,96 @@ fn eine_genettete_umbuchung_taucht_weder_im_cashflow_noch_im_ranking_auf() {
     assert_eq!(
         ungenettet.ranking.first().map(|platz| platz.driver.clone()),
         Some(art("PERSON:PERSON_7"))
+    );
+}
+
+// --- Umbuchungen und Gebühren über den ganzen Lauf ----------------------------------------
+
+#[test]
+fn die_umbuchungen_stehen_je_monat_und_gegenkonto_rolle_ueber_alle_fenster_des_laufs() {
+    // Der Januar liegt in zwei Fenstern — im Ergebnis ist er **ein** Bucket je Rolle, und genau das,
+    // was das Netting aus dem Cashflow herausnahm, steht hier.
+    let api = historie_api()
+        .with_own_accounts(eigene_konten(&[
+            (SPARKONTO, "spar"),
+            (ZWEITES_KONTO, "haushalt"),
+        ]))
+        .with_window(
+            "fenster-1",
+            fenster(&[
+                dauerauftrag(JAN_15, 30_000, SPARKONTO),
+                dauerauftrag(JAN_15, 45_000, ZWEITES_KONTO),
+            ]),
+        )
+        .with_window(
+            "fenster-2",
+            fenster(&[
+                dauerauftrag(JAN_31, 20_000, SPARKONTO),
+                gegenkonto_eingang(FEB_15, 10_000, SPARKONTO),
+                wiederkehrend(FEB_15, 1_299),
+            ]),
+        );
+
+    let ergebnis = auswertung(&api);
+
+    let umbuchung =
+        |(year, month): (i64, i64), role: &str, incoming, outgoing| InternalTransferRow {
+            year,
+            month,
+            role: role.to_string(),
+            incoming_minor_units: incoming,
+            outgoing_minor_units: outgoing,
+        };
+    assert_eq!(
+        ergebnis.transfers,
+        vec![
+            umbuchung((2024, 1), "haushalt", 0, 45_000),
+            umbuchung((2024, 1), "spar", 0, 50_000),
+            umbuchung((2024, 2), "spar", 10_000, 0),
+        ]
+    );
+    // Und sie fehlen im Cashflow — der trägt nur den Händler.
+    assert_eq!(
+        ergebnis.account_cashflows,
+        vec![konto_monat(EIGENES_KONTO, None, (2024, 2), 0, 1_299)]
+    );
+}
+
+#[test]
+fn die_gebuehren_stehen_je_monat_und_belastetem_konto_ueber_alle_fenster_des_laufs() {
+    let api = historie_api()
+        .with_window(
+            "fenster-1",
+            fenster(&[entgelt(JAN_15, 490), wiederkehrend(JAN_15, 1_000)]),
+        )
+        .with_window(
+            "fenster-2",
+            fenster(&[
+                entgelt(JAN_31, 250),
+                entgelt_auf(FEB_15, 500, ZWEITES_KONTO),
+            ]),
+        );
+
+    let ergebnis = auswertung(&api);
+
+    let gebuehr = |(year, month): (i64, i64), account: &str, outgoing| FeeRow {
+        year,
+        month,
+        account: account.to_string(),
+        incoming_minor_units: 0,
+        outgoing_minor_units: outgoing,
+    };
+    assert_eq!(
+        ergebnis.fees,
+        vec![
+            gebuehr((2024, 1), EIGENES_KONTO, 740),
+            gebuehr((2024, 2), ZWEITES_KONTO, 500),
+        ]
+    );
+    // Ein Ausschnitt des Cashflows, keine Ergänzung: der Januar trägt Gebühr **und** Händler.
+    assert_eq!(
+        ergebnis.account_cashflows.first(),
+        Some(&konto_monat(EIGENES_KONTO, None, (2024, 1), 0, 1_740))
     );
 }
 
@@ -588,6 +679,21 @@ fn der_dto_vertrag_nimmt_buchungen_und_gibt_cashflow_ranking_und_kandidaten_ohne
                 konto_monat(EIGENES_KONTO, Some("giro"), (2024, 2), 0, 1_799),
                 konto_monat(EIGENES_KONTO, Some("giro"), (2024, 3), 0, 1_299),
             ],
+            // … und steht stattdessen hier; die Gebühr ist ein Ausschnitt des Februars.
+            transfers: vec![InternalTransferRow {
+                year: 2024,
+                month: 3,
+                role: "spar".to_string(),
+                incoming_minor_units: 0,
+                outgoing_minor_units: 10_000,
+            }],
+            fees: vec![FeeRow {
+                year: 2024,
+                month: 2,
+                account: EIGENES_KONTO.to_string(),
+                incoming_minor_units: 0,
+                outgoing_minor_units: 500,
+            }],
             ranking: vec![
                 abo.clone(),
                 platz(gebuehren_von(EIGENES_KONTO), (500, 1), (1_138, 10_000), 500),

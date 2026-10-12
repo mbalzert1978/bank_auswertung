@@ -2,27 +2,29 @@
 //!
 //! [`Bericht::compose`] ist eine **reine Funktion**: sie bekommt die Analyse-DTOs als Wert
 //! ([`ReportInputs`]) und liefert nur noch Anzeige-Werte — Beschriftungen, Euro-Beträge, Monate,
-//! Prozente. Sie rechnet **nichts** nach (kein Saldo, keine Summe, kein Ranking): jede Zahl im Bericht
-//! hat die Domäne oder, für die Summe der Fenster eines Laufs, die Lese-Abfrage errechnet. Hier wird
-//! nur **beschriftet und formatiert**.
+//! Prozente. Sie rechnet **nichts** nach (kein Saldo, keine Summe, kein Ranking): **jede** Zahl im
+//! Bericht stammt aus dem einen Ergebnis der fenster-übergreifenden Reichweite. Hier wird nur
+//! **beschriftet, geordnet und formatiert**.
 //!
 //! **Beschriftung ohne Leak** (Privacy-Invarianten, die Report-Ausgabe ist ein Egress):
 //!
-//! - **Konten** erscheinen über ihre **Rolle** aus der Eigene-Konten-Config (`Giro`, `Haushalt`, …),
-//!   nie über ihr `KONTO_…`-Token. Ein Konto ohne Rolle heißt `Konto ohne Rolle`; tragen mehrere
-//!   Konten dieselbe Beschriftung, werden sie durchnummeriert.
+//! - **Konten** erscheinen über ihre **Rolle** (`Giro`, `Haushalt`, …), wie die Domäne sie am
+//!   Cashflow je Konto führt — nie über ihr `KONTO_…`-Token. Ein Konto ohne Rolle heißt
+//!   `Konto ohne Rolle`; tragen mehrere Konten dieselbe Beschriftung, werden sie durchnummeriert.
 //! - **Firmen** erscheinen über ihren **gescrubbten Firmennamen**, wie `obfuskieren` ihn abgelegt hat
-//!   (er ist ein bewusster Analyse-Anker), sonst über die öffentliche **Gläubiger-ID**. Ein
-//!   Händler-Token hinter einem Zahlungsdienst steht daneben — so stehen die Händler getrennt.
-//! - **Personen** erscheinen nur über ihr seed-basiertes **Pseudonym**.
+//!   (er ist ein bewusster Analyse-Anker) — aber nur, wenn er **keinen** Namen der lokalen Namensliste
+//!   nennt (dieselbe Erkennung wie beim Scrubbing); sonst und ohne Namen über die öffentliche
+//!   **Gläubiger-ID**. Ein Händler-Token hinter einem Zahlungsdienst steht daneben — so stehen die
+//!   Händler getrennt.
+//! - **Personen** erscheinen nur über den Anfang ihres seed-basierten **Pseudonyms** (`Person 4e5c9f`).
 //! - Die **Kategorie** kommt allein aus dem Register (fehlt sie: „unbekannt").
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use auswerten_adapter::{
-    CategoryAnswerRow, CostDriverRow, FeeRow, HistoryEvaluationRow, InternalTransferRow,
-    OwnAccountRow, PriceIncreaseRow, RecurrenceRhythm,
+    CategoryAnswerRow, CostDriverRow, HistoryEvaluationRow, PriceIncreaseRow, RecurrenceRhythm,
 };
+use obfuskierung_adapter::names_known_person;
 use rusty_money::iso;
 
 use crate::common::calendar;
@@ -34,7 +36,11 @@ pub(crate) const UNKNOWN_CATEGORY: &str = "unbekannt";
 /// Die Beschriftung eines eigenen Kontos, das die Eigene-Konten-Config nicht führt.
 const ACCOUNT_WITHOUT_ROLE: &str = "Konto ohne Rolle";
 
-/// Der Platzhalter einer leeren Zelle (kein Takt, keine Preissteigerung).
+/// Wie viele Zeichen des Pseudonyms eine Person im Bericht kennzeichnen — genug, um die Personen
+/// eines privaten Bestands auseinanderzuhalten, kurz genug zum Lesen.
+const PSEUDONYM_SHOWN: usize = 6;
+
+/// Der Platzhalter einer leeren Zelle (kein Takt, keine Preissteigerung, keine Währung).
 const NONE: &str = "—";
 
 const MONTHS: [&str; 12] = [
@@ -58,18 +64,14 @@ const MONTHS: [&str; 12] = [
 pub(crate) struct ReportInputs {
     /// Wie viele Buchungen der Analyse fehlen (`RunReport::incomplete`, ADR-0017).
     pub(crate) incomplete: usize,
-    /// Das Ergebnis der fenster-übergreifenden Reichweite **dieses** Laufs.
+    /// Das Ergebnis der fenster-übergreifenden Reichweite **dieses** Laufs — die Quelle jeder Zahl.
     pub(crate) history: HistoryEvaluationRow,
-    /// Die Umbuchungen des Laufs, über seine Fenster je Monat und Gegenkonto-Rolle summiert.
-    pub(crate) transfers: Vec<InternalTransferRow>,
-    /// Die Gebühren des Laufs, über seine Fenster je Monat und belastetem Konto summiert.
-    pub(crate) fees: Vec<FeeRow>,
     /// Was das Kategorie-Register zu den Fingerabdrücken der Treiber kennt.
     pub(crate) categories: Vec<CategoryAnswerRow>,
-    /// Die tokenisierte Eigene-Konten-Config — die Quelle der Konto-Rollen.
-    pub(crate) own_accounts: Vec<OwnAccountRow>,
     /// Gläubiger-ID → gescrubbter Firmenname, aus den Buchungen der Fenster dieses Laufs.
     pub(crate) company_names: BTreeMap<String, String>,
+    /// Die lokale Namensliste (`personen.toml`): ein Firmenname, der einen davon nennt, erscheint nicht.
+    pub(crate) persons: Vec<String>,
 }
 
 /// Der **Bericht** als Anzeige-DTO: nur fertig beschriftete und formatierte Werte, kein Token, keine
@@ -79,7 +81,7 @@ pub(crate) struct ReportInputs {
 pub(crate) struct Bericht {
     /// Wie viele Buchungen der Analyse fehlen — `0` heißt: keine.
     pub(crate) missing_bookings: usize,
-    /// Die eine Währung des Laufs (ISO 4217).
+    /// Die eine Währung des Laufs (ISO 4217) — `—` bei leerer Historie.
     pub(crate) currency: String,
     pub(crate) cashflows: Vec<CashflowLine>,
     pub(crate) transfers: Vec<TransferLine>,
@@ -160,8 +162,12 @@ impl Bericht {
     pub(crate) fn compose(inputs: &ReportInputs) -> Self {
         let history = &inputs.history;
         let money = Money::of(history.currency.as_deref());
-        let accounts = AccountLabels::new(inputs);
+        let accounts = AccountLabels::new(history);
         let drivers = DriverLabels::new(inputs, &accounts);
+        // Der teuerste wiederkehrende Abfluss zuerst; bei Gleichstand bleibt die Ordnung der Domäne.
+        let mut recurrences = history.recurrences.iter().collect::<Vec<_>>();
+        recurrences
+            .sort_by_key(|recurrence| std::cmp::Reverse(recurrence.annual_amount_minor_units));
 
         let mut cashflows = history
             .account_cashflows
@@ -180,7 +186,7 @@ impl Bericht {
 
         Self {
             missing_bookings: inputs.incomplete,
-            currency: money.code.clone(),
+            currency: history.currency.clone().unwrap_or_else(|| NONE.to_string()),
             cashflows: cashflows
                 .into_iter()
                 .map(|(account, (year, month), bucket)| CashflowLine {
@@ -190,7 +196,7 @@ impl Bericht {
                     outgoing: money.format(bucket.outgoing_minor_units),
                 })
                 .collect(),
-            transfers: inputs
+            transfers: history
                 .transfers
                 .iter()
                 .map(|transfer| TransferLine {
@@ -200,7 +206,7 @@ impl Bericht {
                     outgoing: money.format(transfer.outgoing_minor_units),
                 })
                 .collect(),
-            fees: inputs
+            fees: history
                 .fees
                 .iter()
                 .map(|fee| FeeLine {
@@ -239,9 +245,8 @@ impl Bericht {
                     price_increase: money.increase(candidate.ranked.price_increase.as_ref()),
                 })
                 .collect(),
-            recurrences: history
-                .recurrences
-                .iter()
+            recurrences: recurrences
+                .into_iter()
                 .map(|recurrence| RecurrenceLine {
                     driver: drivers.label(&recurrence.driver),
                     category: drivers.category(&recurrence.driver),
@@ -287,28 +292,21 @@ pub(crate) fn driver_fingerprints(history: &HistoryEvaluationRow) -> Vec<String>
 struct AccountLabels(BTreeMap<String, String>);
 
 impl AccountLabels {
-    fn new(inputs: &ReportInputs) -> Self {
-        let history = &inputs.history;
-        // Die Rolle aus der Config; die Cashflow-Zeile trägt sie zusätzlich (die Domäne hat sie aus
-        // derselben Config gelesen), falls die Config-Liste hier fehlt.
+    fn new(history: &HistoryEvaluationRow) -> Self {
+        // Die Rolle führt die Domäne am Cashflow je Konto — gelesen aus der Eigene-Konten-Config,
+        // aufgelöst auf Token. Jedes Konto, das Gebühren oder eine Wiederkehr trägt, hat dort auch
+        // Abfluss, steht also mit seiner Rolle darin.
         let roles = history
             .account_cashflows
             .iter()
             .filter_map(|bucket| Some((bucket.account.as_str(), bucket.role.as_deref()?)))
-            .chain(
-                inputs
-                    .own_accounts
-                    .iter()
-                    .map(|account| (account.token.as_str(), account.role.as_str())),
-            )
             .collect::<BTreeMap<_, _>>();
-        // Beschriftet werden nur Konten, die im Bericht **vorkommen** — eine zweite Giro-Zeile der
-        // Config ohne Buchungen soll das eine sichtbare Girokonto nicht zu „Giro 1" machen.
+        // Beschriftet werden nur Konten, die im Bericht **vorkommen**.
         let shown = history
             .account_cashflows
             .iter()
             .map(|bucket| bucket.account.as_str())
-            .chain(inputs.fees.iter().map(|fee| fee.account.as_str()))
+            .chain(history.fees.iter().map(|fee| fee.account.as_str()))
             .chain(
                 history
                     .recurrences
@@ -369,7 +367,8 @@ impl AccountLabels {
 /// Kostentreiber → lesbare Beschriftung und Kategorie aus dem Register.
 struct DriverLabels<'a> {
     accounts: &'a AccountLabels,
-    company_names: &'a BTreeMap<String, String>,
+    /// Nur die Firmennamen, die **keinen** Namen der lokalen Namensliste nennen.
+    company_names: BTreeMap<&'a str, &'a str>,
     categories: BTreeMap<&'a str, &'a str>,
 }
 
@@ -377,7 +376,12 @@ impl<'a> DriverLabels<'a> {
     fn new(inputs: &'a ReportInputs, accounts: &'a AccountLabels) -> Self {
         Self {
             accounts,
-            company_names: &inputs.company_names,
+            company_names: inputs
+                .company_names
+                .iter()
+                .filter(|(_, name)| !names_known_person(name, &inputs.persons))
+                .map(|(creditor_id, name)| (creditor_id.as_str(), name.as_str()))
+                .collect(),
             categories: inputs
                 .categories
                 .iter()
@@ -418,15 +422,18 @@ impl<'a> DriverLabels<'a> {
                 .map_or((company, None), |(id, merchant)| (id, Some(merchant)));
             let name = self.company_names.get(creditor_id).map_or_else(
                 || format!("Gläubiger-ID {creditor_id}"),
-                |name| name.clone(),
+                |name| (*name).to_string(),
             );
             match merchant {
                 Some(merchant) => format!("{name} › {merchant}"),
                 None => name,
             }
         } else if let Some(pseudonym) = fingerprint.strip_prefix("PERSON:") {
-            // Das Pseudonym (`PERSON_…`) sagt selbst, dass hier eine Person steht.
-            pseudonym.to_string()
+            let pseudonym = pseudonym.strip_prefix("PERSON_").unwrap_or(pseudonym);
+            format!(
+                "Person {}",
+                pseudonym.chars().take(PSEUDONYM_SHOWN).collect::<String>()
+            )
         } else {
             fingerprint.to_string()
         }
@@ -436,26 +443,25 @@ impl<'a> DriverLabels<'a> {
 /// Beträge in der Schreibweise der Währung: Tausenderpunkt, Dezimalkomma, Nachkommastellen nach
 /// ISO 4217 (`rusty_money`, wie beim Einlesen).
 struct Money {
-    code: String,
     exponent: u32,
     unit: String,
 }
 
 impl Money {
+    /// Nachkommastellen und Symbol nach ISO 4217. Ohne Währung gibt es keine einzige Buchung und
+    /// darum keinen Betrag; eine unbekannte Währung zeigt ihren Code.
     fn of(currency: Option<&str>) -> Self {
-        // Ohne Währung gibt es keine einzige Buchung — der Bericht zeigt dann keine Beträge.
-        let code = currency.unwrap_or("EUR").to_ascii_uppercase();
-        let exponent = iso::find(&code).map_or(2, |found| found.exponent);
-        let unit = if code == "EUR" {
-            "€".to_string()
-        } else {
-            code.clone()
-        };
-        Self {
-            code,
-            exponent,
-            unit,
-        }
+        let code = currency.unwrap_or_default().to_ascii_uppercase();
+        iso::find(&code).map_or(
+            Self {
+                exponent: 2,
+                unit: code.clone(),
+            },
+            |found| Self {
+                exponent: found.exponent,
+                unit: found.symbol.to_string(),
+            },
+        )
     }
 
     fn format(&self, minor_units: u64) -> String {

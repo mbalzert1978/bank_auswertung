@@ -1,4 +1,4 @@
-use auswerten_domain::{CounterAccount, WindowEvaluation};
+use auswerten_domain::{CounterAccount, Fee, InternalTransfer, WindowEvaluation};
 
 use crate::models::CategoryRow;
 use crate::models::account_role_vocabulary::role_label;
@@ -142,25 +142,9 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
             transfers: evaluation
                 .transfers()
                 .iter()
-                .map(|transfer| InternalTransferRow {
-                    year: transfer.month().year(),
-                    month: transfer.month().month_of_year(),
-                    role: role_label(transfer.role()).to_string(),
-                    incoming_minor_units: transfer.incoming().minor_units(),
-                    outgoing_minor_units: transfer.outgoing().minor_units(),
-                })
+                .map(InternalTransferRow::from)
                 .collect(),
-            fees: evaluation
-                .fees()
-                .iter()
-                .map(|fee| FeeRow {
-                    year: fee.month().year(),
-                    month: fee.month().month_of_year(),
-                    account: fee.account().as_str().to_string(),
-                    incoming_minor_units: fee.incoming().minor_units(),
-                    outgoing_minor_units: fee.outgoing().minor_units(),
-                })
-                .collect(),
+            fees: evaluation.fees().iter().map(FeeRow::from).collect(),
             fingerprints: evaluation
                 .fingerprints()
                 .iter()
@@ -176,6 +160,32 @@ impl From<&WindowEvaluation> for WindowEvaluationRow {
                 .iter()
                 .map(CategoryRow::from)
                 .collect(),
+        }
+    }
+}
+
+/// Die Umbuchung „innen → außen" — **eine** Abbildung für beide Reichweiten (Fenster und Lauf).
+impl From<&InternalTransfer> for InternalTransferRow {
+    fn from(transfer: &InternalTransfer) -> Self {
+        Self {
+            year: transfer.month().year(),
+            month: transfer.month().month_of_year(),
+            role: role_label(transfer.role()).to_string(),
+            incoming_minor_units: transfer.incoming().minor_units(),
+            outgoing_minor_units: transfer.outgoing().minor_units(),
+        }
+    }
+}
+
+/// Die Gebühr „innen → außen" — **eine** Abbildung für beide Reichweiten (Fenster und Lauf).
+impl From<&Fee> for FeeRow {
+    fn from(fee: &Fee) -> Self {
+        Self {
+            year: fee.month().year(),
+            month: fee.month().month_of_year(),
+            account: fee.account().as_str().to_string(),
+            incoming_minor_units: fee.incoming().minor_units(),
+            outgoing_minor_units: fee.outgoing().minor_units(),
         }
     }
 }

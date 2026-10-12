@@ -60,7 +60,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (deliberately free of architecture/crate detail so it cannot go stale); the architecture
   is owned by [docs/adr/](docs/adr/) and this file.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — seventeen ADRs (0008/0009 governing the pipeline/kernel — refined
+- [docs/adr/](docs/adr/) — eighteen ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011** (built): each slice decoupled from the Outbox mechanics, kernel cut flipped and
   merged into `application_kernel`; and by **0012**, which fixes the pipeline to
   **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
@@ -77,7 +77,9 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   window-spanning query scoped by it) and skips `Umsatz vorgemerkt`; **0017** (*accepted*, **built** —
   issue 0085) answers 0012's deferred question: the broker **dead-letters** a failed message via a
   `status` column in the outbox (terminal at once, transient after 3 attempts), runs are never blocked
-  by it, and a dead-lettered `Ingested` marks every later analysis **incomplete**; 0010 governing seed-based pseudonym
+  by it, and a dead-lettered `Ingested` marks every later analysis **incomplete**; **0018** (*accepted*,
+  **built** — issue 0012) makes the `report` an `io` formatter at the end of an exit-0 run — no outbox
+  consumer, no port, no crate; 0010 governing seed-based pseudonym
   stability; 0001–0007 each carry a superseded banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
@@ -349,9 +351,12 @@ the purpose, company → only the name, **persons never** (so card payments get 
 **parsed** (form + mod 97) in `obfuskieren` (an invalid one makes the counterparty a person) **and**
 again at `auswerten`'s ACL (a row from an older file with an invalid one ends the run terminally).
 The `report`
-is **built** (issue 0012): HTML in `io`, its display DTO carries the no-`Serialize` guard, accounts
-appear by role, persons only as pseudonym, companies by their scrubbed name, categories only from the
-register (else „unbekannt"). Also deferred: persistent seed management
+is **built** (issue 0012, ADR-0018): HTML in `io`, its display DTO carries the no-`Serialize` guard,
+every number comes from the one `HistoryEvaluation` of the run (which now also carries the run's
+transfers and fees), accounts appear by role, persons only as a short pseudonym, categories only from
+the register (else „unbekannt"). Companies appear by their scrubbed name **only if it names nobody on
+`personen.toml`** (same detection as the scrubber), else by their creditor ID. **Limit:** a natural
+person with a creditor ID who is not on `personen.toml` appears with their name. Also deferred: persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
 [Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
 persisting the seed across runs is not). Note what the `obfuskiert` table stores: **not the seed but
@@ -476,7 +481,9 @@ Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 ## Architecture — the big picture
 
 Hexagonal (Ports & Adapters) als modularer Monolith aus Feature-Slice-Triaden; Pipeline
-`einlesen → obfuskieren → fenstern → auswerten → report`, jeder Schritt ein Outbox-Consumer,
+`einlesen → obfuskieren → fenstern → auswerten → report`, jeder Schritt bis `auswerten` ein
+Outbox-Consumer, `report` der `io`-Formatierer am Ende eines Exit-0-Laufs
+([ADR-0018](docs/adr/0018-bericht-als-io-formatierer-am-ende-eines-laufs.md)),
 `obfuskieren` die **Privacy-Grenze**, `auswerten` die Analyse (das LLM nur Orakel für
 **unbekannte** Fingerabdrücke). Der `Speicher` ist **kein eigener Port**, sondern die Summe der
 SQLite-Ablagen in `io`: die vier Slice-Stores (je hinter dem Seam ihres Slice, sie speichern **DTOs**,

@@ -1,9 +1,15 @@
 //! Das **HTML** des Berichts: eine eigenständige Seite — CSS inline, keine externe Ressource, kein
-//! JavaScript. Kein Template-Crate: die Seite ist eine feste Folge von Abschnitten und Tabellen, und
-//! **jeder** Text geht durch [`escape`] — auch die Kategorie-Etiketten, die aus einer Chat-Antwort
-//! stammen (Issue 0011) und nur auf Länge und Zeichenklasse geprüft sind, nicht auf HTML.
+//! JavaScript. Kein Template-Crate: die Seite ist eine feste Folge von Abschnitten, je einer pro
+//! Zeilentyp, und **jeder** Text geht durch [`escape`] — auch die Kategorie-Etiketten, die aus einer
+//! Chat-Antwort stammen (Issue 0011) und nur auf Länge und Zeichenklasse geprüft sind, nicht auf HTML.
+//!
+//! **Spalten und Zellen passen per Typ zusammen:** jeder Zeilentyp nennt seine `N` Spalten und gibt
+//! genau `N` Zellen her ([`TableRow`]). Eine Zelle zu viel oder zu wenig ist ein **Compile-Fehler**,
+//! kein still abgeschnittener Tabelleninhalt.
 
-use crate::report::model::Bericht;
+use crate::report::model::{
+    Bericht, CashflowLine, FeeLine, RankLine, RecurrenceLine, SavingsLine, TransferLine,
+};
 
 /// Eine Tabellenspalte: Überschrift und ob sie Zahlen trägt (rechtsbündig, ohne Umbruch).
 struct Column {
@@ -25,166 +31,165 @@ const fn number(title: &'static str) -> Column {
     }
 }
 
-impl Bericht {
-    /// Rendert den Bericht als vollständige HTML-Seite.
-    pub(crate) fn render(&self) -> String {
-        let sections = [
-            section(
-                "cashflow",
-                "Cashflow je Konto und Monat",
-                "Was auf jedem eigenen Konto ein- und abging — Umbuchungen zwischen den eigenen Konten \
-                 sind herausgerechnet, Gebühren sind enthalten.",
-                &table(
-                    &[
-                        text("Konto"),
-                        text("Monat"),
-                        number("Eingang"),
-                        number("Ausgang"),
-                    ],
-                    self.cashflows.iter().map(|line| {
-                        vec![
-                            line.account.as_str(),
-                            line.month.as_str(),
-                            line.incoming.as_str(),
-                            line.outgoing.as_str(),
-                        ]
-                    }),
-                ),
-            ),
-            section(
-                "umbuchungen",
-                "Umbuchungen zwischen eigenen Konten",
-                "Was aus dem Cashflow herausgerechnet wurde: ein Ausgang ging auf das genannte \
-                 eigene Konto, ein Eingang kam von dort.",
-                &table(
-                    &[
-                        text("Monat"),
-                        text("Gegenkonto"),
-                        number("Eingang"),
-                        number("Ausgang"),
-                    ],
-                    self.transfers.iter().map(|line| {
-                        vec![
-                            line.month.as_str(),
-                            line.counter_account.as_str(),
-                            line.incoming.as_str(),
-                            line.outgoing.as_str(),
-                        ]
-                    }),
-                ),
-            ),
-            section(
-                "gebuehren",
-                "Gebühren",
-                "Was die Bank selbst eingezogen hat — echter Abfluss, darum auch im Cashflow \
-                 enthalten.",
-                &table(
-                    &[
-                        text("Monat"),
-                        text("Konto"),
-                        number("Eingezogen"),
-                        number("Erstattet"),
-                    ],
-                    self.fees.iter().map(|line| {
-                        vec![
-                            line.month.as_str(),
-                            line.account.as_str(),
-                            line.charged.as_str(),
-                            line.refunded.as_str(),
-                        ]
-                    }),
-                ),
-            ),
-            section(
-                "ranking",
-                "Pareto-Ranking der Kostentreiber",
-                "Die größten Abflüsse zuerst. Der kumulierte Anteil zeigt, wie wenige Treiber den \
-                 Großteil ausmachen.",
-                &table(
-                    &[
-                        number("Platz"),
-                        text("Treiber"),
-                        text("Kategorie"),
-                        number("Abfluss"),
-                        number("Buchungen"),
-                        number("Anteil"),
-                        number("Kumuliert"),
-                        number("Jahresbetrag"),
-                        text("Takt"),
-                    ],
-                    self.ranking.iter().map(|line| {
-                        vec![
-                            line.rank.as_str(),
-                            line.driver.as_str(),
-                            line.category.as_str(),
-                            line.outflow.as_str(),
-                            line.bookings.as_str(),
-                            line.share.as_str(),
-                            line.cumulative_share.as_str(),
-                            line.annual.as_str(),
-                            line.rhythm.as_str(),
-                        ]
-                    }),
-                ),
-            ),
-            section(
-                "spar-kandidaten",
-                "Spar-Kandidaten",
-                "Treiber, deren Jahresbetrag die Schwelle aus der Spar-Config erreicht — ein \
-                 Vorschlag, entschieden wird von dir.",
-                &table(
-                    &[
-                        number("Platz"),
-                        text("Treiber"),
-                        text("Kategorie"),
-                        number("Jahresbetrag"),
-                        number("Anteil"),
-                        text("Takt"),
-                        text("Preissteigerung"),
-                    ],
-                    self.savings.iter().map(|line| {
-                        vec![
-                            line.rank.as_str(),
-                            line.driver.as_str(),
-                            line.category.as_str(),
-                            line.annual.as_str(),
-                            line.share.as_str(),
-                            line.rhythm.as_str(),
-                            line.price_increase.as_str(),
-                        ]
-                    }),
-                ),
-            ),
-            section(
-                "wiederkehr",
-                "Wiederkehrende Abflüsse",
-                "Abos, Verträge, Daueraufträge: monatlich oder jährlich, mit Jahresbetrag zum \
-                 aktuellen Preis. Händler hinter einem Zahlungsdienst stehen einzeln.",
-                &table(
-                    &[
-                        text("Treiber"),
-                        text("Kategorie"),
-                        text("Takt"),
-                        number("Je Abbuchung"),
-                        number("Jahresbetrag"),
-                        text("Preissteigerung"),
-                        text("Konto"),
-                    ],
-                    self.recurrences.iter().map(|line| {
-                        vec![
-                            line.driver.as_str(),
-                            line.category.as_str(),
-                            line.rhythm.as_str(),
-                            line.typical.as_str(),
-                            line.annual.as_str(),
-                            line.price_increase.as_str(),
-                            line.account.as_str(),
-                        ]
-                    }),
-                ),
-            ),
-        ];
+/// Ein Zeilentyp des Berichts als Abschnitt: Anker, Überschrift, ein Satz Erklärung, die `N` Spalten
+/// und je Zeile genau `N` Zellen.
+trait TableRow<const N: usize> {
+    const ID: &'static str;
+    const TITLE: &'static str;
+    const INTRO: &'static str;
+    const COLUMNS: [Column; N];
 
+    fn cells(&self) -> [&str; N];
+}
+
+impl TableRow<4> for CashflowLine {
+    const ID: &'static str = "cashflow";
+    const TITLE: &'static str = "Cashflow je Konto und Monat";
+    const INTRO: &'static str = "Was auf jedem eigenen Konto ein- und abging — Umbuchungen zwischen \
+        den eigenen Konten sind herausgerechnet, Gebühren sind enthalten.";
+    const COLUMNS: [Column; 4] = [
+        text("Konto"),
+        text("Monat"),
+        number("Eingang"),
+        number("Ausgang"),
+    ];
+
+    fn cells(&self) -> [&str; 4] {
+        [&self.account, &self.month, &self.incoming, &self.outgoing]
+    }
+}
+
+impl TableRow<4> for TransferLine {
+    const ID: &'static str = "umbuchungen";
+    const TITLE: &'static str = "Umbuchungen zwischen eigenen Konten";
+    const INTRO: &'static str = "Was aus dem Cashflow herausgerechnet wurde: ein Ausgang ging auf \
+        das genannte eigene Konto, ein Eingang kam von dort.";
+    const COLUMNS: [Column; 4] = [
+        text("Monat"),
+        text("Gegenkonto"),
+        number("Eingang"),
+        number("Ausgang"),
+    ];
+
+    fn cells(&self) -> [&str; 4] {
+        [
+            &self.month,
+            &self.counter_account,
+            &self.incoming,
+            &self.outgoing,
+        ]
+    }
+}
+
+impl TableRow<4> for FeeLine {
+    const ID: &'static str = "gebuehren";
+    const TITLE: &'static str = "Gebühren";
+    const INTRO: &'static str = "Was die Bank selbst eingezogen hat — echter Abfluss, darum auch im \
+        Cashflow enthalten.";
+    const COLUMNS: [Column; 4] = [
+        text("Monat"),
+        text("Konto"),
+        number("Eingezogen"),
+        number("Erstattet"),
+    ];
+
+    fn cells(&self) -> [&str; 4] {
+        [&self.month, &self.account, &self.charged, &self.refunded]
+    }
+}
+
+impl TableRow<9> for RankLine {
+    const ID: &'static str = "ranking";
+    const TITLE: &'static str = "Pareto-Ranking der Kostentreiber";
+    const INTRO: &'static str = "Die größten Abflüsse zuerst. Der kumulierte Anteil zeigt, wie wenige \
+        Treiber den Großteil ausmachen.";
+    const COLUMNS: [Column; 9] = [
+        text("Treiber"),
+        text("Kategorie"),
+        number("Abfluss"),
+        number("Buchungen"),
+        number("Anteil"),
+        number("Kumuliert"),
+        number("Jahresbetrag"),
+        text("Takt"),
+        number("Platz im Ranking"),
+    ];
+
+    fn cells(&self) -> [&str; 9] {
+        [
+            &self.driver,
+            &self.category,
+            &self.outflow,
+            &self.bookings,
+            &self.share,
+            &self.cumulative_share,
+            &self.annual,
+            &self.rhythm,
+            &self.rank,
+        ]
+    }
+}
+
+impl TableRow<7> for SavingsLine {
+    const ID: &'static str = "spar-kandidaten";
+    const TITLE: &'static str = "Spar-Kandidaten";
+    const INTRO: &'static str = "Treiber, deren Jahresbetrag die Schwelle aus der Spar-Config \
+        erreicht — ein Vorschlag, entschieden wird von dir.";
+    const COLUMNS: [Column; 7] = [
+        text("Treiber"),
+        text("Kategorie"),
+        number("Jahresbetrag"),
+        number("Anteil"),
+        text("Takt"),
+        text("Preissteigerung"),
+        number("Platz im Ranking"),
+    ];
+
+    fn cells(&self) -> [&str; 7] {
+        [
+            &self.driver,
+            &self.category,
+            &self.annual,
+            &self.share,
+            &self.rhythm,
+            &self.price_increase,
+            &self.rank,
+        ]
+    }
+}
+
+impl TableRow<7> for RecurrenceLine {
+    const ID: &'static str = "wiederkehr";
+    const TITLE: &'static str = "Wiederkehrende Abflüsse";
+    const INTRO: &'static str = "Abos, Verträge, Daueraufträge: monatlich oder jährlich, der höchste \
+        Jahresbetrag zum aktuellen Preis zuerst. Händler hinter einem Zahlungsdienst stehen einzeln.";
+    const COLUMNS: [Column; 7] = [
+        text("Treiber"),
+        text("Kategorie"),
+        text("Takt"),
+        number("Je Abbuchung"),
+        number("Jahresbetrag"),
+        text("Preissteigerung"),
+        text("Konto"),
+    ];
+
+    fn cells(&self) -> [&str; 7] {
+        [
+            &self.driver,
+            &self.category,
+            &self.rhythm,
+            &self.typical,
+            &self.annual,
+            &self.price_increase,
+            &self.account,
+        ]
+    }
+}
+
+impl Bericht {
+    /// Rendert den Bericht als vollständige HTML-Seite: Kopf, Hinweis, Navigation, dann je Zeilentyp
+    /// ein Abschnitt.
+    pub(crate) fn render(&self) -> String {
         [
             HEAD.to_string(),
             format!(
@@ -194,7 +199,12 @@ impl Bericht {
             ),
             self.notice(),
             NAV.to_string(),
-            sections.concat(),
+            section(&self.cashflows),
+            section(&self.transfers),
+            section(&self.fees),
+            section(&self.ranking),
+            section(&self.savings),
+            section(&self.recurrences),
             FOOT.to_string(),
         ]
         .concat()
@@ -202,48 +212,48 @@ impl Bericht {
 
     /// Der Hinweis oben im Bericht, wenn der Analyse Buchungen fehlen (ADR-0017) — sonst nichts.
     fn notice(&self) -> String {
-        if self.missing_bookings == 0 {
-            return String::new();
-        }
+        let missing = match self.missing_bookings {
+            0 => return String::new(),
+            1 => "1 Buchung fehlt".to_string(),
+            many => format!("{many} Buchungen fehlen"),
+        };
         format!(
-            "<p class=\"warnung\" role=\"alert\"><strong>Analyse unvollständig:</strong> {} \
-             Buchung(en) fehlen. Sie wurden beim Verarbeiten ausgesondert (siehe Lauf-Protokoll) und \
-             sind in keiner Zahl dieses Berichts enthalten.</p>\n",
-            self.missing_bookings
+            "<p class=\"warnung\" role=\"alert\"><strong>Analyse unvollständig:</strong> {missing}. \
+             Sie wurden beim Verarbeiten ausgesondert (siehe Lauf-Protokoll) und sind in keiner Zahl \
+             dieses Berichts enthalten.</p>\n"
         )
     }
 }
 
-/// Ein Abschnitt mit Überschrift, einem Satz Erklärung und seinem Inhalt (bereits HTML).
-fn section(id: &str, title: &str, intro: &str, body: &str) -> String {
-    format!(
-        "<section id=\"{}\">\n<h2>{}</h2>\n<p>{}</p>\n{body}</section>\n",
-        escape(id),
-        escape(title),
-        escape(intro)
-    )
-}
-
-/// Eine Tabelle; jede Zelle wird escaped. Ohne Zeilen steht statt der Tabelle ein Satz.
-fn table<'a>(columns: &[Column], rows: impl Iterator<Item = Vec<&'a str>>) -> String {
+/// Ein Abschnitt aus Überschrift, Erklärung und der Tabelle seiner Zeilen — ohne Zeilen steht statt
+/// der Tabelle ein Satz. Jede Zelle wird escaped.
+fn section<const N: usize, R: TableRow<N>>(rows: &[R]) -> String {
     let body = rows
-        .map(|cells| {
-            let cells = columns
+        .iter()
+        .map(|row| {
+            let cells = R::COLUMNS
                 .iter()
-                .zip(cells)
+                .zip(row.cells())
                 .map(|(column, cell)| format!("<td{}>{}</td>", class(column), escape(cell)))
                 .collect::<String>();
             format!("<tr>{cells}</tr>\n")
         })
         .collect::<String>();
-    if body.is_empty() {
-        return "<p class=\"leer\">Keine Einträge.</p>\n".to_string();
-    }
-    let head = columns
-        .iter()
-        .map(|column| format!("<th{}>{}</th>", class(column), escape(column.title)))
-        .collect::<String>();
-    format!("<table>\n<thead><tr>{head}</tr></thead>\n<tbody>\n{body}</tbody>\n</table>\n")
+    let content = if body.is_empty() {
+        "<p class=\"leer\">Keine Einträge.</p>\n".to_string()
+    } else {
+        let head = R::COLUMNS
+            .iter()
+            .map(|column| format!("<th{}>{}</th>", class(column), escape(column.title)))
+            .collect::<String>();
+        format!("<table>\n<thead><tr>{head}</tr></thead>\n<tbody>\n{body}</tbody>\n</table>\n")
+    };
+    format!(
+        "<section id=\"{}\">\n<h2>{}</h2>\n<p>{}</p>\n{content}</section>\n",
+        escape(R::ID),
+        escape(R::TITLE),
+        escape(R::INTRO)
+    )
 }
 
 const fn class(column: &Column) -> &'static str {

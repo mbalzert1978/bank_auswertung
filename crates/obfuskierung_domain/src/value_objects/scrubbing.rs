@@ -101,6 +101,12 @@ pub(crate) fn scrub(text: &str, persons: &KnownPersons) -> String {
         .collect::<String>()
 }
 
+/// Nennt der Text einen bekannten Personen-Namen? **Dieselbe** Erkennung wie [`scrub`] — derselbe
+/// Lexer, dieselben Regeln —, nur ohne zu ersetzen.
+pub(crate) fn names_person(text: &str, persons: &KnownPersons) -> bool {
+    Segments::new(text, persons).any(|segment| segment == Segment::Replaced(Identifier::Person))
+}
+
 /// Der Identifikator, der am Anfang von `rest` steht, samt seiner Länge in Zeichen. `before` ist der
 /// Text davor — er entscheidet, ob hier ein Wort beginnt und ob ein BIC-Hinweis vorausgeht.
 ///

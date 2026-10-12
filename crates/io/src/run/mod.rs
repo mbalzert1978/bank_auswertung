@@ -103,7 +103,6 @@ use crate::sqlite::{DeadLetter, Delivery, SqliteOutbox};
 mod ack_sink;
 mod history_sink;
 mod kategorien;
-mod report_step;
 
 pub use ack_sink::AckSink;
 pub use history_sink::RecordingHistorySink;
@@ -331,6 +330,8 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let own_accounts =
         EigeneKontenConfig::load(&paths.own_accounts_config)?.to_own_accounts_config(seed);
     let persons = PersonenConfig::load(&paths.persons_config)?.into_names();
+    // Die Namensliste braucht nach dem Lauf noch der Bericht (Firmennamen, die eine Person nennen).
+    let report_persons = persons.clone();
     let savings_threshold = SparenConfig::load(&paths.savings_config)?.savings_threshold();
 
     // Der **einzige** Weg, auf dem die Datei ihr Schema bekommt (Issue 0084): frisch → angelegt und
@@ -340,8 +341,6 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let adapters = Adapters::new(&outbox, paths, persons);
     let stores = Stores::new(&outbox);
     let history = RecordingHistorySink::default();
-    // Die Konto-Rollen braucht nach dem Lauf noch der Bericht — als Token, nie als IBAN.
-    let own_account_rows = own_accounts.accounts.clone();
     let dispatcher = DispatcherBuilder::new(&outbox, &adapters, stores)
         .window_days(window_days)
         .seed(seed)
@@ -394,14 +393,16 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
             protocol,
         )?;
     }
-    report_step::write(
-        &outbox,
-        paths,
-        protocol,
-        &report,
-        evaluation,
-        own_account_rows,
-    )?;
+    // Der Bericht des gelungenen Laufs — gescopt über **seine** Lauf-Identität (ADR-0016, ADR-0018).
+    let facts = crate::report::RunFacts {
+        run_id: report.run_id(),
+        incomplete: report.incomplete(),
+        history: evaluation,
+        persons: report_persons,
+    };
+    crate::report::write(&outbox, &paths.report, facts)
+        .map_err(|crate::report::ReportError(diagnosis)| RunError::Report(diagnosis))?;
+    write_line(protocol, "Lauf: Bericht geschrieben")?;
     Ok(report)
 }
 

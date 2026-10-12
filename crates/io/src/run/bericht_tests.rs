@@ -3,7 +3,7 @@
 //! belegen kann: dass der Bericht **nur** bei Exit 0 entsteht, **genau** den eigenen Lauf zeigt, seine
 //! Kategorien aus dem Register liest — und keinen Rohwert der Eingabe trägt.
 
-use auswerten_adapter::CategoryAnswerRow;
+use auswerten_adapter::{CategoryAnswerRow, CostDriverRow, DriverRankRow, HistoryEvaluationRow};
 
 use super::*;
 use crate::pipeline_test_support::TempDbPath;
@@ -210,6 +210,103 @@ fn ein_lauf_mit_fehlenden_buchungen_nennt_ihre_zahl_im_bericht()
     let bilanz = run(&zweiter, &mut Vec::new())?;
 
     assert_eq!(bilanz.incomplete(), 1);
-    assert!(bericht(&zweiter)?.contains("Analyse unvollständig:</strong> 1 Buchung(en) fehlen"));
+    assert!(bericht(&zweiter)?.contains("Analyse unvollständig:</strong> 1 Buchung fehlt."));
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die Beschaffung des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn der_bericht_liest_die_eigene_run_id_auch_wenn_ein_juengerer_fremder_lauf_in_der_datei_liegt()
+-> Result<(), Box<dyn std::error::Error>> {
+    let db = TempDbPath::new("bericht_fremder_lauf");
+    let paths = pfade(&db, "einlesen/csv/lauf.csv");
+    let eigener = run(&paths, &mut Vec::new())?;
+    let outbox = schema::open(&AppConfig::new(&paths.database))?;
+
+    // Ein **jüngerer, fremder** Lauf: lexikografisch größer als jede Zeitstempel-Identität, mit einem
+    // Fenster, dessen Buchung dieselbe Firma unter einem anderen Namen führt. Läse der Bericht
+    // `max(run_id)`, stünde dieser Name darin.
+    const FREMD: &str = "Z-fremder-lauf";
+    let glaeubiger: String = outbox.with_connection(|conn| {
+        conn.query_row(
+            "SELECT recipient_creditor_id FROM obfuskiert WHERE recipient_kind = 'company' \
+             ORDER BY recipient_creditor_id LIMIT 1;",
+            [],
+            |row| row.get(0),
+        )
+    })?;
+    let eigener_name: String = outbox.with_connection(|conn| {
+        conn.query_row(
+            "SELECT recipient_name FROM obfuskiert WHERE recipient_creditor_id = ?1 LIMIT 1;",
+            [&glaeubiger],
+            |row| row.get(0),
+        )
+    })?;
+    outbox.with_connection(|conn| {
+        conn.execute(
+            "INSERT INTO obfuskiert (id, source_id, ordering_account, amount_minor_units, currency, \
+             direction, recipient_kind, recipient_name, recipient_creditor_id, booking_day, \
+             value_date, seed_marker) VALUES ('fremd-buchung', 'fremd-quelle', 'KONTO_FREMD', 100, \
+             'EUR', 'outgoing', 'company', 'FREMDER LAUF GMBH', ?1, '2099-12-31', '2099-12-31', \
+             'fremd');",
+            [&glaeubiger],
+        )?;
+        conn.execute(
+            "INSERT INTO auswertungsfenster (id, run_id, from_day, to_day, currency) \
+             VALUES ('fremd-fenster', ?1, 0, 1, 'EUR');",
+            [FREMD],
+        )?;
+        conn.execute(
+            "INSERT INTO auswertungsfenster_buchungen (window_id, position, booking_id) \
+             VALUES ('fremd-fenster', 0, 'fremd-buchung');",
+            [],
+        )
+    })?;
+    let juengster: String = outbox.with_connection(|conn| {
+        conn.query_row("SELECT max(run_id) FROM auswertungsfenster;", [], |row| {
+            row.get(0)
+        })
+    })?;
+    assert_eq!(juengster, FREMD);
+
+    let bericht_von = |lauf: &str| -> Result<String, Box<dyn std::error::Error>> {
+        let ziel = db.report_path();
+        crate::report::write(
+            &outbox,
+            &ziel,
+            crate::report::RunFacts {
+                run_id: lauf,
+                incomplete: 0,
+                history: HistoryEvaluationRow {
+                    ranking: vec![DriverRankRow {
+                        driver: CostDriverRow::Kind {
+                            fingerprint: format!("COMPANY:{glaeubiger}"),
+                        },
+                        outflow_minor_units: 100,
+                        bookings: 1,
+                        share_basis_points: 10_000,
+                        cumulative_share_basis_points: 10_000,
+                        annual_amount_minor_units: 100,
+                        rhythm: None,
+                        price_increase: None,
+                    }],
+                    ..HistoryEvaluationRow::default()
+                },
+                persons: Vec::new(),
+            },
+        )
+        .map_err(|crate::report::ReportError(diagnose)| diagnose)?;
+        Ok(std::fs::read_to_string(&ziel)?)
+    };
+
+    let eigener_bericht = bericht_von(eigener.run_id())?;
+    assert!(eigener_bericht.contains(&eigener_name));
+    assert!(!eigener_bericht.contains("FREMDER LAUF GMBH"));
+    // Die Gegenprobe: der fremde Lauf sähe den fremden Namen — die Abfrage scopt wirklich.
+    assert!(bericht_von(FREMD)?.contains("FREMDER LAUF GMBH"));
     Ok(())
 }

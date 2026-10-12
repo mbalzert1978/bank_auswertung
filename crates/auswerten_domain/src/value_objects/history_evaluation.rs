@@ -1,16 +1,20 @@
 use std::collections::BTreeMap;
 
 use crate::value_objects::{
-    AccountCashflow, AccountToken, Currency, Direction, DriverGroups, Fingerprint, Month,
-    MonthlyCashflow, Occurrence, RankedDriver, Recurrence, SavingsCandidate, SavingsThreshold,
-    VerifiedOwnAccounts, WindowedBooking, savings_candidates,
+    AccountCashflow, AccountToken, Currency, Direction, DriverGroups, Fee, Fingerprint,
+    InternalTransfer, Month, MonthlyCashflow, Occurrence, RankedDriver, Recurrence,
+    SavingsCandidate, SavingsThreshold, VerifiedOwnAccounts, WindowedBooking, fees,
+    internal_transfers, savings_candidates,
 };
 
 /// Das **Ergebnis der fenster-übergreifenden Reichweite** (ADR-0013, Entscheidung E, Reichweite 2):
 /// die Vorkommen der ganzen Zeitachse des Laufs, die **wiederkehrenden Abflüsse**, die darin
 /// stecken ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)), und darauf der
 /// **Aderlass**: Cashflow je Konto und Monat, das Pareto-Ranking der Kostentreiber und die
-/// Spar-Kandidaten ([Issue 0007](../../../../docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)).
+/// Spar-Kandidaten ([Issue 0007](../../../../docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)),
+/// daneben die **Umbuchungen** je Monat und Gegenkonto-Rolle und die **Gebühren** je Monat und
+/// belastetem Konto über den ganzen Lauf — so liest der Bericht
+/// ([Issue 0012](../../../../docs/issues/0012-html-bericht.md)) **jede** Zahl aus diesem einen Wert.
 ///
 /// **Ein Wert, zurückgegeben, nie abgelegt:** keine Identität, kein Vorkommens-/Fold-Log, keine
 /// zweite persistierte Sicht. Es entsteht bei jedem Lauf neu aus den unveränderlichen Aggregaten —
@@ -27,7 +31,8 @@ use crate::value_objects::{
 /// Umbuchung. Alles andere ist **genettet** — eine Umbuchung aufs eigene Konto ist kein verlorenes
 /// Geld: die [`recurrences`](Self::recurrences) und das [`ranking`](Self::ranking) sehen nur
 /// Abflüsse, die nicht auf ein eigenes Konto gingen, die [`account_cashflows`](Self::account_cashflows)
-/// beide Richtungen ohne Umbuchungen.
+/// beide Richtungen ohne Umbuchungen. Die [`transfers`](Self::transfers) sind genau das, was das
+/// Netting herausnahm, die [`fees`](Self::fees) ein Ausschnitt der Cashflows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryEvaluation {
     /// Die **eine** Währung aller Beträge des Laufs — `None` nur für die leere Historie.
@@ -35,6 +40,8 @@ pub struct HistoryEvaluation {
     occurrences: Vec<Occurrence>,
     recurrences: Vec<Recurrence>,
     account_cashflows: Vec<AccountCashflow>,
+    transfers: Vec<InternalTransfer>,
+    fees: Vec<Fee>,
     ranking: Vec<RankedDriver>,
     savings_candidates: Vec<SavingsCandidate>,
 }
@@ -46,7 +53,7 @@ impl HistoryEvaluation {
     /// ```text
     /// netted_outflows ─► DriverGroups ─┬─► recurrences
     ///                                  └─► rank ─► savings_candidates
-    /// account_cashflows   occurrences   (daneben, über alle Buchungen)
+    /// account_cashflows   transfers   fees   occurrences   (daneben, über alle Buchungen)
     /// ```
     ///
     /// **Genettet** heißt: nur Abflüsse, die nicht auf ein eigenes Konto gingen ([Issue
@@ -73,6 +80,8 @@ impl HistoryEvaluation {
             occurrences: occurrences(bookings),
             recurrences: groups.recurrences(),
             account_cashflows: account_cashflows(bookings, &own_accounts),
+            transfers: internal_transfers(bookings, &own_accounts),
+            fees: fees(bookings, &own_accounts),
             savings_candidates: savings_candidates(&ranking, threshold),
             ranking,
         }
@@ -86,6 +95,8 @@ impl HistoryEvaluation {
             occurrences: Vec::new(),
             recurrences: Vec::new(),
             account_cashflows: Vec::new(),
+            transfers: Vec::new(),
+            fees: Vec::new(),
             ranking: Vec::new(),
             savings_candidates: Vec::new(),
         }
@@ -116,6 +127,22 @@ impl HistoryEvaluation {
     #[must_use]
     pub fn account_cashflows(&self) -> &[AccountCashflow] {
         &self.account_cashflows
+    }
+
+    /// Die **Umbuchungen** zwischen den eigenen Konten über den ganzen Lauf — je Monat und Rolle des
+    /// Gegenkontos ein Bucket, chronologisch. Was aus den [`account_cashflows`](Self::account_cashflows)
+    /// herausfiel, steht hier.
+    #[must_use]
+    pub fn transfers(&self) -> &[InternalTransfer] {
+        &self.transfers
+    }
+
+    /// Die **Bank-Gebühren** über den ganzen Lauf — je Monat und belastetem Konto ein Bucket,
+    /// chronologisch. Ein **Ausschnitt** der [`account_cashflows`](Self::account_cashflows), keine
+    /// Ergänzung: eine Gebühr ist echter Abfluss und steht auch dort.
+    #[must_use]
+    pub fn fees(&self) -> &[Fee] {
+        &self.fees
     }
 
     /// Das **Pareto-Ranking** der Kostentreiber des Laufs, der größte zuerst — mit Anteil und

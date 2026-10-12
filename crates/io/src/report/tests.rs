@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use auswerten_adapter::{
     AccountCashflowRow, CategoryAnswerRow, CostDriverRow, DriverRankRow, FeeRow,
-    HistoryEvaluationRow, InternalTransferRow, OwnAccountRow, PriceIncreaseRow, RecurrenceRhythm,
-    RecurrenceRow, SavingsCandidateRow,
+    HistoryEvaluationRow, InternalTransferRow, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow,
+    SavingsCandidateRow,
 };
 
 use super::file;
@@ -15,11 +15,10 @@ use super::model::{Bericht, ReportInputs, UNKNOWN_CATEGORY};
 use crate::pipeline_test_support::{TempDbPath, stamp};
 
 const GIRO: &str = "KONTO_a1b2c3d4";
-const SPAR: &str = "KONTO_e5f6a7b8";
 const OHNE_ROLLE: &str = "KONTO_c9d0e1f2";
 const STROM: &str = "COMPANY:DE00ZZZ00000000001";
 const BUCHLADEN: &str = "COMPANY:DE00ZZZ00000000004|MERCHANT:BUCHLADEN-FIKTIV";
-const PERSON: &str = "PERSON:PERSON_3f2a1b";
+const PERSON: &str = "PERSON:PERSON_3f2a1b9c8d7e";
 
 fn art(fingerprint: &str) -> CostDriverRow {
     CostDriverRow::Kind {
@@ -86,6 +85,20 @@ fn eingaben() -> ReportInputs {
                     outgoing_minor_units: 123_456,
                 },
             ],
+            transfers: vec![InternalTransferRow {
+                year: 2026,
+                month: 3,
+                role: "spar".to_string(),
+                incoming_minor_units: 0,
+                outgoing_minor_units: 30_000,
+            }],
+            fees: vec![FeeRow {
+                year: 2026,
+                month: 3,
+                account: GIRO.to_string(),
+                incoming_minor_units: 0,
+                outgoing_minor_units: 490,
+            }],
             ranking: vec![
                 strom(),
                 platz(
@@ -105,31 +118,7 @@ fn eingaben() -> ReportInputs {
                 ranked: strom(),
             }],
         },
-        transfers: vec![InternalTransferRow {
-            year: 2026,
-            month: 3,
-            role: "spar".to_string(),
-            incoming_minor_units: 0,
-            outgoing_minor_units: 30_000,
-        }],
-        fees: vec![FeeRow {
-            year: 2026,
-            month: 3,
-            account: GIRO.to_string(),
-            incoming_minor_units: 0,
-            outgoing_minor_units: 490,
-        }],
         categories: Vec::new(),
-        own_accounts: vec![
-            OwnAccountRow {
-                token: GIRO.to_string(),
-                role: "giro".to_string(),
-            },
-            OwnAccountRow {
-                token: SPAR.to_string(),
-                role: "spar".to_string(),
-            },
-        ],
         company_names: BTreeMap::from([
             (
                 "DE00ZZZ00000000001".to_string(),
@@ -140,6 +129,7 @@ fn eingaben() -> ReportInputs {
                 "ZAHLDIENST TREUHAND GMBH".to_string(),
             ),
         ]),
+        persons: vec!["Erika Beispiel".to_string()],
     }
 }
 
@@ -212,7 +202,7 @@ fn der_bericht_zeigt_die_errechneten_werte_in_euro_monaten_und_prozent() {
                 "ZAHLDIENST TREUHAND GMBH › BUCHLADEN-FIKTIV",
                 "10,00 %"
             ),
-            ("4", "PERSON_3f2a1b", "2,00 %"),
+            ("4", "Person 3f2a1b", "2,00 %"),
             ("5", "Abflüsse ohne Gegenpartei", "0,50 %"),
         ]
     );
@@ -331,7 +321,13 @@ fn fehlen_der_analyse_buchungen_nennt_der_bericht_ihre_zahl_ganz_oben() {
         hinweis < erster_abschnitt,
         "der Hinweis steht vor den Zahlen"
     );
-    assert!(html.contains("3 Buchung(en) fehlen"));
+    assert!(html.contains("3 Buchungen fehlen"));
+    let eine = Bericht::compose(&ReportInputs {
+        incomplete: 1,
+        ..eingaben()
+    })
+    .render();
+    assert!(eine.contains("1 Buchung fehlt."));
 
     let vollstaendig = Bericht::compose(&eingaben()).render();
     assert!(!vollstaendig.contains("Analyse unvollständig"));
@@ -383,10 +379,11 @@ fn konten_erscheinen_ueber_ihre_rolle_nie_als_token() {
 #[test]
 fn zwei_konten_derselben_rolle_werden_durchnummeriert() {
     let mut eingaben = eingaben();
-    eingaben.own_accounts.push(OwnAccountRow {
-        token: OHNE_ROLLE.to_string(),
-        role: "giro".to_string(),
-    });
+    eingaben
+        .history
+        .account_cashflows
+        .iter_mut()
+        .for_each(|bucket| bucket.role = Some("giro".to_string()));
 
     let konten = Bericht::compose(&eingaben)
         .cashflows
@@ -399,11 +396,90 @@ fn zwei_konten_derselben_rolle_werden_durchnummeriert() {
 }
 
 #[test]
-fn eine_leere_historie_ergibt_einen_bericht_ohne_eintraege() {
+fn eine_leere_historie_ergibt_einen_bericht_ohne_eintraege_und_ohne_waehrung() {
     let html = Bericht::compose(&ReportInputs::default()).render();
 
     assert!(html.contains("Keine Einträge."));
     assert!(html.contains("Pareto-Ranking der Kostentreiber"));
+    assert!(html.contains("Währung: —."));
+}
+
+#[test]
+fn eine_jaehrliche_wiederkehr_steht_als_jaehrlich_und_die_teuerste_zuerst() {
+    let mut eingaben = eingaben();
+    eingaben.history.recurrences.insert(
+        0,
+        RecurrenceRow {
+            driver: art(BUCHLADEN),
+            rhythm: RecurrenceRhythm::Yearly,
+            typical_amount_minor_units: 6_900,
+            annual_amount_minor_units: 6_900,
+            price_increase: None,
+            charged_account: GIRO.to_string(),
+        },
+    );
+    eingaben.history.recurrences.push(RecurrenceRow {
+        driver: art(PERSON),
+        rhythm: RecurrenceRhythm::Yearly,
+        typical_amount_minor_units: 250_000,
+        annual_amount_minor_units: 250_000,
+        price_increase: None,
+        charged_account: GIRO.to_string(),
+    });
+
+    let wiederkehr = Bericht::compose(&eingaben)
+        .recurrences
+        .into_iter()
+        .map(|line| (line.driver, line.rhythm, line.annual))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        wiederkehr,
+        vec![
+            (
+                "Person 3f2a1b".to_string(),
+                "jährlich".to_string(),
+                "2.500,00 €".to_string()
+            ),
+            (
+                "STROMWERK NORD AG".to_string(),
+                "monatlich".to_string(),
+                "1.074,00 €".to_string()
+            ),
+            (
+                "ZAHLDIENST TREUHAND GMBH › BUCHLADEN-FIKTIV".to_string(),
+                "jährlich".to_string(),
+                "69,00 €".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn der_platz_im_ranking_steht_als_letzte_spalte() {
+    let html = Bericht::compose(&eingaben()).render();
+
+    assert!(html.contains("<th class=\"num\">Platz im Ranking</th></tr>"));
+    assert!(!html.contains(">Platz<"));
+}
+
+#[test]
+fn ein_firmenname_der_eine_person_der_namensliste_nennt_erscheint_nur_als_glaeubiger_id() {
+    // Eine natürliche Person mit Gläubiger-ID (etwa eine Vermieterin, die per Lastschrift einzieht):
+    // ihr Name steht als Firmenname in der Datei — der Bericht nennt ihn nicht, wenn er auf der
+    // Namensliste steht, auch nicht in der Bank-Schreibweise „Nachname, Vorname".
+    let mut eingaben = eingaben();
+    eingaben.company_names.insert(
+        "DE00ZZZ00000000001".to_string(),
+        "BEISPIEL, ERIKA".to_string(),
+    );
+
+    let html = Bericht::compose(&eingaben).render();
+
+    assert!(!html.to_lowercase().contains("erika"));
+    assert!(html.contains("Gläubiger-ID DE00ZZZ00000000001"));
+    // Die andere Firma behält ihren Namen.
+    assert!(html.contains("ZAHLDIENST TREUHAND GMBH"));
 }
 
 #[test]
