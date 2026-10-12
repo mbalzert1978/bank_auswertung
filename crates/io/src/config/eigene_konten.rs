@@ -122,7 +122,9 @@ impl EigeneKontenConfig {
     #[must_use]
     pub fn to_own_accounts_config(&self, seed: u64) -> OwnAccountsConfig {
         OwnAccountsConfig {
-            seed_marker: seed_marker(seed),
+            // Adapter-Grenze: das DTO führt den Marker als flache Zelle, die Domäne fängt ihn hinter
+            // ihrem eigenen `SeedMarker` wieder ein.
+            seed_marker: seed_marker(seed).into_string(),
             accounts: self
                 .accounts
                 .iter()

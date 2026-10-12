@@ -50,7 +50,7 @@
 use obfuskierung_adapter::{ObfuscatedBooking, ObfuscatedStoreSeam, Recipient, StoreUnavailable};
 use rusqlite::{Transaction, params};
 
-use crate::obfuskierung::seed_marker;
+use crate::obfuskierung::{SeedMarker, seed_marker};
 use crate::sqlite::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 /// Die `obfuskierung`-Persistenz als [`StoreSpec`]: **eine** Tabelle mit ihrem `INSERT`, und als
@@ -139,7 +139,7 @@ pub struct BookingFields {
     value_date: String,
     purpose: Option<String>,
     booking_text: Option<String>,
-    seed_marker: String,
+    seed_marker: SeedMarker,
 }
 
 /// Der flache Empfänger-Teil (der Summentyp [`Recipient`] auf vier Spalten aufgelöst): `kind` trägt
@@ -248,7 +248,7 @@ impl BookingRow {
                 fields.value_date,
                 fields.purpose,
                 fields.booking_text,
-                fields.seed_marker,
+                fields.seed_marker.as_str(),
             ],
         )
         .map(drop)
@@ -362,7 +362,7 @@ mod tests {
         recipient_name: Option<String>,
         recipient_creditor_id: Option<String>,
         booking_day: String,
-        seed_marker: String,
+        seed_marker: SeedMarker,
     }
 
     /// Liest die abgelegten obfuskiert-Zeilen (nur für Tests). Der reale Lesepfad des Folge-Slice
@@ -387,7 +387,7 @@ mod tests {
                     recipient_name: row.get(8)?,
                     recipient_creditor_id: row.get(9)?,
                     booking_day: row.get(10)?,
-                    seed_marker: row.get(11)?,
+                    seed_marker: SeedMarker::from_stored(row.get(11)?),
                 })
             })?;
             rows.collect()

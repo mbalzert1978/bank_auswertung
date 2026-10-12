@@ -740,7 +740,7 @@ mod tests {
             )
         })?;
         Ok(OwnAccountsConfig {
-            seed_marker: seed_marker(SEED),
+            seed_marker: seed_marker(SEED).into_string(),
             accounts: vec![OwnAccountRow {
                 token,
                 role: "giro".to_string(),

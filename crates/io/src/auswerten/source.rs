@@ -43,6 +43,7 @@ use auswerten_adapter::{
 use rusqlite::{OptionalExtension, params};
 
 use crate::common::calendar;
+use crate::obfuskierung::SeedMarker;
 use crate::sqlite::SqliteOutbox;
 
 /// Der reale Lese-Seam auf `fenstern`s Fenster-Tabellen, im Join auf die `obfuskiert`-Ablage. `Clone`
@@ -103,7 +104,11 @@ impl AnalysisWindowSeam for AuswertungsfensterSource {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Some(AnalysisWindowRow {
             currency,
-            seed_marker,
+            // Die **eine** Stelle, an der „kein Marker" seine Zeichenketten-Form annimmt: das DTO führt
+            // ihn als flache Zelle, und die ACL deutet die leere Zelle terminal als fehlendes
+            // Pflichtfeld. Der Übergang steht hier ausgeschrieben, statt als stille Abmachung im
+            // Rückgabewert von [`window_seed_marker`] zu stecken.
+            seed_marker: seed_marker.map_or_else(String::new, SeedMarker::into_string),
             bookings,
         }))
     }
@@ -137,7 +142,7 @@ struct RawBooking {
     recipient_pseudonym: Option<String>,
     purpose: Option<String>,
     counter_account: Option<String>,
-    seed_marker: String,
+    seed_marker: SeedMarker,
     ordering_account: String,
     booking_text: Option<String>,
 }
@@ -156,7 +161,7 @@ impl RawBooking {
             recipient_pseudonym: row.get(6)?,
             purpose: row.get(7)?,
             counter_account: row.get(8)?,
-            seed_marker: row.get(9)?,
+            seed_marker: SeedMarker::from_stored(row.get(9)?),
             ordering_account: row.get(10)?,
             booking_text: row.get(11)?,
         })
@@ -164,7 +169,7 @@ impl RawBooking {
 
     /// Der opake Seed-Marker dieser Zeile — **gelesen, nicht abgeleitet**: `obfuskierung` legt ihn
     /// beim Ablegen fertig ab, damit der Seed selbst die Platte nie berührt.
-    fn seed_marker(&self) -> String {
+    fn seed_marker(&self) -> SeedMarker {
         self.seed_marker.clone()
     }
 
@@ -224,12 +229,16 @@ impl RawBooking {
 /// Fenster-Invariante**: alle Buchungen eines Fensters stammen aus **einer** Tokenisierung, tragen
 /// also denselben Marker. Weichen sie ab (korrupter Bestand oder ein Upstream-Bug), failt das
 /// **terminal + redigiert** statt still einen Marker der ersten Zeile zu wählen — sonst könnte die
-/// [`SeedMarker`](auswerten_adapter)-Schranke der Domäne stillschweigend verfälscht werden. Ein
-/// Fenster **ohne** Zeilen trägt keinen Marker (leerer String); die ACL deutet das terminal als
-/// fehlendes Pflichtfeld.
-fn window_seed_marker(raw: &[RawBooking]) -> Result<String, SourceUnavailable> {
+/// `SeedMarker`-Schranke der Domäne stillschweigend verfälscht werden.
+///
+/// Ein Fenster **ohne** Zeilen trägt **keinen** Marker — und das sagt der Rückgabetyp: `Ok(None)`,
+/// nicht ein leerer [`SeedMarker`]. Ein „leer heißt: gibt es nicht" wäre eine Abmachung, die erst drei
+/// Ebenen weiter in der ACL wieder eingelöst wird; wer hier liest, müsste sie kennen, und wer sie dort
+/// änderte, bräche diese Stelle lautlos. `Option` sagt dasselbe, ohne dass jemand es wissen muss —
+/// abwesend ist abwesend, nicht ein besonderer Wert.
+fn window_seed_marker(raw: &[RawBooking]) -> Result<Option<SeedMarker>, SourceUnavailable> {
     let Some(first) = raw.first() else {
-        return Ok(String::new());
+        return Ok(None);
     };
     if raw
         .iter()
@@ -239,7 +248,7 @@ fn window_seed_marker(raw: &[RawBooking]) -> Result<String, SourceUnavailable> {
             "Fenster trägt Buchungen aus unterschiedlichen Tokenisierungen",
         ));
     }
-    Ok(first.seed_marker())
+    Ok(Some(first.seed_marker()))
 }
 
 /// Deutet einen gespeicherten `YYYY-MM-DD`-Textstamp zum sortierbaren `i64`-Tag-Stamp über den
@@ -318,7 +327,7 @@ mod tests {
         assert_eq!(seed_marker(seed), seed_marker(seed));
         assert_ne!(seed_marker(seed), seed_marker(seed + 1));
         assert!(
-            !seed_marker(seed).contains(&seed.to_string()),
+            !seed_marker(seed).as_str().contains(&seed.to_string()),
             "der Marker darf den rohen Seed nicht enthalten"
         );
     }
@@ -401,7 +410,14 @@ mod tests {
     #[test]
     fn ein_einheitlicher_seed_ergibt_den_marker_dieser_tokenisierung() {
         let raw = vec![raw_with_seed(42), raw_with_seed(42)];
-        assert_eq!(window_seed_marker(&raw), Ok(seed_marker(42)));
+        assert_eq!(window_seed_marker(&raw), Ok(Some(seed_marker(42))));
+    }
+
+    /// Ein Fenster **ohne** Zeilen trägt keinen Marker — und sagt das als `Ok(None)`, nicht als
+    /// leerer Wert, den erst die ACL wieder als „fehlt" deuten müsste.
+    #[test]
+    fn ein_fenster_ohne_zeilen_traegt_keinen_marker() {
+        assert_eq!(window_seed_marker(&[]), Ok(None));
     }
 
     /// Gemischte Seeds sind ein korrupter Bestand: fail-fast terminal + redigiert, nie still der

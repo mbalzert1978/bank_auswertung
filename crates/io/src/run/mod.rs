@@ -229,7 +229,7 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // Phase 1 — Import. Der `partition_key` benennt die Quelle; der Slice beschafft den Batch selbst
     // über seinen Datenquellen-Port (Issue 0018), der Auslöser ist ein reiner Trigger.
     write_line(protocol, "Lauf: Import")?;
-    enqueue_import(&outbox, &source_key(&paths.transactions))?;
+    enqueue_import(&outbox, &SourceKey::of(&paths.transactions))?;
     drain(&outbox, &dispatcher, protocol, &mut report)?;
 
     // Phase 2 — Analyse. **Erst jetzt**: der Anstoß liest den Initial-Anker aus dem obfuskierten
@@ -569,26 +569,66 @@ fn enqueue(outbox: &SqliteOutbox, message_type: &str, key: &str) -> Result<(), R
 /// - **Ein anderer Dateiname** — der Lauf bricht mit [`RunError::PendingImport`] ab, **bevor** er
 ///   irgendetwas schreibt. Was zu tun ist, entscheidet der Mensch: den alten Lauf zu Ende fahren oder
 ///   seine Nachricht entfernen.
-fn enqueue_import(outbox: &SqliteOutbox, key: &str) -> Result<(), RunError> {
-    match outbox.pending_key(EINLESEN_CONSUMED).map_err(backbone)? {
-        Some(pending) if pending == key => Ok(()),
+fn enqueue_import(outbox: &SqliteOutbox, key: &SourceKey) -> Result<(), RunError> {
+    match outbox
+        .pending_key(EINLESEN_CONSUMED)
+        .map_err(backbone)?
+        .map(SourceKey::from_stored)
+    {
+        Some(pending) if pending == *key => Ok(()),
+        // Der Fehler trägt die **gerenderte** Form: er ist eine Meldung an einen Menschen, kein
+        // lebender Wert — und [`RunError`] ist öffentlich, wo [`SourceKey`] es bewusst nicht ist.
         Some(pending) => Err(RunError::PendingImport {
-            pending,
-            requested: key.to_string(),
+            pending: pending.into_string(),
+            requested: key.clone().into_string(),
         }),
-        None => enqueue(outbox, EINLESEN_CONSUMED, key),
+        None => enqueue(outbox, EINLESEN_CONSUMED, key.as_str()),
     }
 }
 
-/// Der `partition_key` des Import-Auslösers: der **Dateiname** der Quelle, nie ihr Pfad. Er benennt
-/// den Lauf wiedererkennbar, ohne die Verzeichnisstruktur der Maschine mit in die Outbox zu schreiben
-/// — und ist seit [`enqueue_import`] kein bloßes Etikett mehr, sondern das, woran ein Lauf einen
-/// fremden liegengebliebenen Auslöser erkennt.
-fn source_key(transactions: &Path) -> String {
-    transactions
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
+/// Der `partition_key` des Import-Auslösers: der **Dateiname** der Quelle, nie ihr Pfad.
+///
+/// **Warum ein eigener Typ.** „Dateiname, nie Pfad" ist keine Formalie, sondern zwei Zusagen in einer.
+/// Die erste ist **Redaktion**: ein Pfad trägt die Verzeichnisstruktur der Maschine (und damit
+/// womöglich einen Kontonamen) in die Outbox, wo dieses Modul sonst peinlich genau nichts hinschreibt,
+/// was ein Rohwert sein könnte. Die zweite ist seit [`enqueue_import`] **Korrektheit**: an genau
+/// diesem Wert erkennt ein Lauf einen fremden liegengebliebenen Auslöser, und er tut es per
+/// Zeichenketten-Gleichheit. Käme an einer Stelle ein Pfad herein, wo an der anderen ein Dateiname
+/// steht, verglichen sich zwei Werte, die nie gleich sein können — die Prüfung fiele **lautlos offen
+/// aus** und ließe genau den stillen Doppelimport durch, gegen den sie eingezogen wurde. Ein
+/// fehlschlagender Wächter, der wie ein bestandener aussieht, ist schlimmer als gar keiner.
+///
+/// Der Typ macht das unmöglich: [`of`](SourceKey::of) ist der einzige Weg von einem Pfad hierher, und
+/// er kürzt ihn dabei. Ein `&Path` lässt sich nicht mehr versehentlich als Schlüssel durchreichen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceKey(String);
+
+impl SourceKey {
+    /// Kürzt den Quellpfad auf seinen **Dateinamen** — der einzige Weg von einem Pfad zu einem
+    /// Schlüssel. Ein Pfad ohne Dateinamen-Anteil ergibt den leeren Schlüssel; er benennt dann nichts,
+    /// und der Vorab-Check in [`enqueue_import`] behandelt ihn wie jeden anderen Wert.
+    fn of(transactions: &Path) -> Self {
+        Self(
+            transactions
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Der Wert, wie ihn die **Outbox** trägt — abgelegt hat ihn ein früherer Lauf über
+    /// [`of`](Self::of). Ohne Prüfung, wie jedes Zurücklesen: was in der Datei steht, steht dort.
+    const fn from_stored(key: String) -> Self {
+        Self(key)
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn into_string(self) -> String {
+        self.0
+    }
 }
 
 fn write_line(protocol: &mut dyn Write, line: &str) -> Result<(), RunError> {
