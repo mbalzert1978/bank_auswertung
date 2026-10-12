@@ -20,8 +20,8 @@ use crate::einlesen::{
     GermanCalendar, GermanMoney, IsoCurrencies, consumer as einlesen_consumer,
 };
 use crate::obfuskierung::{
-    CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, ObfuskierungSqliteStore,
-    SeededObfuscator, consumer as obfuskierung_consumer,
+    CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, KnownPersonNames,
+    ObfuskierungSqliteStore, SeededObfuscator, consumer as obfuskierung_consumer,
 };
 use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage, UnitOfWork};
 use crate::sqlite::SqliteOutbox;
@@ -139,7 +139,10 @@ pub(crate) fn seed_through(
     let source = EinlesenRowSource::new(outbox.clone());
     let obfuscator = SeededObfuscator;
     let obfuskierung_store = ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
-    let obfuskierung = obfuskierung_consumer(&source, &obfuscator, SEED, obfuskierung_store);
+    // Die reale Namensliste: Empfänger ohne Gläubiger-ID aus dem eben geseedeten einlesen-Bestand.
+    let persons = KnownPersonNames::new(outbox.clone(), Vec::new());
+    let obfuskierung =
+        obfuskierung_consumer(&source, &obfuscator, &persons, SEED, obfuskierung_store);
     let mut stage2 = Dispatcher::new();
     register_fresh(&mut stage2, OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung));
     let obfuskierung_out = outbox.deliver_open(&stage2)?;

@@ -1,10 +1,12 @@
 use application_kernel::{CommandDecoder, Handler};
 use obfuskierung_domain::{
-    AccountToken, NonEmptyString, ObfuscatedText as DomainText, ObfuscationError, Obfuscator,
-    Pseudonym as DomainPseudonym, Replacement, Seed,
+    AccountToken, NonEmptyString, ObfuscationError, Obfuscator, Pseudonym as DomainPseudonym,
+    Replacement, Seed,
 };
 
-use super::fakes::{FakeIngestedSource, FakeObfuscatedStore, FakeObfuscator, FakePublisher};
+use super::fakes::{
+    FakeIngestedSource, FakeKnownPersons, FakeObfuscatedStore, FakeObfuscator, FakePublisher,
+};
 use crate::adapter::ObfuscatorBridge;
 use crate::handler::ObfuscatingHandler;
 use crate::models::ObfuscateCommandDecoder;
@@ -21,7 +23,8 @@ use crate::models::{AccountId, IngestedRow, ObfuscatedBooking, ObfuscatedText, P
 /// `OutboxConsumer`/`UnitOfWork`/Dead-Letter-Taktik prüft der io-Integrationstest, nicht dieser Spec.
 ///
 /// `run` gibt den **nackten Domänen-[`ObfuscationError`]** zurück (kein `OutboxError`): eine misslungene
-/// Beschaffung, eine absente Zeile oder ein fehlendes Pflichtfeld lässt ihn **terminal** scheitern;
+/// Beschaffung (Zeile oder Namensliste), eine absente Zeile oder ein fehlendes Pflichtfeld lässt ihn
+/// **terminal** scheitern;
 /// nichts wird abgelegt/publiziert.
 ///
 /// **Erwartungen prüft die TestApi selbst** (`assert_*`): die Spec formuliert das erwartete Ergebnis
@@ -32,6 +35,7 @@ pub struct ObfuscationTestApi {
     seed: u64,
     obfuscator: FakeObfuscator,
     source: FakeIngestedSource,
+    persons: FakeKnownPersons,
     store: FakeObfuscatedStore,
     publisher: FakePublisher,
 }
@@ -44,6 +48,7 @@ impl ObfuscationTestApi {
             seed: 0,
             obfuscator: FakeObfuscator,
             source: FakeIngestedSource::default(),
+            persons: FakeKnownPersons::default(),
             store: FakeObfuscatedStore::default(),
             publisher: FakePublisher::default(),
         }
@@ -73,6 +78,21 @@ impl ObfuscationTestApi {
         self
     }
 
+    /// Arrangiert einen **bekannten Personen-Namen** — so, wie io ihn aus dem einlesen-Bestand oder der
+    /// lokalen Namensliste liefert. Der Freitext-Engpass ersetzt ihn im Verwendungszweck.
+    #[must_use]
+    pub fn with_known_person(mut self, name: &str) -> Self {
+        self.persons.insert(name);
+        self
+    }
+
+    /// Lässt das **Beschaffen der Namensliste** terminal scheitern (io-Diagnose durchgereicht).
+    #[must_use]
+    pub fn with_failing_persons(mut self, message: &str) -> Self {
+        self.persons.fail_with(message);
+        self
+    }
+
     /// Lässt das **Ablegen** terminal scheitern (io-Diagnose durchgereicht) — das Gegenstück zu den
     /// gleichnamigen Arrangeuren der drei anderen Slices.
     #[must_use]
@@ -94,6 +114,7 @@ impl ObfuscationTestApi {
             self.seed,
             &self.source,
             &self.obfuscator,
+            &self.persons,
             &self.store,
             &self.publisher,
         );
@@ -113,10 +134,11 @@ impl ObfuscationTestApi {
         Pseudonym::from(&DomainPseudonym::from_replacement(self.replacement(name)))
     }
 
-    /// Der erwartete obfuskierte Freitext (getrimmt; Scrubbing vertagt) — nicht seed-abhängig.
+    /// Der erwartete obfuskierte Freitext, **wörtlich** so, wie er abgelegt sein soll — die Spec
+    /// schreibt Platzhalter (`[IBAN]`, `[BIC]`, `[PERSON]`) selbst hinein, statt die Scrubbing-Regeln
+    /// hier nachzurechnen. Nicht seed-abhängig.
     pub fn expected_text(&self, text: &str) -> ObfuscatedText {
-        let value = NonEmptyString::new(text).expect("nicht-leerer Freitext");
-        ObfuscatedText::from(&DomainText::from(value))
+        ObfuscatedText::expected(text)
     }
 
     fn replacement(&self, plaintext: &str) -> Replacement {

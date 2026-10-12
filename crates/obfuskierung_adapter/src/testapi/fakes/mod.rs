@@ -4,12 +4,14 @@
 
 mod arranged_failure;
 mod fake_ingested_source;
+mod fake_known_persons;
 mod fake_obfuscated_store;
 mod fake_obfuscator;
 mod fake_publisher;
 
 pub(crate) use arranged_failure::ArrangedFailure;
 pub(crate) use fake_ingested_source::FakeIngestedSource;
+pub(crate) use fake_known_persons::FakeKnownPersons;
 pub(crate) use fake_obfuscated_store::FakeObfuscatedStore;
 pub(crate) use fake_obfuscator::FakeObfuscator;
 pub(crate) use fake_publisher::FakePublisher;

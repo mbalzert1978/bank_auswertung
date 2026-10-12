@@ -3,18 +3,21 @@
 //! (Modul [`crate::adapter`]) mappen dazwischen. Der Seed reist als Konstruktor-Wert (kein
 //! Runtime-Seam) — io liest ihn aus der Config und baut die Bridges damit.
 //!
-//! **Die beiden I/O-Seams sind fehlbar und terminal** (ADR-0012); ihre Seam-Fehler mappen die
+//! **Die drei I/O-Seams sind fehlbar und terminal** (ADR-0012); ihre Seam-Fehler mappen die
 //! Port-Bridges „außen → innen" auf den nackten Domänen-Fehler. Sie tragen **eigene** Fehler statt
 //! sich einen zu teilen: der Beschaffungs-Fehler [`SourceUnavailable`] hält den mißlungenen Zugriff
 //! auf den einlesen-Bestand von der gültigen Auskunft „zu dieser ID liegt nichts vor" (`Ok(None)`)
 //! auseinander, [`StoreUnavailable`] meldet die unerreichbare Ablage — eine unlesbare Quelle und
-//! eine unschreibbare Tabelle sind verschiedene Lagen. Der [`ObfuscatorSeam`] hat bewusst **keinen**
+//! eine unschreibbare Tabelle sind verschiedene Lagen; [`PersonsUnavailable`] meldet die nicht
+//! beschaffbare Namensliste des Freitext-Engpasses ([`KnownPersonsSeam`]). Der [`ObfuscatorSeam`] hat bewusst **keinen**
 //! Fehlerkanal: er ist eine reine, in-process Berechnung.
 
 mod ingested_source_seam;
+mod known_persons_seam;
 mod obfuscated_store_seam;
 mod obfuscator_seam;
 
 pub use ingested_source_seam::{IngestedSourceSeam, SourceUnavailable};
+pub use known_persons_seam::{KnownPersonsSeam, PersonsUnavailable};
 pub use obfuscated_store_seam::{ObfuscatedStoreSeam, StoreUnavailable};
 pub use obfuscator_seam::ObfuscatorSeam;

@@ -20,8 +20,8 @@ use io::Dispatcher;
 use io::UnitFactory;
 use io::outbox::{OutboxCommand, OutboxMessage, OutboxPublisher, UnitOfWork};
 use obfuskierung_adapter::{
-    IngestedRow, IngestedSourceSeam, ObfuscatedBooking, ObfuscatedStoreSeam, ObfuscatorSeam,
-    SourceUnavailable, StoreUnavailable,
+    IngestedRow, IngestedSourceSeam, KnownPersonsSeam, ObfuscatedBooking, ObfuscatedStoreSeam,
+    ObfuscatorSeam, PersonsUnavailable, SourceUnavailable, StoreUnavailable,
 };
 
 #[path = "../commit_failed.rs"]
@@ -67,6 +67,16 @@ pub(crate) struct FakeObfuscator;
 impl ObfuscatorSeam for FakeObfuscator {
     fn obfuscate(&self, seed: u64, plaintext: &str) -> String {
         format!("tok-{:x}", seed ^ plaintext.len() as u64)
+    }
+}
+
+/// Minimaler Namenslisten-Stub: keine bekannten Namen. Das Scrubbing selbst prüft der
+/// `obfuskierung`-Spec; hier geht es nur um die Transaktions-Verdrahtung.
+pub(crate) struct NoKnownPersons;
+
+impl KnownPersonsSeam for NoKnownPersons {
+    fn known_persons(&self) -> Result<Vec<String>, PersonsUnavailable> {
+        Ok(Vec::new())
     }
 }
 
@@ -252,7 +262,7 @@ pub(crate) fn dispatcher_mit_seed<'a>(
     seed: u64,
     db: FakeDb,
 ) -> Dispatcher<'a> {
-    let consumer = io::obfuskierung::consumer(source, obfuscator, seed, db);
+    let consumer = io::obfuskierung::consumer(source, obfuscator, &NoKnownPersons, seed, db);
     let mut dispatcher = Dispatcher::new();
     assert!(
         dispatcher

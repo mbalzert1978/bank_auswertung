@@ -7,8 +7,8 @@
 //!
 //! **Was in die Transaktion gehört und was nicht:** die Unit erfüllt genau die **committenden** Ports
 //! (`ObfuscatedStoreSeam` + `OutboxPublisher` + `UnitOfWork`) — Ablage und Nachricht committen
-//! gemeinsam oder gar nicht. Das **Lesen** (`IngestedSourceSeam`) und der reine `ObfuscatorSeam` sind
-//! **message-unabhängige Seams**, die der Aufrufer separat hereinreicht — die direkten Gegenparts zu
+//! gemeinsam oder gar nicht. Das **Lesen** (`IngestedSourceSeam`, dazu die Namensliste
+//! `KnownPersonsSeam`) und der reine `ObfuscatorSeam` sind **message-unabhängige Seams**, die der Aufrufer separat hereinreicht — die direkten Gegenparts zu
 //! einlesens `source` bzw. `calendar`/`money`; der idempotente Lesevorgang (die einlesen-Zeile ist
 //! append-only/unveränderlich) bleibt **außerhalb** der Transaktion und weitet sie nicht. Den Seed
 //! reicht der Aufrufer als rohen `u64` herein; der reale toml-Loader
@@ -21,22 +21,26 @@
 //! über die Datenschutz-Grenze): die **Unit-Quelle** ist der reale [`ObfuskierungSqliteStore`] über
 //! `rusqlite` (eine `rusqlite`-Transaktion je Nachricht, in der Ablage, `Obfuscated`-Publish und Ack
 //! atomar committen), die **Lese-Quelle** die reale [`EinlesenRowSource`] (liest die
-//! `einlesen_lines`-Zeile per ID) und der **Obfuskator** der reale [`SeededObfuscator`] (seed-gekeytes
-//! `siphasher`).
+//! `einlesen_lines`-Zeile per ID), der **Obfuskator** der reale [`SeededObfuscator`] (seed-gekeytes
+//! `siphasher`) und — seit [Issue 0010](../../../../docs/issues/0010-scrubbing-regeln-fuer-obfuskiertertext.md)
+//! — die **Namensliste** des Freitext-Engpasses der reale [`KnownPersonNames`] (Empfänger ohne
+//! Gläubiger-ID aus `einlesen_lines` plus die lokale `personen.toml`).
 
 mod obfuscator;
+mod persons;
 mod source;
 mod store;
 
 pub use obfuscator::SeededObfuscator;
 pub(crate) use obfuscator::{SeedMarker, seed_marker};
+pub use persons::KnownPersonNames;
 pub use source::EinlesenRowSource;
 pub use store::{ObfuskiertBookings, ObfuskierungSqliteStore, ObfuskierungUnit};
 
 use application_kernel::Handler;
 use obfuskierung_adapter::{
-    IngestedSourceSeam, ObfuscateCommand, ObfuscateCommandDecoder, ObfuscatedStoreSeam,
-    ObfuscatingHandler, ObfuscationError, ObfuscatorSeam,
+    IngestedSourceSeam, KnownPersonsSeam, ObfuscateCommand, ObfuscateCommandDecoder,
+    ObfuscatedStoreSeam, ObfuscatingHandler, ObfuscationError, ObfuscatorSeam,
 };
 
 use crate::{
@@ -48,8 +52,8 @@ use crate::{
 /// Slice-Eingang.
 pub const CONSUMED_MESSAGE_TYPE: &str = obfuskierung_adapter::CONSUMED_MESSAGE_TYPE;
 
-/// Der [`TransactionalHandler`] von `obfuskierung`: hält die message-unabhängigen Seams (Lese-Quelle
-/// und Obfuskator) und den Seed sowie die [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den
+/// Der [`TransactionalHandler`] von `obfuskierung`: hält die message-unabhängigen Seams (Lese-Quelle,
+/// Obfuskator und Namensliste) und den Seed sowie die [`UnitFactory`]; je `handle` öffnet er eine Unit, baut den
 /// `ObfuscatingHandler` **aus ihr** (Store = die Unit, Publish über die Unit) und committet atomar,
 /// wenn der Handler gelingt. Weil beide committenden Ports dieselbe Unit sind, kann eine gestagete
 /// Schreibung die Transaktion nicht überleben. Der nackte [`ObfuscationError`] ist **terminal** →
@@ -61,6 +65,7 @@ pub const CONSUMED_MESSAGE_TYPE: &str = obfuskierung_adapter::CONSUMED_MESSAGE_T
 pub struct ObfuskierungTransactionalHandler<'a, F: UnitFactory> {
     source: &'a dyn IngestedSourceSeam,
     obfuscator: &'a dyn ObfuscatorSeam,
+    persons: &'a dyn KnownPersonsSeam,
     seed: u64,
     units: F,
 }
@@ -80,10 +85,17 @@ where
     ) -> Result<(), TransactionError<ObfuscationError>> {
         // `run_in_unit` besitzt den Commit-Rand (Begin/Commit-Ordnung + Fehler-Mapping); dieser Slice
         // reicht nur seinen Handler-Bau **aus der Unit** herein. Store- und Publish-Ports **sind** die
-        // Unit; Quelle/Obfuskator liegen außerhalb (idempotentes Lesen).
+        // Unit; Quelle/Obfuskator/Namensliste liegen außerhalb (idempotentes Lesen).
         run_in_unit(self.units.begin(ack), |unit, publishing| {
-            ObfuscatingHandler::new(self.seed, self.source, self.obfuscator, unit, publishing)
-                .handle(command)
+            ObfuscatingHandler::new(
+                self.seed,
+                self.source,
+                self.obfuscator,
+                self.persons,
+                unit,
+                publishing,
+            )
+            .handle(command)
         })
     }
 }
@@ -92,6 +104,7 @@ where
 pub fn consumer<'a, F: UnitFactory>(
     source: &'a dyn IngestedSourceSeam,
     obfuscator: &'a dyn ObfuscatorSeam,
+    persons: &'a dyn KnownPersonsSeam,
     seed: u64,
     units: F,
 ) -> OutboxConsumer<ObfuskierungTransactionalHandler<'a, F>>
@@ -101,6 +114,7 @@ where
     OutboxConsumer::new(ObfuskierungTransactionalHandler {
         source,
         obfuscator,
+        persons,
         seed,
         units,
     })

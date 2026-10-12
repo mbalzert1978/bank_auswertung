@@ -3,13 +3,17 @@ use obfuskierung_domain::{
     BookingId, ObfuscateBooking, ObfuscationError, ObfuscationHandler, Seed,
 };
 
-use crate::abstractions::{IngestedSourceSeam, ObfuscatedStoreSeam, ObfuscatorSeam};
-use crate::adapter::{ObfuscatorBridge, PublisherBridge, RepositoryBridge, SourceBridge};
+use crate::abstractions::{
+    IngestedSourceSeam, KnownPersonsSeam, ObfuscatedStoreSeam, ObfuscatorSeam,
+};
+use crate::adapter::{
+    ObfuscatorBridge, PersonsBridge, PublisherBridge, RepositoryBridge, SourceBridge,
+};
 use crate::models::{ObfuscateCommand, ObfuscatedMessage};
 
 /// Der **`application_kernel::Handler` des Slice**: die reine `Command → Domäne → Response`-Pipeline,
 /// über die `io`s generische `OutboxConsumer` den Slice fährt (ADR-0011, Entscheidung A). Er bündelt
-/// die Port-Bridges (Quelle/Obfuskator/Repository/Publisher), die die öffentlichen Seams auf die
+/// die Port-Bridges (Quelle/Obfuskator/Namensliste/Repository/Publisher), die die öffentlichen Seams auf die
 /// internen Domänen-Ports mappen, und delegiert an den domänen-internen
 /// [`ObfuscationHandler`](obfuskierung_domain::ObfuscationHandler). Vorbild: der `ReadingHandler` des
 /// Einlese-Slice.
@@ -26,6 +30,7 @@ pub struct ObfuscatingHandler<'a> {
     seed: Seed,
     source: SourceBridge<'a>,
     obfuscator: ObfuscatorBridge<'a>,
+    persons: PersonsBridge<'a>,
     repository: RepositoryBridge<'a>,
     publisher: PublisherBridge<'a>,
 }
@@ -39,6 +44,7 @@ impl<'a> ObfuscatingHandler<'a> {
         seed: u64,
         source: &'a dyn IngestedSourceSeam,
         obfuscator: &'a dyn ObfuscatorSeam,
+        persons: &'a dyn KnownPersonsSeam,
         repository: &'a dyn ObfuscatedStoreSeam,
         publisher: &'a dyn Publisher<ObfuscatedMessage>,
     ) -> Self {
@@ -46,6 +52,7 @@ impl<'a> ObfuscatingHandler<'a> {
             seed: Seed::new(seed),
             source: SourceBridge { seam: source },
             obfuscator: ObfuscatorBridge { seam: obfuscator },
+            persons: PersonsBridge { seam: persons },
             repository: RepositoryBridge { seam: repository },
             publisher: PublisherBridge { publisher },
         }
@@ -62,6 +69,7 @@ impl Handler for ObfuscatingHandler<'_> {
             self.seed,
             &self.source,
             &self.obfuscator,
+            &self.persons,
             &self.repository,
             &self.publisher,
         )

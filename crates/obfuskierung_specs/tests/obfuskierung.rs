@@ -121,8 +121,199 @@ fn freitext_wird_getrimmt_durch_den_obfuskierten_text_engpass() {
     let api = api_mit_zeile(zeile);
     api.run("buchung-1").expect("gültige Zeile");
 
-    // Getrimmt, inhaltlich erhalten (Scrubbing vertagt) — `expected_text` trimmt gleichermaßen.
+    // Getrimmt, inhaltlich erhalten — kein Identifikator darin, also nichts zu ersetzen.
     api.assert_stored(erwartete_buchung(&api, "buchung-1"));
+}
+
+// --- Scrubbing: eingebettete Identifikatoren verlassen den Engpass nicht ---------
+//
+// Je Identifikator-Typ ein eigener Fall. Alle Daten sind **erfunden**: die IBANs tragen die
+// Prüfziffer `00` (strukturell unmöglich), die BICs die Fantasie-Bank `FIKT`, die Namen sind
+// ausgedacht. Das Scrubbing ist heuristisch und nicht beweisbar vollständig — die Fälle unten belegen
+// die einzelnen Regeln, nicht dass nichts mehr durchrutschen kann.
+
+/// Fährt eine Buchung mit dem gegebenen Verwendungszweck (und den gegebenen bekannten Namen) und
+/// prüft, dass genau der erwartete Zweck abgelegt wurde — alles andere wie in [`erwartete_buchung`].
+fn assert_zweck_wird_abgelegt_als(bekannte_namen: &[&str], roher_zweck: &str, erwartet: &str) {
+    let mut zeile = gültige_zeile();
+    zeile.purpose = Some(roher_zweck.to_string());
+    let api = bekannte_namen
+        .iter()
+        .fold(api_mit_zeile(zeile), |api, name| {
+            api.with_known_person(name)
+        });
+
+    api.run("buchung-1").expect("gültige Zeile");
+
+    let mut buchung = erwartete_buchung(&api, "buchung-1");
+    buchung.purpose = Some(api.expected_text(erwartet));
+    api.assert_stored(buchung);
+}
+
+#[test]
+fn eine_iban_im_verwendungszweck_wird_ersetzt() {
+    assert_zweck_wird_abgelegt_als(
+        &[],
+        "Rueckzahlung an DE00 1234 5678 9012 3456 78 danke",
+        "Rueckzahlung an [IBAN] danke",
+    );
+}
+
+#[test]
+fn eine_zusammengeklebte_iban_wird_auch_ohne_wortgrenze_ersetzt() {
+    // Fail-safe: die IBAN klebt am Wort davor und steht ohne Leerzeichen — sie fällt trotzdem.
+    assert_zweck_wird_abgelegt_als(
+        &[],
+        "Konto IBANDE00123456789012345678 Miete",
+        "Konto IBAN[IBAN] Miete",
+    );
+}
+
+#[test]
+fn eine_klein_geschriebene_auslaendische_iban_mit_buchstaben_gruppe_wird_ersetzt() {
+    // Die Buchstaben-Gruppe (`fikt`) gehört zur IBAN, weil sie wie der Ländercode klein steht.
+    assert_zweck_wird_abgelegt_als(
+        &[],
+        "Rueckzahlung gb00 fikt 1234 5678 9012 34 danke",
+        "Rueckzahlung [IBAN] danke",
+    );
+}
+
+#[test]
+fn eine_bic_im_verwendungszweck_wird_ersetzt() {
+    assert_zweck_wird_abgelegt_als(
+        &[],
+        "Miete Juli an FIKTDEFF001 und FIKTDEFFXXX",
+        "Miete Juli an [BIC] und [BIC]",
+    );
+}
+
+#[test]
+fn eine_auslaendische_bic_wird_hinter_dem_hinweis_bic_ersetzt() {
+    // Ohne Ziffer und ohne Land `DE` erkennt die Form allein sie nicht — der Hinweis davor schon.
+    assert_zweck_wird_abgelegt_als(&[], "Auslandsrate BIC: FIKTNLAA", "Auslandsrate BIC: [BIC]");
+}
+
+#[test]
+fn grossgeschriebene_woerter_in_bic_form_bleiben_stehen() {
+    // `PRIVATKONTO`, `KREDITKARTE` und `LASTSCHRIFT` haben genau die Form einer BIC (6 Buchstaben +
+    // 5 Zeichen). Ohne Ziffer, ohne `DE` an Stelle 5–6 und ohne Hinweis bleiben sie stehen — an den
+    // Buchungsarten hängt die Gebühren-Klassifikation stromabwärts.
+    let mut zeile = gültige_zeile();
+    zeile.purpose = Some("PRIVATKONTO KREDITKARTE".to_string());
+    zeile.booking_text = Some("LASTSCHRIFT".to_string());
+    let api = api_mit_zeile(zeile);
+
+    api.run("buchung-1").expect("gültige Zeile");
+
+    let mut buchung = erwartete_buchung(&api, "buchung-1");
+    buchung.purpose = Some(api.expected_text("PRIVATKONTO KREDITKARTE"));
+    buchung.booking_text = Some(api.expected_text("LASTSCHRIFT"));
+    api.assert_stored(buchung);
+}
+
+#[test]
+fn ein_bekannter_personen_name_wird_ersetzt() {
+    assert_zweck_wird_abgelegt_als(
+        &["Lisa Beispiel"],
+        "Taschengeld Lisa Beispiel Juli",
+        "Taschengeld [PERSON] Juli",
+    );
+}
+
+#[test]
+fn ein_bekannter_name_wird_auch_gross_geschrieben_und_in_bank_schreibweise_ersetzt() {
+    // Banken schreiben gern „NACHNAME, VORNAME" in Großbuchstaben.
+    assert_zweck_wird_abgelegt_als(
+        &["Lisa Beispiel"],
+        "TASCHENGELD BEISPIEL, LISA",
+        "TASCHENGELD [PERSON]",
+    );
+}
+
+#[test]
+fn ein_bekannter_name_im_genitiv_wird_ersetzt() {
+    assert_zweck_wird_abgelegt_als(
+        &["Lisa Beispiel"],
+        "Geschenk zu Lisa Beispiels Geburtstag",
+        "Geschenk zu [PERSON] Geburtstag",
+    );
+}
+
+#[test]
+fn ein_bekannter_name_als_wortteil_bleibt_stehen() {
+    // Nur ganze Wörter fallen: `Rose` steckt in `Rosenmontag`, ist dort aber kein Name.
+    assert_zweck_wird_abgelegt_als(&["Rose"], "Rosenmontag Umzug", "Rosenmontag Umzug");
+}
+
+#[test]
+fn ein_vorname_allein_eines_bekannten_empfaengers_bleibt_stehen() {
+    // Bewusste Lücke: gesucht wird der **ganze** Name. Der Vorname allein fällt nicht von selbst —
+    // einzelne Namensteile träfen zu viel gewöhnlichen Text. Er gehört als eigener Eintrag in die
+    // lokale Namensliste.
+    assert_zweck_wird_abgelegt_als(
+        &["Lisa Beispiel"],
+        "Taschengeld Lisa Juli",
+        "Taschengeld Lisa Juli",
+    );
+}
+
+#[test]
+fn ein_unbekannter_name_bleibt_stehen_das_scrubbing_ist_nicht_vollstaendig() {
+    // Die ehrliche Grenze: was weder Empfänger war noch auf der Namensliste steht, kennt der
+    // Engpass nicht. Dieser Fall hält fest, dass das Scrubbing keine Anonymisierung ist.
+    assert_zweck_wird_abgelegt_als(
+        &["Lisa Beispiel"],
+        "Taschengeld Paul Erfunden",
+        "Taschengeld Paul Erfunden",
+    );
+}
+
+#[test]
+fn eine_firma_ohne_gläubiger_id_auf_der_namensliste_wird_mitgeschwärzt() {
+    // Der bekannte Preis von fail-safe: eine Firma ohne Gläubiger-ID gilt als Person, ihr Name
+    // landet auf der Liste und fällt im Freitext mit.
+    assert_zweck_wird_abgelegt_als(
+        &["Gartenbau Fiktiv"],
+        "Rechnung Gartenbau Fiktiv 2026",
+        "Rechnung [PERSON] 2026",
+    );
+}
+
+#[test]
+fn der_firmenname_mit_gläubiger_id_laeuft_durch_denselben_engpass() {
+    // Der Name einer sicheren Firma bleibt Klartext (Kategorie-Signal) — aber nicht roh: auch er
+    // passiert den Engpass, ein darin stehender bekannter Personen-Name fällt.
+    let mut zeile = gültige_zeile();
+    zeile.recipient_name = Some("Praxis Lisa Beispiel".to_string());
+    zeile.creditor_id = Some("DE00ZZZ00000000123".to_string());
+    let api = api_mit_zeile(zeile).with_known_person("Lisa Beispiel");
+
+    api.run("buchung-1").expect("gültige Zeile");
+
+    let mut erwartet = erwartete_buchung(&api, "buchung-1");
+    erwartet.recipient = Recipient::Company {
+        name: Some(api.expected_text("Praxis [PERSON]")),
+        creditor_id: "DE00ZZZ00000000123".to_string(),
+    };
+    api.assert_stored(erwartet);
+}
+
+#[test]
+fn ein_fehlschlag_beim_lesen_der_namensliste_scheitert_terminal_mit_durchgereichter_diagnose() {
+    // Ohne Namensliste wird nicht obfuskiert — lieber terminal scheitern als still zu wenig
+    // scrubben. Der Fehler trägt nur die io-Diagnose, keinen Namen.
+    let api = api_mit_zeile(gültige_zeile()).with_failing_persons("Namensliste nicht lesbar");
+
+    let ergebnis = api.run("buchung-1");
+
+    assert_eq!(
+        ergebnis,
+        Err(ObfuscationError::PersonsUnavailable {
+            reason: "Namensliste nicht lesbar".to_string()
+        })
+    );
+    api.assert_nothing_emitted();
 }
 
 // --- Absente ID: terminal, nichts emittiert -------------------------------------

@@ -1,0 +1,6 @@
+# Gültige Personen-Config (Fixture, Issue 0010). Format wie die Vorlage `personen.example.toml`;
+# die Namen sind erfunden. Groß-/Kleinschreibung und Rand-Leerraum spielen keine Rolle.
+namen = [
+    "Lisa Beispiel",
+    "  Paul Erfunden  ",
+]

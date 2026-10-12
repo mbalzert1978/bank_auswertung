@@ -26,7 +26,7 @@ fn fixture(name: &str) -> PathBuf {
     PathBuf::from(format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR")))
 }
 
-/// Die Pfade des erfundenen Lauf-Bestands: die reale CSV-Fixture und die drei realen Configs. Die
+/// Die Pfade des erfundenen Lauf-Bestands: die reale CSV-Fixture und die vier realen Configs. Die
 /// **Mechanik** ist durchweg echt (SQLite-Datei, CSV-Quelle, toml-Loader) — **erfunden** sind
 /// allein die Daten.
 fn lauf_pfade(db: &TempDbPath) -> RunPaths {
@@ -36,6 +36,7 @@ fn lauf_pfade(db: &TempDbPath) -> RunPaths {
         window_config: fixture("lauf/fenster.toml"),
         seed_config: fixture("lauf/seed.toml"),
         own_accounts_config: fixture("lauf/konten.toml"),
+        persons_config: fixture("lauf/namen.toml"),
     }
 }
 
@@ -184,6 +185,68 @@ fn ein_terminal_gescheiterter_lauf_nennt_den_redigierten_fehler() -> rusqlite::R
     // Die Nachricht bleibt **offen** — der nächste Lauf nimmt sie wieder auf (ADR-0012/Issue 0085).
     assert_eq!(offene_nachrichten(&paths)?, 1);
     Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    clippy::unwrap_in_result,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn ein_lauf_schwaerzt_namen_iban_und_bic_im_verwendungszweck_bevor_sie_obfuskiert_liegen()
+-> rusqlite::Result<()> {
+    // Die Scrubbing-Fixture: „LISA BEISPIEL" ist Empfänger einer Buchung (also aus der Datenbank
+    // bekannt), „Oma Fiktiv" steht nur in der Namensliste, und ein Verwendungszweck nennt beide
+    // samt einer IBAN und einer BIC. Nichts davon darf im obfuskierten Bestand roh stehen.
+    let db = TempDbPath::new("lauf_scrubbing");
+    let mut paths = lauf_pfade(&db);
+    paths.transactions = fixture("einlesen/csv/scrubbing.csv");
+    let mut protokoll = Vec::new();
+
+    run(&paths, &mut protokoll).expect("der Lauf über die Scrubbing-Fixture gelingt");
+
+    let conn = rusqlite::Connection::open(&paths.database)?;
+    let mut statement = conn.prepare(
+        "SELECT coalesce(purpose, '') || ' ' || coalesce(recipient_name, '') FROM obfuskiert;",
+    )?;
+    let freitext = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let alles = freitext.join("\n");
+    for rohwert in ["lisa beispiel", "oma fiktiv", "de00 1234", "fiktdeff001"] {
+        assert!(
+            !alles.to_lowercase().contains(rohwert),
+            "der obfuskierte Freitext darf `{rohwert}` nicht roh tragen:\n{alles}"
+        );
+    }
+    assert!(
+        alles.contains("Auslage fuer [PERSON] und [PERSON] IBAN [IBAN] BIC [BIC]"),
+        "Namen aus Datenbank und Namensliste, IBAN und BIC werden ersetzt:\n{alles}"
+    );
+    // Die Firma mit Gläubiger-ID ist kein Personen-Name: ihr Name bleibt Kategorie-Signal.
+    assert!(alles.contains("STROMWERK FIKTIV AG"), "{alles}");
+    Ok(())
+}
+
+#[test]
+fn eine_fehlende_namensliste_beendet_den_lauf_bevor_irgendetwas_laeuft() {
+    // Die Namensliste ist Pflicht: fehlt sie, wird nicht still mit weniger Namen gescrubbt.
+    let db = TempDbPath::new("lauf_namen");
+    let mut paths = lauf_pfade(&db);
+    paths.persons_config = fixture("lauf/gibt-es-nicht.toml");
+    let mut protokoll = Vec::new();
+
+    let fehler = run(&paths, &mut protokoll).expect_err("fehlende Namensliste");
+
+    assert_eq!(
+        fehler,
+        RunError::Config(ConfigError::Unreadable(crate::config::ConfigKind::Personen))
+    );
+    assert!(
+        protokoll.is_empty(),
+        "vor der geladenen Config läuft nichts"
+    );
 }
 
 #[test]

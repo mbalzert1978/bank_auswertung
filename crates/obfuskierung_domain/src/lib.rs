@@ -10,7 +10,8 @@
 //!
 //! Fachlicher Kern der Obfuskierung: die **seed-basierte** Ersetzung von Konten (`KONTO_…`) und
 //! Privatpersonen (`PERSON_…`), die **Fail-safe-Deutung** Firma vs. Privatperson ([`Recipient`]) und
-//! der Freitext-Engpass ([`ObfuscatedText`]). Gleicher Seed + gleiche Eingabe → gleiches Token
+//! der Freitext-Engpass ([`ObfuscatedText`], der IBAN-/BIC-Muster und die bekannten Personen-Namen
+//! aus [`KnownPersonsSource`] **heuristisch** ersetzt). Gleicher Seed + gleiche Eingabe → gleiches Token
 //! (zustandslos, laufstabil, reproduzierbar), der Seed wird mitpersistiert. Betrag/Datum &c. reist
 //! als [`PassThrough`] unverändert mit.
 //!
@@ -28,8 +29,10 @@ pub use entities::{IngestedBooking, ObfuscatedBooking};
 pub use error::ObfuscationError;
 pub use handler::ObfuscationHandler;
 pub use models::ObfuscateBooking;
-pub use ports::{BookingPublisher, ObfuscatedRepository, Obfuscator, RawBookingSource};
+pub use ports::{
+    BookingPublisher, KnownPersonsSource, ObfuscatedRepository, Obfuscator, RawBookingSource,
+};
 pub use value_objects::{
-    AccountToken, BookingId, CreditorId, NonEmptyString, ObfuscatedCounterparty, ObfuscatedText,
-    PassThrough, Pseudonym, RawCounterparty, Recipient, Replacement, Seed,
+    AccountToken, BookingId, CreditorId, KnownPersons, NonEmptyString, ObfuscatedCounterparty,
+    ObfuscatedText, PassThrough, Pseudonym, RawCounterparty, Recipient, Replacement, Seed,
 };

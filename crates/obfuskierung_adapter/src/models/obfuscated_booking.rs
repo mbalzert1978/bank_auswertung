@@ -46,6 +46,13 @@ impl ObfuscatedText {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Der **erwartete** Text einer Spec, wörtlich (nur getrimmt) — crate-intern für die TestApi. Er
+    /// läuft bewusst **nicht** durch den Scrubber: die Spec soll das gescrubbte Ergebnis selbst
+    /// hinschreiben, nicht die Regeln ein zweites Mal ausrechnen lassen.
+    pub(crate) fn expected(text: &str) -> Self {
+        Self(text.trim().to_string())
+    }
 }
 
 /// Projiziert den obfuskierten Domänen-Text auf das DTO — crate-intern (Bridge/TestApi).

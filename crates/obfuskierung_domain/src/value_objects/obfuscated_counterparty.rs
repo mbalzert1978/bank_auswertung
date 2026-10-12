@@ -1,4 +1,5 @@
 use crate::ports::Obfuscator;
+use crate::value_objects::known_persons::KnownPersons;
 use crate::value_objects::non_empty_string::NonEmptyString;
 use crate::value_objects::raw_counterparty::RawCounterparty;
 use crate::value_objects::recipient::Recipient;
@@ -22,21 +23,28 @@ impl ObfuscatedCounterparty {
     /// Obfuskiert eine rohe Gegenpartei seed-basiert über den [`Obfuscator`]-Port — der eine Ort,
     /// an dem die **Fail-safe-Deutung** Firma/Person fällt (siehe [`Recipient`]). Konten
     /// (Auftraggeber **und** Gegenkonto) werden getokenisiert, der Freitext läuft durch den
-    /// Engpass; die Gläubiger-ID bleibt als Anker Klartext.
+    /// Scrubbing-Engpass ([`ObfuscatedText`], mit den bekannten Personen-Namen); die Gläubiger-ID
+    /// bleibt als Anker Klartext.
     #[must_use]
-    pub(crate) fn obfuscate(raw: RawCounterparty, seed: Seed, obfuscator: &dyn Obfuscator) -> Self {
+    pub(crate) fn obfuscate(
+        raw: RawCounterparty,
+        seed: Seed,
+        obfuscator: &dyn Obfuscator,
+        persons: &KnownPersons,
+    ) -> Self {
         let token = |plaintext: &NonEmptyString| {
             AccountToken::from_replacement(obfuscator.obfuscate(seed, plaintext))
         };
+        let text = |plaintext: NonEmptyString| ObfuscatedText::scrub(&plaintext, persons);
         let ordering_account = token(&raw.ordering_account);
         let counter_account = raw.counter_account.map(|account| token(&account));
         let recipient = match (raw.recipient_name, raw.creditor_id) {
-            // Gläubiger-ID vorhanden → sichere Firma. Der Name trägt zwar den Typ `ObfuscatedText`,
-            // wird hier aber **verbatim** (nur getrimmt) durchgereicht, **nicht obfuskiert** — ein
-            // bewusstes Kategorie-Signal (der Firmenname ist ein öffentlicher Analyse-Anker), die
-            // Gläubiger-ID bleibt als Anker Klartext.
+            // Gläubiger-ID vorhanden → sichere Firma. Der Name wird **nicht pseudonymisiert** — er ist
+            // ein bewusstes Kategorie-Signal (der Firmenname ist ein öffentlicher Analyse-Anker) —,
+            // läuft aber wie aller Freitext durch den Scrubbing-Engpass: steht darin ein bekannter
+            // Personen-Name oder eine IBAN, wird auch er ersetzt. Die Gläubiger-ID bleibt Anker.
             (name, Some(creditor_id)) => Recipient::Company {
-                name: name.map(ObfuscatedText::from),
+                name: name.map(text),
                 creditor_id: creditor_id.into(),
             },
             // Keine Gläubiger-ID, aber ein Name → fail-safe Privatperson: pseudonymisieren.
@@ -50,8 +58,8 @@ impl ObfuscatedCounterparty {
             ordering_account,
             counter_account,
             recipient,
-            purpose: raw.purpose.map(ObfuscatedText::from),
-            booking_text: raw.booking_text.map(ObfuscatedText::from),
+            purpose: raw.purpose.map(text),
+            booking_text: raw.booking_text.map(text),
         }
     }
 

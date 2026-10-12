@@ -9,7 +9,7 @@ use crate::value_objects::NonEmptyString;
 /// hier genau das, was CONTEXT.md („Obfuskierung") darunter fasst: eigene IBAN/Kontonr.,
 /// Gegen-IBAN, BIC. Die fallen stromaufwärts vollständig weg.
 ///
-/// Was eine Firma trägt, ist ihr **Klartext-Name** (verbatim durchgereicht — das wichtigste
+/// Was eine Firma trägt, ist ihr **Klartext-Name** (nur gescrubbt — das wichtigste
 /// Kategorie-Signal) und die **Gläubiger-ID**. Letztere ist keine *Ausnahme* von der Regel, sondern
 /// liegt außerhalb ihrer: sie identifiziert die **Firma, nicht den Kontoinhaber**, und ist darum
 /// als Analyse-Anker gewollt (ADR-0008). Eine Privatperson trägt **nur** ihr seed-basiertes
@@ -31,8 +31,8 @@ pub enum Recipient {
 impl Recipient {
     /// Das **Kategorie-Signal** der Gegenpartei: der Klartext-Firmenname, sonst nichts.
     ///
-    /// Er ist es, weil er eine **Firma** benennt — `obfuskieren` reicht ihn genau dafür verbatim
-    /// durch (CONTEXT.md „Empfänger": das wichtigste Signal für die Kategorie). Das Pseudonym einer
+    /// Er ist es, weil er eine **Firma** benennt — `obfuskieren` pseudonymisiert ihn genau darum
+    /// nicht (CONTEXT.md „Empfänger": das wichtigste Signal für die Kategorie). Das Pseudonym einer
     /// Privatperson ist **keines**: `PERSON_7` sagt über die Art der Buchung nichts aus, und es
     /// hinauszureichen wäre Egress ohne jeden Gegenwert.
     pub(crate) fn category_signal(&self) -> Option<&NonEmptyString> {

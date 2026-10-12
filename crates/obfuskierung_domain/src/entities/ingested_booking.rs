@@ -1,6 +1,8 @@
 use crate::entities::ObfuscatedBooking;
 use crate::ports::Obfuscator;
-use crate::value_objects::{BookingId, ObfuscatedCounterparty, PassThrough, RawCounterparty, Seed};
+use crate::value_objects::{
+    BookingId, KnownPersons, ObfuscatedCounterparty, PassThrough, RawCounterparty, Seed,
+};
 
 /// Das **rohe** Aggregat einer Buchung, wie der Handler es per ID aus dem einlesen-Speicher **lädt**
 /// (der Lese-Port [`RawBookingSource`](crate::RawBookingSource) liefert es). Es trägt die zu
@@ -32,14 +34,20 @@ impl IngestedBooking {
     }
 
     /// **Obfuskiert** das Aggregat seed-basiert über den [`Obfuscator`]-Port: die Gegenpartei wird
-    /// zu Token gedeutet (inkl. Fail-safe Firma/Person), Betrag/Datum &c. reisen unverändert mit,
+    /// zu Token gedeutet (inkl. Fail-safe Firma/Person), ihr Freitext gegen die bekannten
+    /// Personen-Namen gescrubbt ([`KnownPersons`]), Betrag/Datum &c. reisen unverändert mit,
     /// und der Seed wird ins Ergebnis mitpersistiert (reproduzierbar). Die Quell-ID reist als
     /// Fremdschlüssel mit; die neue Identität vergibt die Persistenz beim Ablegen.
     #[must_use]
-    pub(crate) fn obfuscate(self, seed: Seed, obfuscator: &dyn Obfuscator) -> ObfuscatedBooking {
+    pub(crate) fn obfuscate(
+        self,
+        seed: Seed,
+        obfuscator: &dyn Obfuscator,
+        persons: &KnownPersons,
+    ) -> ObfuscatedBooking {
         ObfuscatedBooking::new(
             self.id,
-            ObfuscatedCounterparty::obfuscate(self.counterparty, seed, obfuscator),
+            ObfuscatedCounterparty::obfuscate(self.counterparty, seed, obfuscator, persons),
             self.pass_through,
             seed,
         )

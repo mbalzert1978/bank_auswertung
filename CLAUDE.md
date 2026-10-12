@@ -104,7 +104,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   it also holds [`io::run`](crates/io/src/run/mod.rs) — the wiring of **all** real adapters into one
   program. Still **without** a real adapter: `Kategorisierer`/category register (answered empty today)
   and the `report`;
-- [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: five mandatory
+- [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: six mandatory
   path options in, exit code out. Binds `io` as its **only** internal and **no** external dependency
   (asserted by the `architecture` test);
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
@@ -180,7 +180,20 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   0078 the read seam carries the same three-valued shape as `auswerten`'s (`Err` = fetch failed,
   `Ok(None)` = nothing there), so a broken database no longer reports as "not found". **No retry
   in the slice** ([ADR-0012](docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)).
-  Persistent seed management deferred.
+  All free text (purpose, booking text, company name) passes the **`ObfuskierterText` scrubber**
+  ([Issue 0010](docs/issues/0010-scrubbing-regeln-fuer-obfuskiertertext.md)): IBAN patterns,
+  BIC patterns and **known person names** become fixed placeholders (`[IBAN]`/`[BIC]`/`[PERSON]`) —
+  **heuristic, not provably complete**, fail-safe. The name list comes in as a value over the
+  `KnownPersonsSource` port; `io` fills it per booking from `einlesen_lines.recipient_name` (rows
+  **without** creditor ID — so a company without one is blacked out too, the known cost) plus the
+  local `personen.toml`. Only **whole** names match: a recipient's first name alone, a title or one
+  half of a double name is **not** blacked out automatically — those go into `personen.toml`. Names
+  **do not act retroactively**: a recipient first seen in a later import stays readable in purposes
+  obfuscated earlier (no re-scrub, by design) — so fill `personen.toml` with all known recipient
+  names of all accounts (incl. first names/short forms) **before the first run**. Side effect: a
+  card-payment merchant without creditor ID lands on the list too; if its name appears in a payment
+  intermediary's purpose it becomes `[PERSON]`, and two such merchants behind one intermediary fall
+  onto the **same fingerprint**. Persistent seed management deferred.
 - **`fenstern`** — third pipeline step and the **paginating analysis head**
   ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)); the first
   **N→1** slice. **Two single-purpose handlers** (the type carries the intent, ADR-0005): the
@@ -287,8 +300,7 @@ real IBANs in the gitignored `eigene-konten.toml`.
 `Kategorisierer` oracle — both **answered empty** today rather than faked
 (`io::auswerten::EmptyCategoryRegistry`/`UnansweredCategorizer`; issues 0009/0011), which is
 ADR-0004's litmus test in code: without the LLM the program still computes everything —, and the
-`report` presenter with its egress-DTO `Serialize` guard. Also deferred: `ObfuskierterText` scrubbing (only
-trims/rejects-empty today) and persistent seed management
+`report` presenter with its egress-DTO `Serialize` guard. Also deferred: persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
 [Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
 persisting the seed across runs is not). Note what the `obfuskiert` table stores: **not the seed but
@@ -357,11 +369,15 @@ Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate),
 kanonisch über den Skill **`/cargo-six-gates`** — er führt alle sechs aus und meldet
 PASS/FAIL je Gate. Definition und Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
 
-A real run (issue 0083) — all five options are mandatory, the run log goes to stderr:
+A real run (issue 0083) — all six options are mandatory, the run log goes to stderr:
 
 ```bash
-cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.toml --seed seed.toml --eigene-konten eigene-konten.toml
+cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.toml --seed seed.toml --eigene-konten eigene-konten.toml --personen personen.toml
 ```
+
+`--personen` is the local name list for the free-text scrubber (issue 0010; copy
+`personen.example.toml`, gitignored). It is **mandatory even when empty** (`namen = []`): a forgotten
+list stops the run instead of silently scrubbing fewer names.
 
 Exit code `0` = the outbox ran empty, `1` = a message failed terminally (named, redacted), `2` = the
 command line was wrong. The invented fixtures under
@@ -416,7 +432,8 @@ each step runnable/valuable against fakes, real `io` last:
 3. **`obfuskieren` slice** — consume `Ingested`, assign seed-based `KONTO_x`/`PERSON_x`, scrub
    free text; the privacy boundary. **done** — real end-to-end since issues 0056/0059 (the
    `einlesen` read seam, the seed-keyed obfuscator, the `obfuskiert` store and the seed config
-   loader); still needs the `ObfuskierterText` scrubbing rules + persistent seed management
+   loader) and the `ObfuskierterText` scrubbing rules since issue 0010 (IBAN/BIC patterns + known
+   names, heuristic); still needs persistent seed management
    ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)).
 4. **`fenstern` slice** — consume `StartAnalysis`/`AdvanceWindow`, paginate the obfuscated
    history newest→oldest (`max(booking_day < from)`) and **materialise one
@@ -458,8 +475,10 @@ each step runnable/valuable against fakes, real `io` last:
 
 Prerequisites before their step (see README "Offen" / PRD) — **data**, no longer adapters: a
 real CSV-CAMT-v8 sample file for a real `einlesen` run; a **stable config seed** (its `toml`
-loader is real since issue 0059, the *value* is still the user's to supply) + **scrubbing rules**
-for `ObfuskierterText` before a real `obfuskieren` run
+loader is real since issue 0059, the *value* is still the user's to supply) + the local
+**`personen.toml`** (names never a recipient, plus first names/short forms of recipients — filled
+before the first run, since names do not act retroactively; the scrubbing rules themselves are built,
+issue 0010) before a real `obfuskieren` run
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)); the **Eigene-Konten-Config**
 (per own account: IBAN + role Giro/Haushalt/Spar/Vorlauf — single source for
 `Gegenkonto::Eigen|Fremd`) **plus its loader** (issue 0002) before the `auswerten` run.

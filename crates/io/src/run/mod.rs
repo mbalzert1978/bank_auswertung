@@ -48,7 +48,9 @@ use crate::auswerten::{
     CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, EmptyCategoryRegistry, UnansweredCategorizer,
     consumer as auswerten_consumer, history_consumer,
 };
-use crate::config::{AppConfig, ConfigError, EigeneKontenConfig, FensterConfig, SeedConfig};
+use crate::config::{
+    AppConfig, ConfigError, EigeneKontenConfig, FensterConfig, PersonenConfig, SeedConfig,
+};
 use crate::einlesen::{
     CONSUMED_MESSAGE_TYPE as EINLESEN_CONSUMED, CsvCamtV8Source, EinlesenSqliteStore,
     GermanCalendar, GermanMoney, IsoCurrencies, consumer as einlesen_consumer,
@@ -58,8 +60,8 @@ use crate::fenstern::{
     START_MESSAGE_TYPE, consumer as fenstern_consumer, start_consumer,
 };
 use crate::obfuskierung::{
-    CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, ObfuskierungSqliteStore,
-    SeededObfuscator, consumer as obfuskierung_consumer,
+    CONSUMED_MESSAGE_TYPE as OBFUSKIERUNG_CONSUMED, EinlesenRowSource, KnownPersonNames,
+    ObfuskierungSqliteStore, SeededObfuscator, consumer as obfuskierung_consumer,
 };
 use crate::outbox::OutboxHandler;
 use crate::schema::{self, SchemaError, VersionMismatch};
@@ -85,8 +87,8 @@ const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MES
 const MAX_ROUNDS: usize = 4096;
 
 /// Wo die Eingaben des Laufs liegen. Ein reiner Wert-Typ am Prozess-Rand — **öffentliche Felder**,
-/// weil er nichts weiter ist als das Bündel der fünf Pfade, die die Bin-Crate von der Kommandozeile
-/// bekommt; ein Konstruktor mit fünf gleichartigen Parametern wäre nur Zeremonie mit
+/// weil er nichts weiter ist als das Bündel der sechs Pfade, die die Bin-Crate von der Kommandozeile
+/// bekommt; ein Konstruktor mit sechs gleichartigen Parametern wäre nur Zeremonie mit
 /// Verwechslungsgefahr.
 #[derive(Debug, Clone)]
 pub struct RunPaths {
@@ -103,6 +105,11 @@ pub struct RunPaths {
     pub seed_config: PathBuf,
     /// Die Eigene-Konten-Config (`[[konto]]` mit `iban` + `rolle`).
     pub own_accounts_config: PathBuf,
+    /// Die lokale Namensliste (`namen = [...]`) für den Freitext-Engpass von `obfuskieren` — die
+    /// Namen, die `io` nicht selbst kennt (nie Empfänger, oder Vornamen/Kurzformen von Empfängern).
+    /// **Pflicht**, auch wenn sie leer ist (`namen = []`): eine
+    /// vergessene Liste soll den Lauf laut stoppen, statt still weniger zu scrubben.
+    pub persons_config: PathBuf,
 }
 
 /// Was der Lauf getan hat: die Zahl der verarbeiteten Nachrichten **je Typ** und die Zahl der
@@ -144,7 +151,7 @@ impl RunReport {
 /// **nie** einen Rohwert, Freitext, eine IBAN oder den Seed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunError {
-    /// Eine der drei Configs ließ sich nicht laden.
+    /// Eine der vier Configs ließ sich nicht laden.
     Config(ConfigError),
     /// Das transaktionale Rückgrat (SQLite-Datei, Tabellen) ließ sich nicht öffnen oder anlegen. Trägt
     /// die durchgereichte io-Diagnose — Zugriffs-Mechanik, kein Zeileninhalt.
@@ -229,12 +236,13 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let seed = SeedConfig::load(&paths.seed_config)?.seed();
     let own_accounts =
         EigeneKontenConfig::load(&paths.own_accounts_config)?.to_own_accounts_config(seed);
+    let persons = PersonenConfig::load(&paths.persons_config)?.into_names();
 
     // Der **einzige** Weg, auf dem die Datei ihr Schema bekommt (Issue 0084): frisch → angelegt und
     // gestempelt, passend gestempelt → benutzt, jede andere Version → Abbruch, bevor etwas geschrieben
     // wird.
     let outbox = schema::open(&AppConfig::new(&paths.database))?;
-    let adapters = Adapters::new(&outbox, paths);
+    let adapters = Adapters::new(&outbox, paths, persons);
     let stores = Stores::new(&outbox);
     let occurrences = CountingHistorySink::default();
     let dispatcher = DispatcherBuilder::new(&outbox, &adapters, stores)
@@ -271,6 +279,7 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
 struct Adapters {
     transactions: CsvCamtV8Source,
     ingested_rows: EinlesenRowSource,
+    person_names: KnownPersonNames,
     obfuskiert_windows: ObfuskiertWindowSource,
     analysis_windows: AuswertungsfensterSource,
     registry: EmptyCategoryRegistry,
@@ -278,10 +287,11 @@ struct Adapters {
 }
 
 impl Adapters {
-    fn new(outbox: &SqliteOutbox, paths: &RunPaths) -> Self {
+    fn new(outbox: &SqliteOutbox, paths: &RunPaths, persons: Vec<String>) -> Self {
         Self {
             transactions: CsvCamtV8Source::new(&paths.transactions),
             ingested_rows: EinlesenRowSource::new(outbox.clone()),
+            person_names: KnownPersonNames::new(outbox.clone(), persons),
             obfuskiert_windows: ObfuskiertWindowSource::new(outbox.clone()),
             analysis_windows: AuswertungsfensterSource::new(outbox.clone()),
             registry: EmptyCategoryRegistry,
@@ -473,6 +483,7 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
             Box::new(obfuskierung_consumer(
                 &adapters.ingested_rows,
                 &SeededObfuscator,
+                &adapters.person_names,
                 seed,
                 stores.obfuskierung,
             )),
