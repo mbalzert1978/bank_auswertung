@@ -39,7 +39,8 @@ mod window_evaluation_row;
 
 pub use account_role_vocabulary::account_role_label;
 pub use aderlass_rows::{
-    AccountCashflowRow, CostDriverRow, DriverRankRow, SavingsCandidateRow, SavingsThresholdConfig,
+    AccountCashflowRow, CostDriverRow, DriverRankRow, KindAnchorRow, SavingsCandidateRow,
+    SavingsThresholdConfig,
 };
 pub use analysis_window_row::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, WindowBookingRow,

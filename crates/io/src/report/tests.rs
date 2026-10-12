@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use auswerten_adapter::{
     AccountCashflowRow, CategoryAnswerRow, CostDriverRow, DriverRankRow, FeeRow,
-    HistoryEvaluationRow, InternalTransferRow, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow,
-    SavingsCandidateRow,
+    HistoryEvaluationRow, InternalTransferRow, KindAnchorRow, PriceIncreaseRow, RecurrenceRhythm,
+    RecurrenceRow, SavingsCandidateRow,
 };
 
 use super::file;
@@ -20,9 +20,24 @@ const STROM: &str = "COMPANY:DE00ZZZ00000000001";
 const BUCHLADEN: &str = "COMPANY:DE00ZZZ00000000004|MERCHANT:BUCHLADEN-FIKTIV";
 const PERSON: &str = "PERSON:PERSON_3f2a1b9c8d7e";
 
+/// Eine Buchungsart samt dem Anker, den die Domäne neben ihrem Schlüssel ausgibt.
 fn art(fingerprint: &str) -> CostDriverRow {
+    let anchor = match fingerprint {
+        STROM => KindAnchorRow::Company {
+            creditor_id: "DE00ZZZ00000000001".to_string(),
+            merchant: None,
+        },
+        BUCHLADEN => KindAnchorRow::Company {
+            creditor_id: "DE00ZZZ00000000004".to_string(),
+            merchant: Some("BUCHLADEN-FIKTIV".to_string()),
+        },
+        _ => KindAnchorRow::Person {
+            pseudonym: "PERSON_3f2a1b9c8d7e".to_string(),
+        },
+    };
     CostDriverRow::Kind {
         fingerprint: fingerprint.to_string(),
+        anchor,
     }
 }
 
@@ -202,7 +217,7 @@ fn der_bericht_zeigt_die_errechneten_werte_in_euro_monaten_und_prozent() {
                 "ZAHLDIENST TREUHAND GMBH › BUCHLADEN-FIKTIV",
                 "10,00 %"
             ),
-            ("4", "Person 3f2a1b", "2,00 %"),
+            ("4", "Person 9c8d7e", "2,00 %"),
             ("5", "Abflüsse ohne Gegenpartei", "0,50 %"),
         ]
     );
@@ -437,7 +452,7 @@ fn eine_jaehrliche_wiederkehr_steht_als_jaehrlich_und_die_teuerste_zuerst() {
         wiederkehr,
         vec![
             (
-                "Person 3f2a1b".to_string(),
+                "Person 9c8d7e".to_string(),
                 "jährlich".to_string(),
                 "2.500,00 €".to_string()
             ),
@@ -521,5 +536,28 @@ fn ein_pfad_ohne_dateinamen_wird_abgewiesen() {
     assert_eq!(
         ergebnis.map_err(|fehler| fehler.kind()),
         Err(std::io::ErrorKind::InvalidInput)
+    );
+}
+
+#[test]
+fn die_beschriftung_kommt_aus_dem_anker_nicht_aus_dem_schluessel() {
+    // Der Schlüssel einer Art ist für den Bericht opak: ein Schlüssel ohne jede bekannte Form ändert
+    // die Beschriftung nicht — sie kommt allein aus dem Anker.
+    let mut eingaben = eingaben();
+    if let Some(platz) = eingaben.history.ranking.first_mut() {
+        platz.driver = CostDriverRow::Kind {
+            fingerprint: "opaker-schluessel".to_string(),
+            anchor: KindAnchorRow::Company {
+                creditor_id: "DE00ZZZ00000000001".to_string(),
+                merchant: Some("ABO".to_string()),
+            },
+        };
+    }
+
+    let bericht = Bericht::compose(&eingaben);
+
+    assert_eq!(
+        bericht.ranking.first().map(|line| line.driver.as_str()),
+        Some("STROMWERK NORD AG › ABO")
     );
 }

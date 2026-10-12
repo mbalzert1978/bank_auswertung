@@ -14,8 +14,32 @@ use crate::value_objects::{Counterparty, CreditorId, NonEmptyString};
 /// **Datenschutz:** der Fingerabdruck trägt nur, was schon stromabwärts der Obfuskierungs-Grenze
 /// steht — die öffentliche Gläubiger-ID oder das seed-basierte Pseudonym, nie einen Rohwert und nie
 /// den Seed.
+///
+/// **Schlüssel und Anker.** Der [`as_str`](Self::as_str)-Schlüssel ist die stabile Zeichenkette, unter
+/// der Register, Export und Wiederkehr die Art wiederfinden. Daneben trägt der Fingerabdruck seinen
+/// [`KindAnchor`] — die **Struktur**, aus der der Schlüssel entstand. Wer die Art beschriften will
+/// (der Bericht, Issue 0012), liest den Anker, statt den Schlüssel zu zerlegen. Beides entsteht in
+/// `of` aus derselben Einordnung; der Schlüssel steht vorn und ordnet.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Fingerprint(String);
+pub struct Fingerprint {
+    key: String,
+    anchor: KindAnchor,
+}
+
+/// Der **Anker** einer Buchungsart — wer auf der anderen Seite stand, als Struktur statt als Text.
+/// Eine Buchung ohne Gegenpartei hat keinen (und keinen Fingerabdruck).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum KindAnchor {
+    /// Eine **Firma** über ihre öffentliche Gläubiger-ID. Bei einem **Durchleiter** steht der
+    /// Händler-Token seines Verwendungszwecks daneben (Egress-Wortregel angewandt) — fehlt er, ist die
+    /// Art der Durchleiter selbst.
+    Company {
+        creditor_id: CreditorId,
+        merchant: Option<NonEmptyString>,
+    },
+    /// Eine fail-safe **Privatperson** über ihr seed-basiertes Pseudonym.
+    Person { pseudonym: NonEmptyString },
+}
 
 impl Fingerprint {
     /// Die **reine Funktion** [`Counterparty`] → Fingerabdruck. Kein Zustand, kein Port, kein I/O —
@@ -34,24 +58,59 @@ impl Fingerprint {
     ///   wäre ein Sammelbecken, das alle Entgeltzeilen zu einer Art verklumpte.
     #[must_use]
     pub(crate) fn of(counterparty: &Counterparty) -> Option<Self> {
-        let company = |creditor_id: &CreditorId| format!("COMPANY:{}", creditor_id.as_str());
-        match counterparty.party() {
+        let anchor = match counterparty.party() {
             Party::Intermediary {
                 creditor_id,
                 purpose,
-            } => Some(Self(match purpose.and_then(merchant_token) {
-                Some(token) => format!("{}|MERCHANT:{token}", company(creditor_id)),
-                None => company(creditor_id),
-            })),
-            Party::Company { creditor_id, .. } => Some(Self(company(creditor_id))),
-            Party::Person { pseudonym } => Some(Self(format!("PERSON:{}", pseudonym.as_str()))),
-            Party::Absent => None,
-        }
+            } => KindAnchor::Company {
+                creditor_id: creditor_id.clone(),
+                merchant: purpose.and_then(merchant_token),
+            },
+            Party::Company { creditor_id, .. } => KindAnchor::Company {
+                creditor_id: creditor_id.clone(),
+                merchant: None,
+            },
+            Party::Person { pseudonym } => KindAnchor::Person {
+                pseudonym: pseudonym.clone(),
+            },
+            Party::Absent => return None,
+        };
+        Some(Self {
+            key: key_of(&anchor),
+            anchor,
+        })
     }
 
+    /// Der stabile Schlüssel der Art.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.key
+    }
+
+    /// Wer auf der anderen Seite stand — als Struktur (siehe Typ-Doku).
+    #[must_use]
+    pub fn anchor(&self) -> &KindAnchor {
+        &self.anchor
+    }
+}
+
+/// Der Schlüssel eines Ankers — die **eine** Stelle, an der seine Zeichenketten-Form entsteht:
+/// `COMPANY:<Gläubiger-ID>[|MERCHANT:<Händler-Token>]` bzw. `PERSON:<Pseudonym>`.
+fn key_of(anchor: &KindAnchor) -> String {
+    match anchor {
+        KindAnchor::Company {
+            creditor_id,
+            merchant: Some(merchant),
+        } => format!(
+            "COMPANY:{}|MERCHANT:{}",
+            creditor_id.as_str(),
+            merchant.as_str()
+        ),
+        KindAnchor::Company {
+            creditor_id,
+            merchant: None,
+        } => format!("COMPANY:{}", creditor_id.as_str()),
+        KindAnchor::Person { pseudonym } => format!("PERSON:{}", pseudonym.as_str()),
     }
 }
 
@@ -68,11 +127,12 @@ impl Fingerprint {
 /// **Heuristisch, nicht beweisbar vollständig** — sie trennt Händler zuverlässig, sie garantiert
 /// nicht, dass jede Schreibweise desselben Händlers zusammenfällt. Und ein **unbekannter Name** im
 /// Zweck (einer, den der Scrubber von `obfuskieren` nicht kennt) bleibt im Token stehen.
-fn merchant_token(purpose: &NonEmptyString) -> Option<String> {
-    let token = egress_words(purpose.as_str())
-        .flat_map(words)
-        .map(str::to_uppercase)
-        .collect::<Vec<_>>()
-        .join("-");
-    (!token.is_empty()).then_some(token)
+fn merchant_token(purpose: &NonEmptyString) -> Option<NonEmptyString> {
+    NonEmptyString::new(
+        &egress_words(purpose.as_str())
+            .flat_map(words)
+            .map(str::to_uppercase)
+            .collect::<Vec<_>>()
+            .join("-"),
+    )
 }

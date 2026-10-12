@@ -15,14 +15,16 @@
 //!   (er ist ein bewusster Analyse-Anker) — aber nur, wenn er **keinen** Namen der lokalen Namensliste
 //!   nennt (dieselbe Erkennung wie beim Scrubbing); sonst und ohne Namen über die öffentliche
 //!   **Gläubiger-ID**. Ein Händler-Token hinter einem Zahlungsdienst steht daneben — so stehen die
-//!   Händler getrennt.
-//! - **Personen** erscheinen nur über den Anfang ihres seed-basierten **Pseudonyms** (`Person 4e5c9f`).
+//!   Händler getrennt. Gelesen wird all das aus dem **Anker** der Art (`KindAnchorRow`), den die Domäne
+//!   ausgibt — der Fingerabdruck-Schlüssel wird nie zerlegt.
+//! - **Personen** erscheinen nur über das Ende ihres seed-basierten **Pseudonyms** (`Person f30ee3`).
 //! - Die **Kategorie** kommt allein aus dem Register (fehlt sie: „unbekannt").
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use auswerten_adapter::{
-    CategoryAnswerRow, CostDriverRow, HistoryEvaluationRow, PriceIncreaseRow, RecurrenceRhythm,
+    CategoryAnswerRow, CostDriverRow, HistoryEvaluationRow, KindAnchorRow, PriceIncreaseRow,
+    RecurrenceRhythm,
 };
 use obfuskierung_adapter::names_known_person;
 use rusty_money::iso;
@@ -280,7 +282,7 @@ pub(crate) fn driver_fingerprints(history: &HistoryEvaluationRow) -> Vec<String>
                 .map(|candidate| &candidate.ranked.driver),
         )
         .filter_map(|driver| match driver {
-            CostDriverRow::Kind { fingerprint } => Some(fingerprint.clone()),
+            CostDriverRow::Kind { fingerprint, .. } => Some(fingerprint.clone()),
             CostDriverRow::Fee { .. } | CostDriverRow::Unattributed => None,
         })
         .collect::<BTreeSet<_>>()
@@ -392,7 +394,7 @@ impl<'a> DriverLabels<'a> {
 
     fn label(&self, driver: &CostDriverRow) -> String {
         match driver {
-            CostDriverRow::Kind { fingerprint } => self.kind_label(fingerprint),
+            CostDriverRow::Kind { anchor, .. } => self.kind_label(anchor),
             CostDriverRow::Fee { account } => {
                 format!("Bankgebühren {}", self.accounts.label(account))
             }
@@ -402,7 +404,7 @@ impl<'a> DriverLabels<'a> {
 
     fn category(&self, driver: &CostDriverRow) -> String {
         match driver {
-            CostDriverRow::Kind { fingerprint } => self
+            CostDriverRow::Kind { fingerprint, .. } => self
                 .categories
                 .get(fingerprint.as_str())
                 .map_or(UNKNOWN_CATEGORY, |category| category)
@@ -411,31 +413,33 @@ impl<'a> DriverLabels<'a> {
         }
     }
 
-    /// Die Beschriftung einer Buchungsart. Der Fingerabdruck trägt per Domänen-Konstruktion nur
-    /// öffentliche Anker oder Pseudonyme (`COMPANY:<Gläubiger-ID>[|MERCHANT:<Händler-Token>]` bzw.
-    /// `PERSON:<Pseudonym>`); hier wird er nur **lesbarer** gemacht. Eine unbekannte Form erscheint
-    /// unverändert — sie ist so leak-frei wie jeder Fingerabdruck.
-    fn kind_label(&self, fingerprint: &str) -> String {
-        if let Some(company) = fingerprint.strip_prefix("COMPANY:") {
-            let (creditor_id, merchant) = company
-                .split_once("|MERCHANT:")
-                .map_or((company, None), |(id, merchant)| (id, Some(merchant)));
-            let name = self.company_names.get(creditor_id).map_or_else(
-                || format!("Gläubiger-ID {creditor_id}"),
-                |name| (*name).to_string(),
-            );
-            match merchant {
-                Some(merchant) => format!("{name} › {merchant}"),
-                None => name,
+    /// Die Beschriftung einer Buchungsart — aus ihrem **Anker**, den die Domäne neben dem
+    /// Fingerabdruck ausgibt; der Schlüssel selbst wird nie zerlegt.
+    fn kind_label(&self, anchor: &KindAnchorRow) -> String {
+        match anchor {
+            KindAnchorRow::Company {
+                creditor_id,
+                merchant,
+            } => {
+                let company = self.company_names.get(creditor_id.as_str()).map_or_else(
+                    || format!("Gläubiger-ID {creditor_id}"),
+                    |name| (*name).to_string(),
+                );
+                match merchant {
+                    Some(merchant) => format!("{company} › {merchant}"),
+                    None => company,
+                }
             }
-        } else if let Some(pseudonym) = fingerprint.strip_prefix("PERSON:") {
-            let pseudonym = pseudonym.strip_prefix("PERSON_").unwrap_or(pseudonym);
-            format!(
-                "Person {}",
-                pseudonym.chars().take(PSEUDONYM_SHOWN).collect::<String>()
-            )
-        } else {
-            fingerprint.to_string()
+            // Das **Ende** des Pseudonyms: es ist der seed-basierte Hash-Teil, dessen Form am Anfang
+            // (einem festen Präfix) hier niemand kennen muss.
+            KindAnchorRow::Person { pseudonym } => {
+                let tail = pseudonym
+                    .chars()
+                    .rev()
+                    .take(PSEUDONYM_SHOWN)
+                    .collect::<Vec<_>>();
+                format!("Person {}", tail.into_iter().rev().collect::<String>())
+            }
         }
     }
 }

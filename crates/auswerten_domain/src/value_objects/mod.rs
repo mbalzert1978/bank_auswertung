@@ -79,7 +79,7 @@ pub use counterparty::Counterparty;
 pub use creditor_id::{CreditorId, is_valid as is_valid_creditor_id};
 pub use currency::Currency;
 pub use fee::Fee;
-pub use fingerprint::Fingerprint;
+pub use fingerprint::{Fingerprint, KindAnchor};
 pub use history_evaluation::HistoryEvaluation;
 pub use internal_transfer::InternalTransfer;
 pub use month::{DayStamp, Month};

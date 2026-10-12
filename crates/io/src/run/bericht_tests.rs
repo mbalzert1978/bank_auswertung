@@ -3,7 +3,9 @@
 //! belegen kann: dass der Bericht **nur** bei Exit 0 entsteht, **genau** den eigenen Lauf zeigt, seine
 //! Kategorien aus dem Register liest — und keinen Rohwert der Eingabe trägt.
 
-use auswerten_adapter::{CategoryAnswerRow, CostDriverRow, DriverRankRow, HistoryEvaluationRow};
+use auswerten_adapter::{
+    CategoryAnswerRow, CostDriverRow, DriverRankRow, HistoryEvaluationRow, KindAnchorRow,
+};
 
 use super::*;
 use crate::pipeline_test_support::TempDbPath;
@@ -285,6 +287,10 @@ fn der_bericht_liest_die_eigene_run_id_auch_wenn_ein_juengerer_fremder_lauf_in_d
                     ranking: vec![DriverRankRow {
                         driver: CostDriverRow::Kind {
                             fingerprint: format!("COMPANY:{glaeubiger}"),
+                            anchor: KindAnchorRow::Company {
+                                creditor_id: glaeubiger.clone(),
+                                merchant: None,
+                            },
                         },
                         outflow_minor_units: 100,
                         bookings: 1,
