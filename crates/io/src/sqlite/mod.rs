@@ -397,7 +397,9 @@ VALUES (
 );";
 
 /// Die Outbox-Tabelle als [`TableSpec`] — damit der Schema-Besitzer ([`schema`](crate::schema)) sie
-/// in **derselben** Form anlegt wie die Ergebnis-Tabellen der Slices.
+/// in **derselben** Form anlegt wie die Ergebnis-Tabellen der Slices. Er liest davon nur `name` und
+/// `ddl`; `insert` steht allein der Vollständigkeit der `TableSpec` halber da — die Outbox schreibt
+/// über die [`SqliteUnit`], keinen Store-Preflight.
 pub(crate) const OUTBOX_TABLE: TableSpec = TableSpec {
     name: "outbox",
     ddl: OUTBOX_DDL,

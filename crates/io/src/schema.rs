@@ -26,7 +26,7 @@
 //! DDL der Stores beschreibt dann das **neue** Schema, das eine frische Datei direkt bekommt. Eine
 //! Migrations-Maschinerie auf Vorrat gibt es bewusst nicht.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::auswerten::AuswertenEvaluations;
 use crate::config::AppConfig;
@@ -76,15 +76,24 @@ enum Found {
 
 /// Bringt die Datei auf [`SCHEMA_VERSION`] oder weist sie ab — die eine Weiche über alle Versionen.
 /// Hier setzt eine Migration als zusätzlicher Arm an (siehe Modul-Doku).
+///
+/// Prüfen und Anlegen laufen in **einer** `IMMEDIATE`-Transaktion: die Schreibsperre steht, bevor
+/// gelesen wird, also kann zwischen „frisch" und „anlegen" kein zweiter Prozess dieselbe Datei
+/// anlegen. Ein abgewiesener Fall rollt zurück — geschrieben wurde da ohnehin nichts.
 fn ensure(conn: &Connection) -> Result<(), SchemaError> {
-    match found(conn)? {
-        Found::Empty => create(conn),
-        Found::Version(SCHEMA_VERSION) => Ok(()),
-        Found::Version(found) => Err(SchemaError::VersionMismatch(VersionMismatch {
-            found,
-            expected: SCHEMA_VERSION,
-        })),
+    let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    match found(&transaction)? {
+        Found::Empty => create(&transaction)?,
+        Found::Version(SCHEMA_VERSION) => {}
+        Found::Version(found) => {
+            return Err(SchemaError::VersionMismatch(VersionMismatch {
+                found,
+                expected: SCHEMA_VERSION,
+            }));
+        }
     }
+    transaction.commit()?;
+    Ok(())
 }
 
 fn found(conn: &Connection) -> rusqlite::Result<Found> {
@@ -97,19 +106,18 @@ fn found(conn: &Connection) -> rusqlite::Result<Found> {
     })
 }
 
-/// Legt **alle** Tabellen an und stempelt die Datei — in einer Transaktion: scheitert ein Schritt,
-/// bleibt die Datei leer und ungestempelt, also beim nächsten Öffnen wieder „frisch".
-fn create(conn: &Connection) -> Result<(), SchemaError> {
-    let transaction = conn.unchecked_transaction()?;
+/// Legt **alle** Tabellen an und stempelt die Datei — innerhalb der Transaktion von `ensure`:
+/// scheitert ein Schritt, bleibt die Datei leer und ungestempelt, also beim nächsten Öffnen wieder
+/// „frisch".
+fn create(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     tables().try_for_each(|table| transaction.execute_batch(table.ddl))?;
-    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-    transaction.commit()?;
-    Ok(())
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)
 }
 
 /// **Alle** Tabellen des Programms: die Outbox und die der vier Ergebnis-Stores, jede mit ihrer
 /// eigenen, beim Slice-Store authored DDL ([`TableSpec`]). Ein neuer Store, der hier fehlt, bekäme
-/// keine Tabelle — und failte in der ersten Ablage terminal im Preflight.
+/// keine Tabelle — und failte in der ersten Ablage terminal im Preflight. Die Liste muss darum
+/// dieselben Stores aufführen, die `run` verdrahtet.
 fn tables() -> impl Iterator<Item = &'static TableSpec> {
     std::iter::once(&OUTBOX_TABLE)
         .chain(EinlesenLines::tables())
@@ -141,9 +149,17 @@ impl std::fmt::Display for SchemaError {
 
 impl std::error::Error for SchemaError {}
 
+/// Redigiert **an der Quelle**: SQLite hängt an manche Meldungen den Dateipfad (etwa bei
+/// `SQLITE_CANTOPEN`), und `rusqlite::Error::InvalidPath` trägt ihn ohnehin. Übernommen wird darum bei
+/// einem SQLite-Fehler nur der **Fehlercode** samt seiner statischen Beschreibung, die erweiterte
+/// Meldung wird verworfen; ein ungültiger Pfad wird zu einem statischen Text.
 impl From<rusqlite::Error> for SchemaError {
     fn from(error: rusqlite::Error) -> Self {
-        Self::Unavailable(error.to_string())
+        Self::Unavailable(match error {
+            rusqlite::Error::SqliteFailure(failure, _extended_message) => failure.to_string(),
+            rusqlite::Error::InvalidPath(_path) => "ungültiger Datenbank-Pfad".to_string(),
+            other => other.to_string(),
+        })
     }
 }
 
@@ -224,20 +240,23 @@ mod tests {
 
         let conn = roh(&db)?;
         assert_eq!(user_version(&conn)?, SCHEMA_VERSION);
-        // Die Outbox und **jede** Tabelle aller vier Stores — über die Liste, die der Besitzer selbst
-        // benutzt, und gegen die Listen der Stores direkt.
-        let erwartet = std::iter::once(&OUTBOX_TABLE)
-            .chain(EinlesenLines::tables())
-            .chain(ObfuskiertBookings::tables())
-            .chain(FensternWindows::tables())
-            .chain(AuswertenEvaluations::tables());
-        for table in erwartet {
+        // Jede Tabelle, die der Besitzer deklariert, steht in der Datei …
+        for table in tables() {
             assert!(
                 table_exists(&conn, table.name)?,
                 "die Tabelle {} muss angelegt sein",
                 table.name
             );
         }
+        // … und gegen eine unabhängige Tatsache: SQLite zählt genau so viele Tabellen. Das belegt nur,
+        // dass Deklaration und Datei übereinstimmen — dass `tables()` keinen Store vergisst, prüft der
+        // Lauf (`run`), dessen Ablage sonst im Preflight scheiterte.
+        let gezaehlt: i64 = conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table';",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(usize::try_from(gezaehlt)?, tables().count());
         Ok(())
     }
 
@@ -350,6 +369,50 @@ mod tests {
         })?;
         assert_eq!(objekte, 0, "der Store hat ein Schema-Objekt angelegt");
         Ok(())
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn jede_tabelle_traegt_die_audit_spalten() -> Result<(), Box<dyn std::error::Error>> {
+        // Das Netz für `.rules/sql/schema-konventionen.md`, seit `ensure_columns` mit Issue 0084
+        // entfallen ist: jede deklarierte Tabelle hat `created_at` und `updated_at` in ihrer DDL.
+        let outbox = open_in_memory()?;
+        for table in tables() {
+            let spalten: Vec<String> = outbox.with_connection(|conn| {
+                let mut statement = conn.prepare(&format!("PRAGMA table_info({});", table.name))?;
+                let namen = statement.query_map([], |row| row.get(1))?;
+                namen.collect()
+            })?;
+            for audit in ["created_at", "updated_at"] {
+                assert!(
+                    spalten.iter().any(|spalte| spalte == audit),
+                    "der Tabelle {} fehlt {audit}: {spalten:?}",
+                    table.name
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn eine_nicht_oeffenbare_datei_nennt_ihren_pfad_nicht() {
+        // Ein Verzeichnisname, der wie ein Kontoname aussieht — er darf in keiner Meldung landen.
+        let pfad = std::env::temp_dir()
+            .join(format!("Konto_Mustermann_{}", std::process::id()))
+            .join("lauf.sqlite");
+
+        let fehler = open(&AppConfig::new(&pfad)).err();
+
+        assert!(
+            matches!(fehler, Some(SchemaError::Unavailable(_))),
+            "eine Datei in einem fehlenden Verzeichnis ist nicht verfügbar: {fehler:?}"
+        );
+        let meldung = fehler.map(|fehler| fehler.to_string()).unwrap_or_default();
+        assert!(!meldung.contains("Konto_Mustermann"), "{meldung}");
+        assert!(!meldung.contains(&*pfad.to_string_lossy()), "{meldung}");
     }
 
     #[test]
