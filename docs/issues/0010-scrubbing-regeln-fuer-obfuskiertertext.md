@@ -29,7 +29,8 @@ Grenze des Modells, keine Lücke, die dieser Slice schließen soll (siehe PRD
 - [x] Eine im Verwendungszweck eingebettete IBAN wird vom Konstruktor erkannt
       und ersetzt/entfernt, bevor der Text als `ObfuskierterText` existiert.
       → `eine_iban_im_verwendungszweck_wird_ersetzt`,
-      `eine_zusammengeklebte_iban_wird_auch_ohne_wortgrenze_ersetzt`
+      `eine_zusammengeklebte_iban_wird_auch_ohne_wortgrenze_ersetzt`,
+      `eine_klein_geschriebene_auslaendische_iban_mit_buchstaben_gruppe_wird_ersetzt`
 - [x] Eine im Freitext eingebettete BIC wird ebenso gescrubbt.
       → `eine_bic_im_verwendungszweck_wird_ersetzt`,
       `eine_auslaendische_bic_wird_hinter_dem_hinweis_bic_ersetzt`
@@ -39,6 +40,7 @@ Grenze des Modells, keine Lücke, die dieser Slice schließen soll (siehe PRD
       → `ein_bekannter_personen_name_wird_ersetzt`,
       `ein_bekannter_name_wird_auch_gross_geschrieben_und_in_bank_schreibweise_ersetzt`,
       `ein_bekannter_name_im_genitiv_wird_ersetzt`,
+      (Gegenprobe der bewussten Lücke: `ein_vorname_allein_eines_bekannten_empfaengers_bleibt_stehen`)
       `eine_firma_ohne_gläubiger_id_auf_der_namensliste_wird_mitgeschwärzt`;
       Herkunft der Namen real belegt durch
       `liefert_empfaenger_ohne_glaeubiger_id_und_die_konfigurierten_namen` (io) und
@@ -73,7 +75,13 @@ Regel V4 aus [Plan 2026-10-12-1343](../plans/2026-10-12-1343-abschlussplan.md), 
 - **IBAN:** zwei Buchstaben + zwei Ziffern, dann Buchstaben/Ziffern am Stück oder in Gruppen mit je
   einem Leerzeichen; ab 15 Zeichen. Prüfziffer wird bewusst nicht gerechnet (auch eine vertippte
   IBAN fällt). Gesucht wird auch mitten im Wort (`IBANDE00…`). Folgegruppen zählen, wenn sie eine
-  Ziffer tragen oder aus vier Großbuchstaben bestehen — so endet die IBAN vor dem nächsten Wort.
+  Ziffer tragen oder aus vier Buchstaben in der Schreibweise des Ländercodes bestehen (`GB00 FIKT`,
+  klein `gb00 fikt`) — so endet die IBAN vor dem nächsten Wort.
+- **Als Lexer gebaut:** der Scrubber zerlegt den Text über den Iterator `Segments` in
+  `Segment::Kept(char)`/`Segment::Replaced(Identifier)` und setzt ihn per
+  `.map(Segment::render).collect()` wieder zusammen; ein Platzhalter wird nie erneut geprüft.
+  `ObfuscatedText` bleibt im Typ nicht-leer (`NonEmptyString` über einen crate-internen, unfehlbaren
+  Konstruktor nur für das Scrubbing-Ergebnis).
 - **BIC:** ganzes Wort, 8 oder 11 Zeichen, sechs Großbuchstaben + Großbuchstaben/Ziffern. Die Form
   allein träfe `LASTSCHRIFT`, `PRIVATKONTO`, `KREDITKARTE` — darum zusätzlich **eins** von: Ziffer
   in Ort/Filiale, Land `DE`, oder ein `BIC`/`SWIFT`-Hinweis davor. Bekannte Lücke: ausländische BIC
@@ -83,6 +91,11 @@ Regel V4 aus [Plan 2026-10-12-1343](../plans/2026-10-12-1343-abschlussplan.md), 
 - **Namen:** groß/klein egal, Leerraum/Komma zwischen den Teilen beliebig, auch „Nachname, Vorname",
   Genitiv-`s` zählt mit, nur ganze Wörter (`Rose` ≠ `Rosenmontag`), längster Name zuerst. Keine
   Umschriften (`Müller`/`Mueller`), keine Initialen.
+- **Teilnamen — Entscheidung (Review-Runde 1):** Teilnamen eines Empfängers (nur der Vorname, der
+  Name mit/ohne Titel, eine Hälfte eines Doppelnamens) werden **nicht** automatisch geschwärzt. V4
+  nennt ganze Namen, und einzelne Namensteile träfen zu viel gewöhnlichen Text (`Klein`, `Lange`,
+  `GmbH`). Stattdessen trägt der Mensch Vornamen/Kurzformen in `personen.toml` ein; Vorlage und
+  `--help` sagen das.
 - **Woher die Namen kommen:** die Domäne bekommt sie als Wert `KnownPersons` über den neuen Port
   `KnownPersonsSource` (Adapter-Seam `KnownPersonsSeam`). `io` erfüllt ihn mit
   `io::obfuskierung::KnownPersonNames`: `SELECT DISTINCT recipient_name FROM einlesen_lines` für
@@ -96,10 +109,30 @@ Regel V4 aus [Plan 2026-10-12-1343](../plans/2026-10-12-1343-abschlussplan.md), 
   - Keine Klartext↔Token-Zuordnung (ADR-0010): nur Namen, kein Token, kein Seed, nichts abgelegt.
 - **Fehler, redigiert:** neue Variante `ObfuscationError::PersonsUnavailable { reason }` (nur
   io-Diagnose, nie ein Name) — terminal, statt still mit leerer Liste zu scrubben. Neue
-  `ConfigError`-Varianten `PersonNamesMissing`/`PersonNamesInvalid` zitieren keinen Eintrag;
+  `ConfigError`-Varianten `PersonNamesMissing`/`PersonNamesInvalid` zitieren keinen Eintrag (auch ein
+  Eintrag ohne Namensteil wie `","` ist `PersonNamesInvalid`);
   `Debug` von `KnownPersons`, `PersonenConfig` und `KnownPersonNames` zählt nur.
 - **Kommandozeile geändert:** `bank-auswertung` hat jetzt **sechs** Pflicht-Optionen, neu
   `--personen <datei>`. Entscheidung: Pflicht, auch wenn leer (`namen = []`). Fail-safe — eine
   vergessene Liste soll den Lauf laut stoppen, nicht still weniger scrubben. `--help`-Text,
   CLAUDE.md-Befehlszeile und Tests sind nachgezogen. Fixture heißt `crates/io/fixtures/lauf/namen.toml`
   (nicht `personen.toml`, weil der Name per .gitignore überall ausgeschlossen ist).
+
+## Bewusste Grenzen
+
+- **Heuristisch, nicht beweisbar vollständig.** Ein Name, der weder vollständig Empfänger (ohne
+  Gläubiger-ID) war noch in `personen.toml` steht, bleibt stehen; ebenso Umschriften, Initialen,
+  verfremdete IBANs und ausländische BICs ohne Ziffer und ohne `BIC`-Hinweis.
+- **Teilnamen fallen nicht von selbst** (siehe oben) — sie gehören in `personen.toml`.
+- **Namen wirken nicht rückwirkend.** Eine Buchung wird mit den Namen gescrubbt, die bei ihrer
+  Obfuskierung bekannt sind. Taucht ein Empfänger erst in einem späteren Import auf, bleibt sein Name
+  in schon obfuskierten Verwendungszwecken früherer Läufe stehen; einen Re-Scrub gibt es bewusst
+  nicht. **Bedienregel:** vor dem ersten Lauf alle bekannten Empfänger-Namen aller Konten (inkl.
+  Vornamen/Kurzformen) in `personen.toml` eintragen.
+- **Händler ohne Gläubiger-ID.** Kartenzahlungs-Händler haben keine Gläubiger-ID und landen darum auf
+  der Namensliste. Taucht ihr Name im Verwendungszweck eines Durchleiters auf (PayPal & Co.), wird er
+  `[PERSON]` — und zwei solche Händler hinter demselben Durchleiter fallen auf **denselben
+  Fingerabdruck** (der Händler-Token des Fingerabdrucks entsteht aus dem gescrubbten Zweck). Bewusst
+  so gelassen: fail-safe vor Kategorie-Schärfe.
+- **Aufwand je Lauf.** Die Namensliste wird je Buchung ganz gelesen, über einen Lauf also O(N²)
+  Zeilen; für ein Privatkonto unkritisch. Ausweg bei Bedarf: einmal je Lauf nach dem Import lesen.

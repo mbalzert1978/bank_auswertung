@@ -12,6 +12,8 @@
 //!
 //! Ohne externes Crate (die Domäne ist dependency-frei): die Muster sind von Hand geschrieben.
 
+use std::borrow::Cow;
+
 use crate::value_objects::known_persons::KnownPersons;
 
 /// Kürzeste IBAN (Norwegen) in kompakter Schreibweise.
@@ -40,29 +42,63 @@ impl Identifier {
     }
 }
 
-/// Ersetzt im Text jede erkannte IBAN, BIC und jeden bekannten Personen-Namen durch seinen
-/// Platzhalter. Ein einziger Durchlauf von links nach rechts: ein eingesetzter Platzhalter wird nicht
-/// erneut geprüft.
-///
-/// Der Lauf ist eine Zustandsmaschine über die Zeichen (Position + Ausgabe) — das ist hier lesbarer
-/// als eine Iterator-Kette, weil ein Treffer mehrere Zeichen auf einmal verbraucht.
-pub(crate) fn scrub(text: &str, persons: &KnownPersons) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut scrubbed = String::with_capacity(text.len());
-    let mut position = 0;
-    while let Some((before, rest)) = chars.split_at_checked(position) {
-        let Some(current) = rest.first() else {
-            break;
-        };
-        if let Some((identifier, length)) = identifier_at(before, rest, persons) {
-            scrubbed.push_str(identifier.placeholder());
-            position += length;
-        } else {
-            scrubbed.push(*current);
-            position += 1;
+/// Ein Stück des gescrubbten Texts: ein unverändert übernommenes Zeichen oder der Platzhalter für
+/// einen erkannten Identifikator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Segment {
+    Kept(char),
+    Replaced(Identifier),
+}
+
+impl Segment {
+    fn render(self) -> Cow<'static, str> {
+        match self {
+            Segment::Kept(c) => Cow::Owned(c.to_string()),
+            Segment::Replaced(identifier) => Cow::Borrowed(identifier.placeholder()),
         }
     }
-    scrubbed
+}
+
+/// Der **Lexer** des Scrubbers: zerlegt den Text von links nach rechts in [`Segment`]e. Ein Treffer
+/// verbraucht alle Zeichen des Identifikators auf einmal; ein eingesetzter Platzhalter wird darum nie
+/// erneut geprüft.
+struct Segments<'a> {
+    chars: Vec<char>,
+    position: usize,
+    persons: &'a KnownPersons,
+}
+
+impl<'a> Segments<'a> {
+    fn new(text: &str, persons: &'a KnownPersons) -> Self {
+        Self {
+            chars: text.chars().collect(),
+            position: 0,
+            persons,
+        }
+    }
+}
+
+impl Iterator for Segments<'_> {
+    type Item = Segment;
+
+    fn next(&mut self) -> Option<Segment> {
+        let (before, rest) = self.chars.split_at_checked(self.position)?;
+        let current = *rest.first()?;
+        let (segment, length) = identifier_at(before, rest, self.persons)
+            .map_or((Segment::Kept(current), 1), |(identifier, length)| {
+                (Segment::Replaced(identifier), length)
+            });
+        self.position += length;
+        Some(segment)
+    }
+}
+
+/// Ersetzt im Text jede erkannte IBAN, BIC und jeden bekannten Personen-Namen durch seinen
+/// Platzhalter — ein einziger Durchlauf des Lexers [`Segments`].
+pub(crate) fn scrub(text: &str, persons: &KnownPersons) -> String {
+    Segments::new(text, persons)
+        .map(Segment::render)
+        .collect::<String>()
 }
 
 /// Der Identifikator, der am Anfang von `rest` steht, samt seiner Länge in Zeichen. `before` ist der
@@ -97,8 +133,9 @@ fn identifier_at(
 ///
 /// Die Prüfziffer wird **nicht** nachgerechnet: auch eine vertippte IBAN ist eine IBAN (fail-safe).
 /// Eine Gruppe nach einem Leerzeichen zählt noch dazu, wenn sie eine Ziffer trägt oder aus vier
-/// Großbuchstaben besteht (`GB00 FIKT …`); so endet die IBAN vor dem nächsten gewöhnlichen Wort,
-/// verschluckt im Zweifel aber eher eines zu viel. Mehr als 34 Zeichen sammelt sie über Gruppen nicht.
+/// Buchstaben in der Schreibweise des Ländercodes besteht (`GB00 FIKT …`, klein `gb00 fikt …`); so
+/// endet die IBAN vor dem nächsten gewöhnlichen Wort, verschluckt im Zweifel aber eher eines zu viel.
+/// Mehr als 34 Zeichen sammelt sie über Gruppen nicht.
 fn iban_length(rest: &[char]) -> Option<usize> {
     let head = ascii_alphanumeric_run(rest);
     let start = rest.get(..head)?;
@@ -112,36 +149,31 @@ fn iban_length(rest: &[char]) -> Option<usize> {
     if !iban_start {
         return None;
     }
-    let (consumed, compact) = iban_groups(rest, head);
+    let lowercase = country_1.is_ascii_lowercase() && country_2.is_ascii_lowercase();
+    let (consumed, compact) = iban_groups(rest, head, lowercase);
     (compact >= IBAN_MIN_LENGTH).then_some(consumed)
 }
 
 /// Sammelt die durch je ein Leerzeichen abgetrennten Gruppen hinter dem IBAN-Anfang. Gibt die
-/// verbrauchten Zeichen (mit Leerzeichen) und die kompakte Länge (ohne) zurück.
-fn iban_groups(rest: &[char], head: usize) -> (usize, usize) {
-    let mut consumed = head;
-    let mut compact = head;
-    while let Some(group) = rest
-        .get(consumed..)
-        .and_then(|after| after.strip_prefix(&[' ']))
-    {
+/// verbrauchten Zeichen (mit Leerzeichen) und die kompakte Länge (ohne) zurück: der letzte Stand
+/// einer Folge, die je Schritt eine weitere passende Gruppe anhängt.
+fn iban_groups(rest: &[char], head: usize, lowercase: bool) -> (usize, usize) {
+    std::iter::successors(Some((head, head)), |&(consumed, compact)| {
+        let group = rest.get(consumed..)?.strip_prefix(&[' '])?;
         let length = ascii_alphanumeric_run(group);
-        let accepted = group.get(..length).is_some_and(|candidate| {
-            length > 0 && compact + length <= IBAN_MAX_LENGTH && iban_group(candidate)
-        });
-        if !accepted {
-            break;
-        }
-        consumed += 1 + length;
-        compact += length;
-    }
-    (consumed, compact)
+        let candidate = group.get(..length)?;
+        (length > 0 && compact + length <= IBAN_MAX_LENGTH && iban_group(candidate, lowercase))
+            .then_some((consumed + 1 + length, compact + length))
+    })
+    .last()
+    .unwrap_or((head, head))
 }
 
-/// Eine Folgegruppe einer IBAN: trägt eine Ziffer oder besteht aus genau vier Großbuchstaben.
-fn iban_group(group: &[char]) -> bool {
-    group.iter().any(char::is_ascii_digit)
-        || (group.len() == 4 && group.iter().all(char::is_ascii_uppercase))
+/// Eine Folgegruppe einer IBAN: trägt eine Ziffer oder besteht aus genau vier Buchstaben in der
+/// Schreibweise des Ländercodes (groß, oder klein bei einer klein geschriebenen IBAN).
+fn iban_group(group: &[char], lowercase: bool) -> bool {
+    let same_case = |c: &char| c.is_ascii_uppercase() || (lowercase && c.is_ascii_lowercase());
+    group.iter().any(char::is_ascii_digit) || (group.len() == 4 && group.iter().all(same_case))
 }
 
 /// **BIC-Muster:** ein ganzes Wort aus 8 oder 11 Zeichen — sechs Großbuchstaben (Bank + Land), dann

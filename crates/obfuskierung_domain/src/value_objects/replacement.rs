@@ -67,10 +67,10 @@ impl Pseudonym {
 /// bekannten Personen-Namen ([`KnownPersons`]) werden durch feste Platzhalter ersetzt; was die
 /// Regeln nicht kennen, bleibt stehen.
 ///
-/// Nicht-leer per Konstruktion: der Eingang ist ein getrimmter [`NonEmptyString`], und jeder ersetzte
-/// Abschnitt wird zu einem nicht-leeren Platzhalter — darum genügt hier ein schlichter `String`.
+/// Nicht-leer **im Typ**: der Eingang ist ein getrimmter [`NonEmptyString`], und jeder ersetzte
+/// Abschnitt wird zu einem nicht-leeren Platzhalter — das Ergebnis bleibt ein `NonEmptyString`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ObfuscatedText(String);
+pub struct ObfuscatedText(NonEmptyString);
 
 impl ObfuscatedText {
     /// Scrubbt den Freitext **best-effort**, bevor er als `ObfuscatedText` existiert: eingebettete
@@ -85,12 +85,15 @@ impl ObfuscatedText {
     /// nicht. Die einzelnen Regeln und ihre Grenzen stehen am Modul `scrubbing`.
     #[must_use]
     pub(crate) fn scrub(raw: &NonEmptyString, persons: &KnownPersons) -> Self {
-        Self(scrubbing::scrub(raw.as_str(), persons))
+        Self(NonEmptyString::from_scrubbed(scrubbing::scrub(
+            raw.as_str(),
+            persons,
+        )))
     }
 
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 

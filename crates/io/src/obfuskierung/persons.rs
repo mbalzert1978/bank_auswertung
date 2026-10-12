@@ -8,10 +8,17 @@
 //!    Kategorie-Signal und würde sonst in jedem Verwendungszweck mitgeschwärzt. Der bekannte Preis:
 //!    eine Firma **ohne** Gläubiger-ID landet auf der Liste und fällt im Freitext mit.
 //! 2. **Eingegeben:** die lokale `personen.toml` ([`PersonenConfig`](crate::config::PersonenConfig))
-//!    für Namen, die nie Empfänger waren.
+//!    für Namen, die nie Empfänger waren, und für Teilnamen von Empfängern (Vornamen, Kurzformen),
+//!    die der Engpass nicht von selbst aus dem vollständigen Namen ableitet.
 //!
 //! **Je Buchung gelesen**, nicht einmal je Lauf: die einlesen-Zeilen des laufenden Imports liegen
 //! erst nach dem Import-Schritt vor, und ihre Namen sollen schon in derselben Obfuskierung zählen.
+//!
+//! **Reihenfolge-Abhängigkeit — Namen wirken nicht rückwirkend.** Eine Buchung wird mit genau den
+//! Namen gescrubbt, die bei ihrer Obfuskierung bekannt sind. Taucht ein Empfänger erst in einem
+//! **späteren** Import auf, bleibt sein Name in schon obfuskierten Verwendungszwecken früherer Läufe
+//! stehen; ein Re-Scrub des Bestands gibt es bewusst nicht. Bedienregel: **vor dem ersten Lauf** alle
+//! bekannten Empfänger-Namen aller Konten (samt Vornamen/Kurzformen) in die `personen.toml` eintragen.
 //! Gelesen wird **außerhalb** der committenden Transaktion — wie die einlesen-Zeile selbst ist der
 //! Bestand append-only.
 //!
@@ -49,6 +56,10 @@ impl KnownPersonNames {
 }
 
 impl KnownPersonsSeam for KnownPersonNames {
+    // ponytail: liest je Buchung die **ganze** Namensliste — über einen Lauf mit N Buchungen also
+    // O(N²) Zeilen. Bei ein paar tausend Buchungen eines Privatkontos sind das Millisekunden; wird es
+    // spürbar, ist der Ausweg, die Liste **einmal je Lauf** nach dem Import zu lesen (die Namen des
+    // laufenden Imports liegen dann schon vor) und als Wert durchzureichen.
     fn known_persons(&self) -> Result<Vec<String>, PersonsUnavailable> {
         let recipients = self
             .outbox

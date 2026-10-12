@@ -186,7 +186,14 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   **heuristic, not provably complete**, fail-safe. The name list comes in as a value over the
   `KnownPersonsSource` port; `io` fills it per booking from `einlesen_lines.recipient_name` (rows
   **without** creditor ID — so a company without one is blacked out too, the known cost) plus the
-  local `personen.toml`. Persistent seed management deferred.
+  local `personen.toml`. Only **whole** names match: a recipient's first name alone, a title or one
+  half of a double name is **not** blacked out automatically — those go into `personen.toml`. Names
+  **do not act retroactively**: a recipient first seen in a later import stays readable in purposes
+  obfuscated earlier (no re-scrub, by design) — so fill `personen.toml` with all known recipient
+  names of all accounts (incl. first names/short forms) **before the first run**. Side effect: a
+  card-payment merchant without creditor ID lands on the list too; if its name appears in a payment
+  intermediary's purpose it becomes `[PERSON]`, and two such merchants behind one intermediary fall
+  onto the **same fingerprint**. Persistent seed management deferred.
 - **`fenstern`** — third pipeline step and the **paginating analysis head**
   ([ADR-0013](docs/adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)); the first
   **N→1** slice. **Two single-purpose handlers** (the type carries the intent, ADR-0005): the
@@ -469,7 +476,8 @@ each step runnable/valuable against fakes, real `io` last:
 Prerequisites before their step (see README "Offen" / PRD) — **data**, no longer adapters: a
 real CSV-CAMT-v8 sample file for a real `einlesen` run; a **stable config seed** (its `toml`
 loader is real since issue 0059, the *value* is still the user's to supply) + the local
-**`personen.toml`** for names that were never a recipient (the scrubbing rules themselves are built,
+**`personen.toml`** (names never a recipient, plus first names/short forms of recipients — filled
+before the first run, since names do not act retroactively; the scrubbing rules themselves are built,
 issue 0010) before a real `obfuskieren` run
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md)); the **Eigene-Konten-Config**
 (per own account: IBAN + role Giro/Haushalt/Spar/Vorlauf — single source for

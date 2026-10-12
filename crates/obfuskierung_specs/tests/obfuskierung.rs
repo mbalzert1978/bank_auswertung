@@ -170,6 +170,16 @@ fn eine_zusammengeklebte_iban_wird_auch_ohne_wortgrenze_ersetzt() {
 }
 
 #[test]
+fn eine_klein_geschriebene_auslaendische_iban_mit_buchstaben_gruppe_wird_ersetzt() {
+    // Die Buchstaben-Gruppe (`fikt`) gehört zur IBAN, weil sie wie der Ländercode klein steht.
+    assert_zweck_wird_abgelegt_als(
+        &[],
+        "Rueckzahlung gb00 fikt 1234 5678 9012 34 danke",
+        "Rueckzahlung [IBAN] danke",
+    );
+}
+
+#[test]
 fn eine_bic_im_verwendungszweck_wird_ersetzt() {
     assert_zweck_wird_abgelegt_als(
         &[],
@@ -234,6 +244,18 @@ fn ein_bekannter_name_im_genitiv_wird_ersetzt() {
 fn ein_bekannter_name_als_wortteil_bleibt_stehen() {
     // Nur ganze Wörter fallen: `Rose` steckt in `Rosenmontag`, ist dort aber kein Name.
     assert_zweck_wird_abgelegt_als(&["Rose"], "Rosenmontag Umzug", "Rosenmontag Umzug");
+}
+
+#[test]
+fn ein_vorname_allein_eines_bekannten_empfaengers_bleibt_stehen() {
+    // Bewusste Lücke: gesucht wird der **ganze** Name. Der Vorname allein fällt nicht von selbst —
+    // einzelne Namensteile träfen zu viel gewöhnlichen Text. Er gehört als eigener Eintrag in die
+    // lokale Namensliste.
+    assert_zweck_wird_abgelegt_als(
+        &["Lisa Beispiel"],
+        "Taschengeld Lisa Juli",
+        "Taschengeld Lisa Juli",
+    );
 }
 
 #[test]

@@ -106,7 +106,8 @@ pub struct RunPaths {
     /// Die Eigene-Konten-Config (`[[konto]]` mit `iban` + `rolle`).
     pub own_accounts_config: PathBuf,
     /// Die lokale Namensliste (`namen = [...]`) für den Freitext-Engpass von `obfuskieren` — die
-    /// Namen, die nie Empfänger waren. **Pflicht**, auch wenn sie leer ist (`namen = []`): eine
+    /// Namen, die `io` nicht selbst kennt (nie Empfänger, oder Vornamen/Kurzformen von Empfängern).
+    /// **Pflicht**, auch wenn sie leer ist (`namen = []`): eine
     /// vergessene Liste soll den Lauf laut stoppen, statt still weniger zu scrubben.
     pub persons_config: PathBuf,
 }

@@ -1,7 +1,9 @@
 //! Der **toml-Loader der lokalen Namensliste** `personen.toml`
 //! ([Issue 0010](../../../../docs/issues/0010-scrubbing-regeln-fuer-obfuskiertertext.md)): die Namen,
-//! die der Freitext-Engpass des `obfuskierung`-Slice im Verwendungszweck ersetzt, obwohl sie nie
-//! Empfänger einer Buchung waren (Empfänger-Namen kennt `io` selbst aus dem einlesen-Bestand).
+//! die der Freitext-Engpass des `obfuskierung`-Slice im Verwendungszweck ersetzt, ohne dass `io` sie
+//! selbst kennt: Namen, die nie Empfänger waren, und **Teilnamen** von Empfängern (Vornamen,
+//! Kurzformen) — die vollständigen Empfänger-Namen kennt `io` aus dem einlesen-Bestand, Teilnamen
+//! davon schwärzt der Engpass nicht von selbst.
 //!
 //! Format wie die Vorlage `personen.example.toml` im Repo-Wurzelverzeichnis:
 //!
@@ -72,7 +74,7 @@ impl PersonenConfig {
                 entry
                     .as_str()
                     .map(str::trim)
-                    .filter(|name| !name.is_empty())
+                    .filter(|name| has_name_part(name))
                     .map(str::to_string)
                     .ok_or(ConfigError::PersonNamesInvalid)
             })
@@ -80,4 +82,12 @@ impl PersonenConfig {
 
         Ok(Self { names })
     }
+}
+
+/// Ob ein Eintrag mindestens einen Namensteil trägt — dieselbe Trennung (Leerraum, Komma), mit der
+/// der Freitext-Engpass einen Namen in seine Teile zerlegt. Ein Eintrag wie `","` hätte keinen und
+/// wäre ein stiller Nicht-Name; er scheitert darum wie ein leerer.
+fn has_name_part(name: &str) -> bool {
+    name.split(|c: char| c.is_whitespace() || c == ',')
+        .any(|part| !part.is_empty())
 }

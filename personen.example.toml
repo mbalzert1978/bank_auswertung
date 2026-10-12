@@ -2,20 +2,31 @@
 #
 # So benutzt du sie:
 #   1. Kopiere diese Datei nach `personen.toml` (im Repo-Wurzelverzeichnis).
-#   2. Trage dort die Namen ein, die im Verwendungszweck auftauchen können,
-#      aber nie selbst Empfänger einer Buchung sind (z. B. „Taschengeld Lisa").
+#   2. Trage dort die Namen ein, unter denen Personen im Verwendungszweck
+#      auftauchen können — auch Vornamen und Kurzformen, unter denen
+#      Empfänger im Verwendungszweck auftauchen (z. B. „Taschengeld Lisa"
+#      für die Empfängerin „Lisa Beispiel").
 #   3. `personen.toml` ist per .gitignore ausgeschlossen und verlässt die
 #      Maschine nie — nur diese Vorlage mit erfundenen Namen wird versioniert.
 #   4. Beim Lauf mit `--personen personen.toml` übergeben. Die Option ist Pflicht;
 #      gibt es keine weiteren Namen, steht hier `namen = []`.
 #
 # Wozu: Bevor ein Freitext (Verwendungszweck) als `ObfuskierterText` weiterläuft,
-# werden darin Personen-Namen ersetzt. Alle Namen, die schon einmal Empfänger
-# einer Buchung ohne Gläubiger-ID waren, kennt das Programm selbst aus der
-# Datenbank. Diese Liste ergänzt nur die Namen, die es nicht kennen kann.
+# werden darin Personen-Namen ersetzt. Den **vollständigen** Namen jedes
+# Empfängers einer Buchung ohne Gläubiger-ID kennt das Programm selbst aus der
+# Datenbank. Teilnamen davon (nur der Vorname, mit Titel, ein Teil eines
+# Doppelnamens) schwärzt es **nicht** von selbst — einzelne Wörter träfen zu
+# viel gewöhnlichen Text. Solche Teilnamen gehören hierher, ebenso Namen, die
+# nie Empfänger waren.
+#
+# Wann eintragen: VOR dem ersten Lauf — und zwar die bekannten Empfänger-Namen
+# aller Konten samt ihrer Vornamen und Kurzformen. Ein Name, der erst mit einem
+# späteren Import bekannt wird, wirkt nicht rückwirkend auf schon obfuskierte
+# Buchungen.
 #
 # Ehrliche Grenze: das Ersetzen ist heuristisch und nicht beweisbar vollständig.
-# Ein Name, der weder Empfänger war noch hier steht, wird nicht erkannt.
+# Ein Name, der weder vollständig Empfänger war noch hier steht, wird nicht
+# erkannt.
 #
 # Ein Eintrag je Name, so wie er im Text steht. Groß-/Kleinschreibung spielt
 # keine Rolle. Die Namen unten sind erfunden.
@@ -23,4 +34,5 @@
 namen = [
     "Erika Mustermann",
     "Max Mustermann",
+    "Erika",
 ]

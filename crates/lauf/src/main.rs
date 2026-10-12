@@ -52,14 +52,15 @@ Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <dat
   --fenster         Fenster-Config (window_days)
   --seed            Seed-Config (seed)
   --eigene-konten   Eigene-Konten-Config ([[konto]] mit iban + rolle)
-  --personen        Namensliste (namen = [...]) für den Verwendungszweck: Namen, die nie
-                    Empfänger waren; `namen = []`, wenn es keine gibt. Vorlage:
-                    personen.example.toml
+  --personen        Namensliste (namen = [...]) für den Verwendungszweck: Namen, die das
+                    Programm nicht selbst kennt — auch Vornamen/Kurzformen von Empfängern;
+                    `namen = []`, wenn es keine gibt. Vor dem ersten Lauf füllen: spätere
+                    Namen wirken nicht rückwirkend. Vorlage: personen.example.toml
 
 Alle sechs sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
 
 Der Verwendungszweck wird vor der Weitergabe gescrubbt: IBANs, BICs und bekannte Namen
-(alle Empfänger ohne Gläubiger-ID plus --personen) werden ersetzt. Das ist heuristisch und
+(die vollständigen Namen aller Empfänger ohne Gläubiger-ID plus --personen) werden ersetzt. Das ist heuristisch und
 nicht beweisbar vollständig — ein Name, der nirgends bekannt ist, bleibt stehen.
 
 ACHTUNG — ein Lauf ist resümierbar, aber NICHT idempotent: dieselbe CSV zweimal in

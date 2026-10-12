@@ -86,6 +86,15 @@ fn ein_leerer_eintrag_schlaegt_redigiert_fehl() {
 }
 
 #[test]
+fn ein_eintrag_ohne_namensteil_schlaegt_redigiert_fehl() {
+    // Nur Trennzeichen — nach dem Zerlegen bliebe kein Namensteil übrig.
+    let fehler = PersonenConfig::from_toml_str("namen = [\",\"]")
+        .expect_err("ein Eintrag ohne Namensteil muss fehlschlagen");
+
+    assert_eq!(fehler, ConfigError::PersonNamesInvalid);
+}
+
+#[test]
 fn namen_als_einzelner_text_statt_liste_schlaegt_redigiert_fehl() {
     let fehler = PersonenConfig::from_toml_str("namen = \"Lisa Beispiel\"")
         .expect_err("ein einzelner Text statt einer Liste muss fehlschlagen");

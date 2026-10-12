@@ -17,6 +17,13 @@ use crate::value_objects::non_empty_string::NonEmptyString;
 ///   Genitiv-`s` (`Lisas`) zählt noch zum Namen.
 /// - Umschriften (`Müller`/`Mueller`), Spitznamen und Initialen erkennt sie **nicht**.
 ///
+/// **Bewusste Lücke — Teilnamen fallen nicht.** Gesucht wird immer der **ganze** bekannte Name. Steht
+/// „Lisa Beispiel" auf der Liste, bleibt ein „Taschengeld Lisa" stehen; ebenso ein Name, der in der
+/// Liste mit Titel (`Dr. Lisa Beispiel`) oder als Doppelname (`Lisa Beispiel-Muster`) steht, im Text
+/// aber ohne Titel bzw. nur zur Hälfte auftaucht. Jeden Namensteil einzeln zu suchen träfe zu viel
+/// gewöhnlichen Text (`Klein`, `Lange`, `Koch`, `GmbH`). Vornamen und Kurzformen gehören darum als
+/// eigene Einträge in die lokale Namensliste.
+///
 /// Die `Debug`-Ausgabe nennt nur die Anzahl, nie einen Namen.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct KnownPersons {
