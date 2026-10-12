@@ -96,23 +96,3 @@ impl ObfuscatedText {
         self.0.as_str()
     }
 }
-
-/// Die **Gläubiger-Identifikation** (SEPA Creditor ID) einer Firma — der eine strukturelle
-/// Identifikator, der die Maschine verlassen darf: eine öffentliche Firmenkennung, bewusst als
-/// Analyse-Anker bewahrt (CONTEXT.md, [ADR-0001](../../../docs/adr/0001-hexagonale-architektur.md)).
-/// Wird **nicht** obfuskiert.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CreditorId(NonEmptyString);
-
-impl From<NonEmptyString> for CreditorId {
-    fn from(value: NonEmptyString) -> Self {
-        Self(value)
-    }
-}
-
-impl CreditorId {
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}

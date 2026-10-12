@@ -10,8 +10,8 @@ use crate::schema;
 
 /// Erfundene Fingerabdrücke in der Form, die die Domäne bildet (Firma über Gläubiger-ID, Person über
 /// ihr Pseudonym).
-const STROM: &str = "COMPANY:DE00ZZZ00000000007";
-const STREAMING: &str = "COMPANY:DE00ZZZ00000000042";
+const STROM: &str = "COMPANY:DE41ZZZ00000000007";
+const STREAMING: &str = "COMPANY:DE66ZZZ00000000042";
 const PERSON: &str = "PERSON:PERSON_3";
 
 fn antwort(fingerprint: &str, category: &str) -> CategoryAnswerRow {

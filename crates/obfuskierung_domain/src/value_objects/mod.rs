@@ -5,6 +5,7 @@
 //! Identität definierte Entities und liegen in `entities/`.
 
 mod booking_id;
+mod creditor_id;
 mod known_persons;
 mod non_empty_string;
 mod obfuscated_counterparty;
@@ -16,11 +17,12 @@ mod scrubbing;
 mod seed;
 
 pub use booking_id::BookingId;
+pub use creditor_id::{CreditorId, is_valid as is_valid_creditor_id};
 pub use known_persons::KnownPersons;
 pub use non_empty_string::NonEmptyString;
 pub use obfuscated_counterparty::ObfuscatedCounterparty;
 pub use pass_through::PassThrough;
 pub use raw_counterparty::RawCounterparty;
 pub use recipient::Recipient;
-pub use replacement::{AccountToken, CreditorId, ObfuscatedText, Pseudonym, Replacement};
+pub use replacement::{AccountToken, ObfuscatedText, Pseudonym, Replacement};
 pub use seed::Seed;

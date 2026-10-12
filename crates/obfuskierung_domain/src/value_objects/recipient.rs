@@ -1,4 +1,5 @@
-use crate::value_objects::replacement::{CreditorId, ObfuscatedText, Pseudonym};
+use crate::value_objects::creditor_id::CreditorId;
+use crate::value_objects::replacement::{ObfuscatedText, Pseudonym};
 
 /// Die obfuskierte Gegenpartei einer Buchung — der Summentyp, an dem die **Fail-safe-Deutung**
 /// Firma vs. Privatperson fällt ([ADR-0005](../../../docs/adr/0005-domaenenmodell-value-objects-und-summentypen.md);

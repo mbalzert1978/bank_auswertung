@@ -1,2 +1,2 @@
 "Auftragskonto";"Buchungstag";"Valutadatum";"Buchungstext";"Verwendungszweck";"Glaeubiger ID";"Mandatsreferenz";"Kundenreferenz (End-to-End)";"Sammlerreferenz";"Lastschrift Ursprungsbetrag";"Auslagenersatz Ruecklastschrift";"Beguenstigter/Zahlungspflichtiger";"Kontonummer/IBAN";"BIC (SWIFT-Code)";"Betrag";"Waehrung";"Info"
-"DE12100000000000000200";"15.06.2026";"15.06.2026";"LASTSCHRIFT";"Abo Fiktiv";"DE00ZZZ00000000066";"MND-AB-0001";"E2E-AB-2606";"";"";"";"ABO FIKTIV";"DE11300000000000000666";"FIKTDEFFXXX";"-12,00";"EUR";"Umsatz gebucht"
+"DE12100000000000000200";"15.06.2026";"15.06.2026";"LASTSCHRIFT";"Abo Fiktiv";"DE97ZZZ00000000066";"MND-AB-0001";"E2E-AB-2606";"";"";"";"ABO FIKTIV";"DE11300000000000000666";"FIKTDEFFXXX";"-12,00";"EUR";"Umsatz gebucht"

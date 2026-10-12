@@ -1,4 +1,5 @@
 use crate::ports::Obfuscator;
+use crate::value_objects::creditor_id::CreditorId;
 use crate::value_objects::known_persons::KnownPersons;
 use crate::value_objects::non_empty_string::NonEmptyString;
 use crate::value_objects::raw_counterparty::RawCounterparty;
@@ -38,16 +39,19 @@ impl ObfuscatedCounterparty {
         let text = |plaintext: NonEmptyString| ObfuscatedText::scrub(&plaintext, persons);
         let ordering_account = token(&raw.ordering_account);
         let counter_account = raw.counter_account.map(|account| token(&account));
-        let recipient = match (raw.recipient_name, raw.creditor_id) {
-            // Gläubiger-ID vorhanden → sichere Firma. Der Name wird **nicht pseudonymisiert** — er ist
+        // Eine Gläubiger-ID zählt nur, wenn sie eine **ist** (Form + Prüfziffern, siehe
+        // [`CreditorId`]): eine IBAN oder ein Name in der Spalte gilt als fehlend — fail-safe Person.
+        let creditor_id = raw.creditor_id.and_then(CreditorId::parse);
+        let recipient = match (raw.recipient_name, creditor_id) {
+            // Gültige Gläubiger-ID → sichere Firma. Der Name wird **nicht pseudonymisiert** — er ist
             // ein bewusstes Kategorie-Signal (der Firmenname ist ein öffentlicher Analyse-Anker) —,
             // läuft aber wie aller Freitext durch den Scrubbing-Engpass: steht darin ein bekannter
             // Personen-Name oder eine IBAN, wird auch er ersetzt. Die Gläubiger-ID bleibt Anker.
             (name, Some(creditor_id)) => Recipient::Company {
                 name: name.map(text),
-                creditor_id: creditor_id.into(),
+                creditor_id,
             },
-            // Keine Gläubiger-ID, aber ein Name → fail-safe Privatperson: pseudonymisieren.
+            // Keine (gültige) Gläubiger-ID, aber ein Name → fail-safe Privatperson: pseudonymisieren.
             (Some(name), None) => Recipient::Person {
                 pseudonym: Pseudonym::from_replacement(obfuscator.obfuscate(seed, &name)),
             },
