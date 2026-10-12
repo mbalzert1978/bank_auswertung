@@ -303,7 +303,7 @@ Entschieden (Orchestrator, 2026-10-12):
 
 ## Wie es gebaut wurde
 
-Fünf Commits auf `0011-chat-export`: zwei für den Entwurf, drei für den Bau.
+Auf `0011-chat-export`: zwei Commits für den Entwurf, drei für den Bau, einer für die Doku.
 
 - **Gläubiger-ID geparst** (`obfuskierung_domain`, `value_objects/creditor_id.rs`): Form der
   SEPA-Gläubiger-ID plus Mod-97 ohne Geschäftsbereich, ohne Fremd-Crate. Eine ungültige gilt als
