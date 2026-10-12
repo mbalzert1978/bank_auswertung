@@ -87,3 +87,9 @@ Cargo.lock
 # eigene-konten.example.toml. Kopiere die Vorlage lokal nach eigene-konten.toml
 # und trage dort deine echten IBANs ein.
 eigene-konten.toml
+
+### Personen-Liste für das Freitext-Scrubbing (lokal, privat) ###
+# Echte Namen dürfen die Maschine nie verlassen. Nur die Vorlage
+# personen.example.toml wird versioniert; die reale Liste liegt lokal in
+# personen.toml.
+personen.toml

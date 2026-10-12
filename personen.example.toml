@@ -1,0 +1,24 @@
+# personen.example.toml — VORLAGE, nicht die echte Liste.
+#
+# So benutzt du sie:
+#   1. Kopiere diese Datei nach `personen.toml` (im Repo-Wurzelverzeichnis).
+#   2. Trage dort die Namen ein, die im Verwendungszweck auftauchen können,
+#      aber nie selbst Empfänger einer Buchung sind (z. B. „Taschengeld Lisa").
+#   3. `personen.toml` ist per .gitignore ausgeschlossen und verlässt die
+#      Maschine nie — nur diese Vorlage mit erfundenen Namen wird versioniert.
+#
+# Wozu: Bevor ein Freitext (Verwendungszweck) als `ObfuskierterText` weiterläuft,
+# werden darin Personen-Namen ersetzt. Alle Namen, die schon einmal Empfänger
+# waren, kennt das Programm selbst aus der Datenbank. Diese Liste ergänzt nur
+# die Namen, die es nicht kennen kann.
+#
+# Ehrliche Grenze: das Ersetzen ist heuristisch und nicht beweisbar vollständig.
+# Ein Name, der weder Empfänger war noch hier steht, wird nicht erkannt.
+#
+# Ein Eintrag je Name, so wie er im Text steht. Groß-/Kleinschreibung spielt
+# keine Rolle. Die Namen unten sind erfunden.
+
+namen = [
+    "Erika Mustermann",
+    "Max Mustermann",
+]
