@@ -1,7 +1,7 @@
 ---
 id: "0085"
 title: "Poison-Message: Versuchszählung und Dead-Letter statt endloser Neuzustellung"
-status: open
+status: closed
 ---
 
 # Poison-Message: Versuchszählung und Dead-Letter statt endloser Neuzustellung
