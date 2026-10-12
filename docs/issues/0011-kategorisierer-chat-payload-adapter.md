@@ -36,21 +36,30 @@ Intermediärs — das nutzt die Intermediär-Erkennung aus Slice 0005.
 
 ## Abnahmekriterien
 
-- [ ] Export enthält ausschließlich Fingerabdrücke, die im Kategorie-Register
+- [x] Export enthält ausschließlich Fingerabdrücke, die im Kategorie-Register
       noch **keine** Kategorie haben — bereits bekannte Fingerabdrücke werden
       nicht erneut exportiert.
-- [ ] Export-Payload enthält für Buchungen mit erkanntem
+      *(Beleg: `run::kategorien_tests::der_round_trip_lernt_…_und_der_naechste_export_fragt_nur_den_rest`,
+      `…::ein_liegengebliebener_alter_lauf_steht_nicht_im_export`)*
+- [x] Export-Payload enthält für Buchungen mit erkanntem
       Zahlungsintermediär den Verwendungszweck (nicht den Empfänger-Namen)
       als `ObfuskierterText`.
-- [ ] Import einer `KategorieAntwort`-Datei ordnet Kategorien korrekt über
+      *(Beleg: `auswerten_specs/tests/kategorie_anfrage.rs::beim_durchleiter_geht_der_zweck_hinaus_nicht_der_name`,
+      `run::kategorien_tests::der_export_traegt_nur_unbekannte_firmen_und_durchleiter_und_keinen_rohwert`)*
+- [x] Import einer `KategorieAntwort`-Datei ordnet Kategorien korrekt über
       den Fingerabdruck zu und schreibt sie ins Kategorie-Register (Slice
       0009); eine erneute Analyse zeigt die gelernte Kategorie.
-- [ ] Test: kein Feld in Export oder Import erlaubt eine Zuordnung über den
+      *(Beleg: Round-Trip-Test oben — `categories_of` liefert das Etikett, der nächste Lauf fragt nicht
+      mehr; `…::ein_bekanntes_etikett_bleibt_ohne_korrektur_und_eine_korrektur_ueberdauert_den_lauf`)*
+- [x] Test: kein Feld in Export oder Import erlaubt eine Zuordnung über den
       Freitext statt über den Fingerabdruck — eine Antwort ohne passenden
       Fingerabdruck wird verworfen, nicht texto-heuristisch zugeordnet.
-- [ ] Test deckt den vollständigen Round-Trip ab: unbekannte Fingerabdrücke →
+      *(Beleg: `auswerten::chat_import::tests::gelernt_wird_nur_ueber_den_exakten_fingerabdruck_nie_ueber_text`,
+      Round-Trip-Test mit `fixtures/kategorien/antwort.json`)*
+- [x] Test deckt den vollständigen Round-Trip ab: unbekannte Fingerabdrücke →
       Export-JSON → (kanonische Fixture-Antwort) → Import → aktualisiertes
       Kategorie-Register.
+      *(Beleg: `run::kategorien_tests::der_round_trip_lernt_…`)*
 
 ## Blockiert durch
 
@@ -291,3 +300,33 @@ Entschieden (Orchestrator, 2026-10-12):
 - Eine ausländische BIC ohne Ziffer und ohne `BIC`-Hinweis bleibt im Text stehen (Lücke aus 0010).
 - Die Export-Datei ist lesbar. Der Nutzer trägt sie selbst in den Chat — **vorher ansehen** ist die
   letzte Schranke, und der Hilfetext sagt das.
+
+## Wie es gebaut wurde
+
+Fünf Commits auf `0011-chat-export`: zwei für den Entwurf, drei für den Bau.
+
+- **Gläubiger-ID geparst** (`obfuskierung_domain`, `value_objects/creditor_id.rs`): Form der
+  SEPA-Gläubiger-ID plus Mod-97 ohne Geschäftsbereich, ohne Fremd-Crate. Eine ungültige gilt als
+  fehlend, die Gegenpartei wird fail-safe Person. Dieselbe Regel (`is_valid_creditor_id`, über den
+  Adapter re-exportiert) entscheidet in io, welche Empfänger-Namen auf die Namensliste des Scrubbings
+  kommen. Die erfundenen Gläubiger-IDs der io-Fixtures und `obfuskierung_specs` tragen jetzt gültige
+  Prüfziffern; die echten Durchleiter-IDs sind gültig und werden weiter erkannt.
+- **Gegenpartei einmal eingeordnet** (`auswerten_domain`, `value_objects/party.rs`): `Party` =
+  Durchleiter / Firma / Person / keine. `Fingerprint::of` und `Counterparty::category_text` sind zwei
+  vollständige `match`es darauf. Die **Egress-Wortregel** steht genau einmal (`egress_words`) und
+  läuft vor dem Zerlegen — im Händler-Token und im Anfrage-Text. Folge: Durchleiter-Fingerabdrücke
+  verlieren das `PP-PP-`-Präfix (`MERCHANT:REWE-MARKT` statt `MERCHANT:PP-PP-REWE-MARKT`); das Register
+  war leer, also kostet das nichts.
+- **`CategoryRequestRow`** hat private Felder und nur `From<&CategoryRequest>` als Konstruktor; die
+  Spec-Fixture vergleicht jetzt Paare (Fingerabdruck, Text).
+- **io:** `CollectingCategorizer` (Zustand ruhend/sammelnd) ersetzt `UnansweredCategorizer`;
+  `auswerten::chat_export` (nur Ziel + Zeilen, JSON von Hand, `0600`, Nachbar-Datei + Umbenennen);
+  `auswerten::chat_import` (1 MiB, `Kategorie`-Value-Object, Widerspruch vor den Filtern,
+  `issued_among` neu am Register, `known_among` ohne `--korrektur`, dann `learn`); `run::kategorien`
+  verdrahtet beides; `serde_json` neu in `crates/io`, kein `serde`-Derive.
+- **lauf:** optionale `--kategorien-export`, Unterbefehl `kategorien-import --db --antwort
+  [--korrektur]`; Hilfetext nennt, was hinausgeht, was fehlt, und wen man in `personen.toml` einträgt.
+- Ticket 0012 hat ein AK „Etikett im HTML escapen" bekommen; der Abschlussplan (Schritt 6) nennt den
+  starken Seed und die zusätzlichen Namen für `personen.toml`.
+
+Keine Schema-Änderung, keine Migration: gesammelt wird im Speicher, nicht in einer Tabelle.
