@@ -1,17 +1,21 @@
 //! Der **Vier-Konten-Nachweis** ([Abschlussplan](../../../../docs/plans/2026-10-12-1343-abschlussplan.md),
-//! Definition „Projekt fertig", Punkte 1–4): je eigenem Konto ein Lauf — Giro, Haushalt, Spar,
-//! Vorlauf —, alle in **eine** echte SQLite-Datei, über die echten Adapter, ohne einen Fake. Nach dem
-//! vierten Lauf zeigt der Bericht alle Konten gemeinsam, der Chat-Export trägt die unbekannten
-//! Buchungsarten, dieselben vier Läufe ein zweites Mal ändern keine Zahl, und weder Bericht noch
-//! Export tragen eine IBAN, eine BIC, einen Klarnamen oder den Seed.
+//! Definition „Projekt fertig", Punkte **1 und 4**): je eigenem Konto ein Lauf — Giro, Haushalt,
+//! Spar, Vorlauf —, alle in **eine** echte SQLite-Datei, über die echten Adapter, ohne einen Fake.
 //!
-//! Die Daten sind erfunden; ihre Konvention steht in `fixtures/e2e/README.md`.
+//! - **Punkt 1:** nach dem vierten Lauf zeigt der Bericht alle Konten gemeinsam, und dieselben vier
+//!   Läufe ein zweites Mal ändern keine Zahl.
+//! - **Punkt 4:** weder Bericht noch Chat-Export tragen eine IBAN, eine BIC, eine Kontonummer, eine
+//!   Referenz, einen Klarnamen (auch kein Wort davon) oder den Seed — auch nicht aus Verwendungszwecken,
+//!   die eine IBAN, eine BIC, eine Kontonummer oder den Namen eines bekannten Empfängers tragen.
+//!
+//! Dass jede Berichts-Sektion über vier Konten gefüllt ist, prüft der erste Test mit; die Regeln der
+//! Sektionen selbst (Punkt 2) belegen `bericht_tests`, Export, Import und Korrektur (Punkt 3)
+//! `kategorien_tests`. Die Daten sind erfunden; ihre Konvention steht in `fixtures/e2e/README.md`.
 
 use std::collections::BTreeSet;
 
-use super::bericht_tests::rohwerte;
 use super::*;
-use crate::pipeline_test_support::TempDbPath;
+use crate::pipeline_test_support::{TempDbPath, VerboteneWerte};
 
 /// Die vier Auszüge in der Reihenfolge der Läufe — je eigenem Konto einer.
 const AUSZUEGE: [&str; 4] = ["giro.csv", "haushalt.csv", "spar.csv", "vorlauf.csv"];
@@ -33,25 +37,8 @@ fn fixture(name: &str) -> PathBuf {
     ))
 }
 
-/// Die Export-Datei neben der Datenbank — derselbe eindeutige Stamm; verschwindet nach dem Test.
-struct ExportDatei(PathBuf);
-
-impl ExportDatei {
-    fn neben(db: &TempDbPath) -> Self {
-        Self(db.path().with_extension("json"))
-    }
-}
-
-impl Drop for ExportDatei {
-    fn drop(&mut self) {
-        // Best-effort-Aufräumen: eine fehlende Datei ist kein Fehler.
-        match std::fs::remove_file(&self.0) {
-            Ok(()) | Err(_) => {}
-        }
-    }
-}
-
-fn pfade(db: &TempDbPath, auszug: &str, export: Option<&ExportDatei>) -> RunPaths {
+/// Die Pfade des Laufs über `auszug`; nur mit `export` schreibt er den Chat-Export.
+fn pfade(db: &TempDbPath, auszug: &str, export: bool) -> RunPaths {
     RunPaths {
         database: db.path().to_path_buf(),
         transactions: fixture(auszug),
@@ -60,25 +47,22 @@ fn pfade(db: &TempDbPath, auszug: &str, export: Option<&ExportDatei>) -> RunPath
         own_accounts_config: fixture("konten.toml"),
         persons_config: fixture("namen.toml"),
         savings_config: fixture("sparen.toml"),
-        category_export: export.map(|datei| datei.0.clone()),
+        category_export: export.then(|| db.export_path()),
         report: db.report_path(),
     }
 }
 
 /// Fährt die vier Läufe nacheinander in dieselbe Datei; nur der **letzte** schreibt den Export. Jeder
 /// Lauf muss gelingen (Exit 0) und sieht jede eingelesene Buchung.
-fn vier_laeufe(db: &TempDbPath, export: &ExportDatei) -> Vec<RunReport> {
+fn vier_laeufe(db: &TempDbPath) -> Vec<RunReport> {
     AUSZUEGE
         .iter()
         .enumerate()
         .map(|(index, auszug)| {
             let letzter = index + 1 == AUSZUEGE.len();
-            let bilanz = run(
-                &pfade(db, auszug, letzter.then_some(export)),
-                &mut Vec::new(),
-            )
-            .map_err(|fehler| format!("{auszug}: {fehler}"))
-            .expect("jeder der vier Läufe gelingt (Exit 0)");
+            let bilanz = run(&pfade(db, auszug, letzter), &mut Vec::new())
+                .map_err(|fehler| format!("{auszug}: {fehler}"))
+                .expect("jeder der vier Läufe gelingt (Exit 0)");
             assert_eq!(bilanz.incomplete(), 0, "{auszug}: keine Buchung fehlt");
             bilanz
         })
@@ -89,92 +73,116 @@ fn bericht(db: &TempDbPath) -> String {
     std::fs::read_to_string(db.report_path()).expect("der Bericht ist geschrieben")
 }
 
-/// Die Zeilen eines Abschnitts als Zellen-Texte (noch HTML-escaped) — `None`, wenn der Abschnitt
-/// fehlt. Ein Abschnitt ohne Zeilen ergibt eine leere Liste.
-fn abschnitt(html: &str, id: &str) -> Option<Vec<Vec<String>>> {
-    let anfang = format!("<section id=\"{id}\">");
-    let (_, rest) = html.split_once(anfang.as_str())?;
-    let (inhalt, _) = rest.split_once("</section>")?;
-    Some(
-        inhalt
+fn export(db: &TempDbPath) -> String {
+    std::fs::read_to_string(db.export_path()).expect("der Export ist geschrieben")
+}
+
+/// Eine Tabelle des Berichts: die Spaltenüberschriften und je Zeile die Zellen-Texte (noch
+/// HTML-escaped). Zellen werden über den **Spaltennamen** gelesen, nicht über ihre Stelle.
+#[derive(Debug, PartialEq, Eq)]
+struct Tabelle {
+    spalten: Vec<String>,
+    zeilen: Vec<Vec<String>>,
+}
+
+impl Tabelle {
+    /// Der Abschnitt `id` des Berichts — ohne Zeilen eine leere Tabelle.
+    fn aus(html: &str, id: &str) -> Self {
+        let anfang = format!("<section id=\"{id}\">");
+        let inhalt = html
+            .split_once(anfang.as_str())
+            .and_then(|(_, rest)| rest.split_once("</section>"))
+            .map(|(inhalt, _)| inhalt)
+            .ok_or_else(|| format!("Abschnitt {id}"))
+            .expect("der Bericht trägt den Abschnitt");
+        let spalten = inhalt
+            .split_once("<thead><tr>")
+            .and_then(|(_, kopf)| kopf.split_once("</tr>"))
+            .map_or_else(Vec::new, |(kopf, _)| zellen(kopf, "th"));
+        let zeilen = inhalt
             .split("<tr>")
             .filter(|zeile| zeile.contains("<td"))
+            .map(|zeile| zellen(zeile, "td"))
+            .collect();
+        Self { spalten, zeilen }
+    }
+
+    fn index(&self, spalte: &str) -> usize {
+        self.spalten
+            .iter()
+            .position(|titel| titel == spalte)
+            .ok_or_else(|| format!("Spalte {spalte} in {:?}", self.spalten))
+            .expect("die Tabelle hat die Spalte")
+    }
+
+    /// Jede Zeile, beschränkt auf die genannten Spalten in dieser Reihenfolge.
+    fn projiziert(&self, spalten: &[&str]) -> Vec<Vec<String>> {
+        let indizes = spalten
+            .iter()
+            .map(|spalte| self.index(spalte))
+            .collect::<Vec<_>>();
+        self.zeilen
+            .iter()
             .map(|zeile| {
-                zeile
-                    .split("<td")
-                    .skip(1)
-                    .filter_map(|zelle| {
-                        let (_, text) = zelle.split_once('>')?;
-                        let (text, _) = text.split_once("</td>")?;
-                        Some(text.to_string())
-                    })
+                indizes
+                    .iter()
+                    .map(|&index| zeile.get(index).cloned().unwrap_or_default())
                     .collect()
             })
-            .collect(),
-    )
+            .collect()
+    }
+
+    /// Die Zelle `spalte` der Zeile, deren Zelle `schluessel` gleich `wert` ist.
+    fn zelle(&self, schluessel: &str, wert: &str, spalte: &str) -> String {
+        let (schluessel, spalte) = (self.index(schluessel), self.index(spalte));
+        self.zeilen
+            .iter()
+            .find(|zeile| zeile.get(schluessel).is_some_and(|zelle| zelle == wert))
+            .and_then(|zeile| zeile.get(spalte).cloned())
+            .ok_or_else(|| format!("keine Zeile für {wert}: {:?}", self.zeilen))
+            .expect("die Tabelle trägt die Zeile")
+    }
+}
+
+/// Die Texte der `<tag …>…</tag>`-Zellen eines Zeilen-Ausschnitts.
+fn zellen(ausschnitt: &str, tag: &str) -> Vec<String> {
+    let (auf, zu) = (format!("<{tag}"), format!("</{tag}>"));
+    ausschnitt
+        .split(auf.as_str())
+        .skip(1)
+        .filter_map(|zelle| {
+            let (_, text) = zelle.split_once('>')?;
+            let (text, _) = text.split_once(zu.as_str())?;
+            Some(text.to_string())
+        })
+        .collect()
 }
 
 /// Alle sechs Abschnitte — die **Zahlen** des Berichts, ohne Kopf und Fuß.
-fn abschnitte(html: &str) -> Vec<(&'static str, Vec<Vec<String>>)> {
-    ABSCHNITTE
-        .iter()
-        .map(|&id| {
-            let zeilen = abschnitt(html, id)
-                .ok_or_else(|| format!("Abschnitt {id}"))
-                .expect("der Bericht trägt jeden Abschnitt");
-            (id, zeilen)
-        })
-        .collect()
+fn abschnitte(html: &str) -> Vec<Tabelle> {
+    ABSCHNITTE.iter().map(|id| Tabelle::aus(html, id)).collect()
 }
 
 fn zeile(zellen: &[&str]) -> Vec<String> {
     zellen.iter().map(ToString::to_string).collect()
 }
 
-/// Die Zeile eines Abschnitts, deren **erste** Zelle `treiber` ist.
-fn zeile_von<'z>(zeilen: &'z [Vec<String>], treiber: &str) -> &'z [String] {
-    zeilen
-        .iter()
-        .find(|zeile| zeile.first().is_some_and(|zelle| zelle == treiber))
-        .ok_or_else(|| format!("keine Zeile für {treiber}: {zeilen:?}"))
-        .expect("der Abschnitt trägt den Treiber")
-}
-
-/// Großgeschrieben und nur noch Buchstaben und Ziffern — so fällt auch eine IBAN auf, die ohne
-/// Leerzeichen, mit Punkten oder klein geschrieben dasteht.
-fn normalisiert(text: &str) -> String {
-    text.chars()
-        .filter(|zeichen| zeichen.is_alphanumeric())
-        .flat_map(char::to_uppercase)
-        .collect()
-}
-
-/// Die IBANs der Eigene-Konten-Config, so wie sie in der Datei stehen (auch mit Leerzeichen).
-fn eigene_ibans() -> Vec<String> {
-    std::fs::read_to_string(fixture("konten.toml"))
-        .expect("die Konten-Config ist lesbar")
-        .lines()
-        .filter_map(|zeile| zeile.trim().strip_prefix("iban"))
-        .filter_map(|rest| rest.split('"').nth(1))
-        .map(ToString::to_string)
-        .collect()
-}
-
 #[test]
 fn vier_konten_in_einer_datei_ergeben_einen_bericht_ueber_alle_konten() {
     let db = TempDbPath::new("e2e_vier_konten");
-    let export = ExportDatei::neben(&db);
 
-    vier_laeufe(&db, &export);
+    vier_laeufe(&db);
     let html = bericht(&db);
 
     // Cashflow: alle vier Rollen, und Umbuchungen sind herausgerechnet. Giro Februar: Gehalt hinein;
     // hinaus Miete 950,00 + Abo 12,99 + Musikdienst 9,99 + Cloudspeicher 2,99 + Entgelt 4,90 +
     // Rückzahlung 60,00 — die Daueraufträge auf Haushalt (400), Vorlauf (150) und Spar (200) nicht.
-    let cashflow = abschnitt(&html, "cashflow").expect("ein Cashflow-Abschnitt");
+    let cashflow = Tabelle::aus(&html, "cashflow");
+    let cashflow_zeilen = cashflow.projiziert(&["Konto", "Monat", "Eingang", "Ausgang"]);
     let konten = cashflow
-        .iter()
-        .filter_map(|zeile| zeile.first().cloned())
+        .projiziert(&["Konto"])
+        .into_iter()
+        .flatten()
         .collect::<BTreeSet<_>>();
     assert_eq!(
         konten,
@@ -193,11 +201,16 @@ fn vier_konten_in_einer_datei_ergeben_einen_bericht_ueber_alle_konten() {
         ["Spar", "Juni 2026", "3,12 €", "0,00 €"],
         ["Vorlauf", "März 2025", "0,00 €", "186,40 €"],
     ] {
-        assert!(cashflow.contains(&zeile(&erwartet)), "{erwartet:?}");
+        assert!(cashflow_zeilen.contains(&zeile(&erwartet)), "{erwartet:?}");
     }
 
     // Umbuchungen: dort steht, was aus dem Cashflow herausfiel — je Monat und Gegenkonto.
-    let umbuchungen = abschnitt(&html, "umbuchungen").expect("ein Umbuchungs-Abschnitt");
+    let umbuchungen = Tabelle::aus(&html, "umbuchungen").projiziert(&[
+        "Monat",
+        "Gegenkonto",
+        "Eingang",
+        "Ausgang",
+    ]);
     for erwartet in [
         ["Februar 2026", "Haushalt", "0,00 €", "400,00 €"],
         ["Februar 2026", "Spar", "0,00 €", "200,00 €"],
@@ -210,7 +223,8 @@ fn vier_konten_in_einer_datei_ergeben_einen_bericht_ueber_alle_konten() {
     }
 
     // Gebühren: monatlich auf Giro, quartalsweise auf Haushalt.
-    let gebuehren = abschnitt(&html, "gebuehren").expect("ein Gebühren-Abschnitt");
+    let gebuehren =
+        Tabelle::aus(&html, "gebuehren").projiziert(&["Monat", "Konto", "Eingezogen", "Erstattet"]);
     for erwartet in [
         ["Januar 2026", "Giro", "4,90 €", "0,00 €"],
         ["März 2026", "Haushalt", "7,50 €", "0,00 €"],
@@ -220,44 +234,45 @@ fn vier_konten_in_einer_datei_ergeben_einen_bericht_ueber_alle_konten() {
 
     // Wiederkehr: monatlich mit Preissteigerung, jährlich, und zwei Händler hinter einem Durchleiter
     // als zwei Zeilen.
-    let wiederkehr = abschnitt(&html, "wiederkehr").expect("ein Wiederkehr-Abschnitt");
-    let abo = zeile_von(&wiederkehr, "STREAMHAUS FIKTIV");
-    assert_eq!(abo.get(2).map(String::as_str), Some("monatlich"));
+    let wiederkehr = Tabelle::aus(&html, "wiederkehr");
     assert_eq!(
-        abo.get(5).map(String::as_str),
-        Some("seit 15.04.2026: 12,99 € → 14,99 €")
+        wiederkehr.zelle("Treiber", "STREAMHAUS FIKTIV", "Takt"),
+        "monatlich"
     );
-    let versicherung = zeile_von(&wiederkehr, "HAUSRAT FIKTIV VERSICHERUNG AG");
-    assert_eq!(versicherung.get(2).map(String::as_str), Some("jährlich"));
-    assert_eq!(versicherung.get(6).map(String::as_str), Some("Vorlauf"));
+    assert_eq!(
+        wiederkehr.zelle("Treiber", "STREAMHAUS FIKTIV", "Preissteigerung"),
+        "seit 15.04.2026: 12,99 € → 14,99 €"
+    );
+    let versicherung = "HAUSRAT FIKTIV VERSICHERUNG AG";
+    assert_eq!(
+        wiederkehr.zelle("Treiber", versicherung, "Takt"),
+        "jährlich"
+    );
+    assert_eq!(
+        wiederkehr.zelle("Treiber", versicherung, "Konto"),
+        "Vorlauf"
+    );
     for haendler in ["MUSIKDIENST", "CLOUDSPEICHER"] {
         let treiber = format!("PAYPAL FIKTIV ZAHLDIENST › {haendler}-FIKTIV-IHR-EINKAUF");
-        assert_eq!(
-            zeile_von(&wiederkehr, &treiber).get(2).map(String::as_str),
-            Some("monatlich")
-        );
+        assert_eq!(wiederkehr.zelle("Treiber", &treiber, "Takt"), "monatlich");
     }
 
     // Ranking und Spar-Kandidaten: gefüllt, die Anteile summieren sich zu 100 %.
-    let ranking = abschnitt(&html, "ranking").expect("ein Ranking-Abschnitt");
-    assert!(ranking.len() > 5, "{ranking:?}");
+    let kumuliert = Tabelle::aus(&html, "ranking").projiziert(&["Kumuliert"]);
+    assert!(kumuliert.len() > 5, "{kumuliert:?}");
+    assert_eq!(kumuliert.last(), Some(&zeile(&["100,00 %"])));
     assert_eq!(
-        ranking
-            .last()
-            .and_then(|zeile| zeile.get(6))
-            .map(String::as_str),
-        Some("100,00 %")
-    );
-    let kandidaten = abschnitt(&html, "spar-kandidaten").expect("ein Spar-Kandidaten-Abschnitt");
-    assert_eq!(
-        zeile_von(&kandidaten, "STREAMHAUS FIKTIV")
-            .get(2)
-            .map(String::as_str),
-        Some("179,88 €")
+        Tabelle::aus(&html, "spar-kandidaten").zelle(
+            "Treiber",
+            "STREAMHAUS FIKTIV",
+            "Jahresbetrag"
+        ),
+        "179,88 €"
     );
 
-    // Der Chat-Export: nur Firmen und Händler, keine Person — die Praxis über ihren gescrubbten Namen.
-    let inhalt = std::fs::read_to_string(&export.0).expect("der Export ist geschrieben");
+    // Der Chat-Export trägt die unbekannten Firmen und Händler — die Praxis, deren Name eine Person
+    // der Namensliste nennt, nur mit gescrubbtem Namen.
+    let inhalt = export(&db);
     for erwartet in [
         "COMPANY:DE37ZZZFIKTIV00001",
         "MERCHANT:MUSIKDIENST-FIKTIV-IHR-EINKAUF",
@@ -265,17 +280,20 @@ fn vier_konten_in_einer_datei_ergeben_einen_bericht_ueber_alle_konten() {
     ] {
         assert!(inhalt.contains(erwartet), "{erwartet}");
     }
-    assert!(!inhalt.contains("PERSON:"), "keine Person geht hinaus");
 }
 
 #[test]
 fn vier_konten_ein_zweites_mal_ergeben_dieselben_zahlen() {
     let db = TempDbPath::new("e2e_wiederholung");
-    let export = ExportDatei::neben(&db);
 
-    let erste_runde = vier_laeufe(&db, &export);
+    let erste_runde = vier_laeufe(&db);
     let erster_bericht = bericht(&db);
-    let zweite_runde = vier_laeufe(&db, &export);
+    // Bericht und Export der ersten Runde weg — die zweite Runde muss beide neu schreiben.
+    for datei in [db.report_path(), db.export_path()] {
+        std::fs::remove_file(&datei).expect("die Datei der ersten Runde ist da");
+    }
+    let zweite_runde = vier_laeufe(&db);
+    assert!(db.report_path().exists() && db.export_path().exists());
     let zweiter_bericht = bericht(&db);
 
     // Jeder Lauf mintet seine eigene Identität, und die zweite Runde liest nichts neu ein.
@@ -302,7 +320,7 @@ fn vier_konten_ein_zweites_mal_ergeben_dieselben_zahlen() {
     // Dieselben Zahlen in jedem Abschnitt.
     let erste = abschnitte(&erster_bericht);
     assert!(
-        erste.iter().all(|(_, zeilen)| !zeilen.is_empty()),
+        erste.iter().all(|tabelle| !tabelle.zeilen.is_empty()),
         "{erste:?}"
     );
     assert_eq!(erste, abschnitte(&zweiter_bericht));
@@ -311,62 +329,42 @@ fn vier_konten_ein_zweites_mal_ergeben_dieselben_zahlen() {
 #[test]
 fn bericht_und_export_von_vier_konten_tragen_keine_iban_keine_bic_keinen_klarnamen() {
     let db = TempDbPath::new("e2e_leak");
-    let export = ExportDatei::neben(&db);
 
-    vier_laeufe(&db, &export);
-    let ausgaben = [
-        ("Bericht", bericht(&db)),
-        (
-            "Export",
-            std::fs::read_to_string(&export.0).expect("der Export ist geschrieben"),
-        ),
-    ];
+    vier_laeufe(&db);
+    let (html, inhalt) = (bericht(&db), export(&db));
 
-    // Aus den Fixtures selbst: jede IBAN (Auftragskonto, Gegenkonto, Eigene-Konten-Config), jede BIC,
-    // jeder Name einer Gegenpartei ohne Gläubiger-ID (einer fail-safe Person), jeder Name der
-    // Namensliste und der Seed. Firmennamen mit Gläubiger-ID sind öffentlicher Analyse-Anker und
-    // bleiben erlaubt.
-    let mut verboten = AUSZUEGE
+    let verboten = AUSZUEGE
         .iter()
-        .flat_map(|auszug| rohwerte(&fixture(auszug)).expect("der Auszug ist lesbar"))
-        .collect::<BTreeSet<_>>();
-    verboten.extend(eigene_ibans());
-    verboten.extend(
-        PersonenConfig::load(&fixture("namen.toml"))
-            .expect("die Namensliste lädt")
-            .into_names(),
-    );
-    verboten.insert(
-        SeedConfig::load(&fixture("seed.toml"))
-            .expect("die Seed-Config lädt")
-            .seed()
-            .to_string(),
-    );
-    // Die Liste prüft etwas: die vier eigenen IBANs (auch in Leerzeichen-Schreibweise), Gegenkonten,
-    // BICs, die Person, die Bäckerei ohne Gläubiger-ID und der Name aus der Namensliste.
+        .map(|auszug| VerboteneWerte::aus_lauf(&pfade(&db, auszug, false)))
+        .fold(VerboteneWerte::default(), VerboteneWerte::und);
+    // Die Liste prüft, was die Fixtures anbieten: die eigenen IBANs (auch in Leerzeichen-Schreibweise)
+    // samt Kontonummer, ein Gegenkonto, eine BIC, eine Referenz, die Person, die Bäckerei und die
+    // Gärtnerei ohne Gläubiger-ID (ganz und Wort für Wort, mit Umlaut und `&`) und den Namen aus der
+    // Namensliste.
     for muss in [
         "DE27 1000 0000 0000 0041 01",
         "DE27100000000000004101",
+        "4101",
+        "57381946",
         "DE00200000000000000202",
-        "FIKTDEFF202",
+        "FIKTDEFF707",
+        "MND-PP-0001",
+        "E2E-GI-2603-10",
         "ERWIN BEISPIELMANN",
+        "BEISPIELMANN",
         "BAECKEREI FIKTIV",
+        "GÄRTNEREI GRÜN & SÖHNE",
+        "SÖHNE",
         "Tilda Erfunden",
+        "ERFUNDEN",
     ] {
-        assert!(verboten.contains(muss), "{muss} fehlt in {verboten:?}");
+        assert!(verboten.enthaelt(muss), "{muss} fehlt in {verboten:?}");
     }
 
-    for (name, text) in &ausgaben {
-        // Ein Konto-Token ist kein Rohwert, aber auch er bleibt drinnen (nur roh geprüft: normalisiert
-        // träfe „KONTO" schon jede Spaltenüberschrift).
-        assert!(!text.contains("KONTO_"), "{name} trägt ein Konto-Token");
-        let text_normalisiert = normalisiert(text);
-        for wert in &verboten {
-            assert!(!text.contains(wert.as_str()), "{name} trägt {wert}");
-            assert!(
-                !text_normalisiert.contains(&normalisiert(wert)),
-                "{name} trägt {wert} (normalisiert)"
-            );
-        }
-    }
+    // Die drei Verwendungszwecke, die das Scrubbing tragen muss, gehen über den Durchleiter in den
+    // Export: eine IBAN mit Leerzeichen und eine BIC, der volle Name eines bekannten Empfängers und
+    // eine reine Kontonummer.
+    verboten.pruefe("Bericht", &html);
+    verboten.pruefe("Export", &inhalt);
+    assert!(!inhalt.contains("PERSON:"), "keine Person geht hinaus");
 }

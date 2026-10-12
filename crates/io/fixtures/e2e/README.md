@@ -3,7 +3,7 @@
 Ein Konto je Lauf, eine Datenbank für alle: vier CSV-CAMT-v8-Auszüge (`giro.csv`, `haushalt.csv`,
 `spar.csv`, `vorlauf.csv`) plus die Configs, die ein Lauf braucht (`konten.toml`, `namen.toml`,
 `fenster.toml`, `seed.toml`, `sparen.toml`). Gefahren werden sie im Test
-`crates/io/src/run/e2e_tests.rs` und — als Nachweis von Hand — mit dem Binary `bank-auswertung`.
+`crates/io/src/run/e2e_tests.rs` (Definition „Projekt fertig", Punkte 1 und 4) und — als Nachweis von Hand — mit dem Binary `bank-auswertung`.
 
 **Alles ist erfunden.** Keine Zeile stammt aus einem echten Auszug.
 
@@ -37,6 +37,11 @@ Ein Konto je Lauf, eine Datenbank für alle: vier CSV-CAMT-v8-Auszüge (`giro.cs
 | Person | `ERWIN BEISPIELMANN` (ohne Gläubiger-ID) |
 | Vorgemerkte Zeile | Haushalt, 29.06.2026 — wird übersprungen und zählt nicht |
 | Name aus `namen.toml` | `Tilda Erfunden` im Verwendungszweck (Durchleiter) und im Praxisnamen |
+| Scrubbing-Proben (Durchleiter, gehen in den Export) | Zweck mit IBAN in Leerzeichen-Schreibweise + BIC (12.01.2026), mit dem vollen Namen des bekannten Empfängers `Erwin Beispielmann` (14.03.2026), mit seiner reinen Kontonummer (10.06.2026) |
+| Name mit Umlaut und `&` | `GÄRTNEREI GRÜN & SÖHNE` (Haushalt, ohne Gläubiger-ID, also Person) |
+
+Bewusst **nicht** dabei: ein bloßer Nachname oder Vorname eines Empfängers im Zweck. Dass er stehen
+bleibt, ist eine dokumentierte Grenze des Scrubbings (Kurzformen gehören in `personen.toml`).
 
 Die Datensätze sind so gewählt, dass sich Monatssummen von Hand nachrechnen lassen (der Test prüft
 Giro Februar/Mai und Haushalt Juni auf den Cent).
