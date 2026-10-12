@@ -204,13 +204,21 @@ impl TempDbPath {
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.0
     }
+
+    /// Der Pfad des HTML-Berichts neben der Datenbank (Issue 0012) — derselbe eindeutige Stamm, also
+    /// ebenso frei von Kollisionen, und beim Aufräumen mit entfernt.
+    pub(crate) fn report_path(&self) -> std::path::PathBuf {
+        self.0.with_extension("html")
+    }
 }
 
 impl Drop for TempDbPath {
     fn drop(&mut self) {
         // Best-effort-Aufräumen: eine bereits fehlende Datei ist kein Fehler.
-        match std::fs::remove_file(&self.0) {
-            Ok(()) | Err(_) => {}
+        for path in [self.0.clone(), self.report_path()] {
+            match std::fs::remove_file(path) {
+                Ok(()) | Err(_) => {}
+            }
         }
     }
 }

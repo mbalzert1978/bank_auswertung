@@ -49,6 +49,13 @@
 //!   also wird sie weder erneut zugestellt noch hält sie als [`RunError::PendingImport`] einen neuen
 //!   Import auf. Die Schlussbilanz zählt sie als „früher ausgesondert" weiter mit.
 //!
+//! ## Am Ende: der Bericht
+//!
+//! Endet der Lauf gelungen (Exit 0), schreibt er den HTML-Bericht ([Issue 0012](../../../../docs/issues/0012-html-bericht.md))
+//! an [`RunPaths::report`] — für **genau** die Lauf-Identität, die er gemintet hat
+//! ([`RunReport::run_id`], ADR-0016), nie für `max(run_id)`. Endet er mit einem Fehler, entsteht kein
+//! Bericht, und eine ältere Datei am Ziel bleibt unberührt.
+//!
 //! ## Das Lauf-Protokoll ist redigiert
 //!
 //! Geschrieben wird je verarbeiteter Nachricht ihr **`message_type`** — ein statischer Dispatch-Key
@@ -96,9 +103,10 @@ use crate::sqlite::{DeadLetter, Delivery, SqliteOutbox};
 mod ack_sink;
 mod history_sink;
 mod kategorien;
+mod report_step;
 
 pub use ack_sink::AckSink;
-pub use history_sink::CountingHistorySink;
+pub use history_sink::RecordingHistorySink;
 pub use kategorien::{ImportPaths, import_categories};
 
 use application_kernel::PublishCommand;
@@ -115,8 +123,8 @@ const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MES
 const MAX_ROUNDS: usize = 4096;
 
 /// Wo die Eingaben des Laufs liegen. Ein reiner Wert-Typ am Prozess-Rand — **öffentliche Felder**,
-/// weil er nichts weiter ist als das Bündel der sieben Pfade, die die Bin-Crate von der Kommandozeile
-/// bekommt; ein Konstruktor mit sieben gleichartigen Parametern wäre nur Zeremonie mit
+/// weil er nichts weiter ist als das Bündel der acht Pfade, die die Bin-Crate von der Kommandozeile
+/// bekommt; ein Konstruktor mit acht gleichartigen Parametern wäre nur Zeremonie mit
 /// Verwechslungsgefahr.
 #[derive(Debug, Clone)]
 pub struct RunPaths {
@@ -145,13 +153,17 @@ pub struct RunPaths {
     /// ([Issue 0011](../../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)). Die Datei
     /// entsteht nur, wenn der Lauf gelingt, und trägt nur die Anfragen **dieses** Laufs.
     pub category_export: Option<PathBuf>,
+    /// Wohin der HTML-Bericht geschrieben wird (Issue 0012) — nur bei einem gelungenen Lauf; eine
+    /// ältere Datei dort wird dann ersetzt, sonst bleibt sie unberührt.
+    pub report: PathBuf,
 }
 
-/// Was der Lauf getan hat: die Zahl der verarbeiteten Nachrichten **je Typ**, die Zahl der
-/// Vorkommen, die die fenster-übergreifende Reichweite geliefert hat, und die Zahl der
-/// Spar-Kandidaten darin. Reine Zählwerte — nichts davon ist ein Rohwert.
+/// Was der Lauf getan hat: seine Lauf-Identität, die Zahl der verarbeiteten Nachrichten **je Typ**,
+/// die Zahl der Vorkommen, die die fenster-übergreifende Reichweite geliefert hat, und die Zahl der
+/// Spar-Kandidaten darin. Zählwerte und eine opake Identität — nichts davon ist ein Rohwert.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunReport {
+    run_id: String,
     processed: BTreeMap<String, usize>,
     occurrences: usize,
     incomplete: usize,
@@ -159,6 +171,13 @@ pub struct RunReport {
 }
 
 impl RunReport {
+    /// Die Lauf-Identität, die **dieser** Lauf gemintet hat (ADR-0016) — die, die sein Bericht liest.
+    /// Opak: UTC-Startzeitpunkt plus Zufall, kein Bezug zu einem Rohwert.
+    #[must_use]
+    pub fn run_id(&self) -> &str {
+        &self.run_id
+    }
+
     /// Die Zahl verarbeiteter Nachrichten je `message_type`, alphabetisch.
     #[must_use]
     pub fn processed(&self) -> &BTreeMap<String, usize> {
@@ -239,6 +258,9 @@ pub enum RunError {
     /// Das Lauf-Protokoll ließ sich nicht schreiben. Es **ist** Teil des Laufs: ein Lauf, dessen
     /// Protokoll verloren geht, gilt nicht als gelungen.
     Protocol(String),
+    /// Der Bericht ließ sich nicht lesen oder schreiben (Issue 0012). Auch er **ist** Teil des Laufs —
+    /// er ist das Produkt. Trägt die io-Diagnose, nie den Zielpfad.
+    Report(String),
 }
 
 impl std::fmt::Display for RunError {
@@ -271,6 +293,7 @@ impl std::fmt::Display for RunError {
                  die Antwort zum letzten Export?"
             ),
             Self::Protocol(diagnosis) => write!(f, "Lauf-Protokoll nicht schreibbar: {diagnosis}"),
+            Self::Report(diagnosis) => write!(f, "Bericht nicht erstellt: {diagnosis}"),
         }
     }
 }
@@ -300,6 +323,8 @@ impl From<SchemaError> for RunError {
 /// Wird in ihm selbst eine Nachricht ausgesondert, laufen beide Phasen trotzdem zu Ende, und der Lauf
 /// endet mit [`RunError::DeadLettered`] (siehe Modul-Doku). Die ausgesonderte Nachricht ist danach
 /// nicht mehr offen — ein späterer Lauf geht an ihr vorbei.
+///
+/// Nur ein gelungener Lauf schreibt seinen Bericht nach [`RunPaths::report`].
 pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunError> {
     let window_days = FensterConfig::load(&paths.window_config)?.window_days();
     let seed = SeedConfig::load(&paths.seed_config)?.seed();
@@ -314,13 +339,15 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let outbox = schema::open(&AppConfig::new(&paths.database))?;
     let adapters = Adapters::new(&outbox, paths, persons);
     let stores = Stores::new(&outbox);
-    let occurrences = CountingHistorySink::default();
+    let history = RecordingHistorySink::default();
+    // Die Konto-Rollen braucht nach dem Lauf noch der Bericht — als Token, nie als IBAN.
+    let own_account_rows = own_accounts.accounts.clone();
     let dispatcher = DispatcherBuilder::new(&outbox, &adapters, stores)
         .window_days(window_days)
         .seed(seed)
         .own_accounts(own_accounts)
         .savings_threshold(savings_threshold)
-        .occurrences(&occurrences)
+        .history_sink(&history)
         .build()?;
 
     let mut report = RunReport::default();
@@ -338,22 +365,25 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // Abschluss tragen sie weiter, und die fenster-übergreifende Abfrage sieht nur die Fenster
     // **dieses** Laufs — obwohl er, wie jeder Lauf, die ganze obfuskierte Historie neu paginiert.
     //
-    // Gezählt werden nur die Vorkommen **dieses** Laufs: hat Phase 1 einen liegengebliebenen alten
-    // Lauf zu Ende geführt, steckt dessen Zählung schon im Abnehmer und wird hier abgezogen. Offen
-    // liegen bleibt ein alter Lauf **nur nach einem Absturz** — eine gescheiterte Nachricht ist
-    // ausgesondert, nicht offen (ADR-0017), und ein Lauf mit ausgesondertem `AdvanceWindow` oder
-    // `WindowClosed` bleibt für immer unvollständig; ihn liest der Bericht nicht (er endete mit Exit 1).
+    // Gezählt und berichtet wird nur das Ergebnis **dieses** Laufs: hat Phase 1 einen
+    // liegengebliebenen alten Lauf zu Ende geführt, liegt dessen Ergebnis schon im Abnehmer und wird
+    // hier verworfen. Offen liegen bleibt ein alter Lauf **nur nach einem Absturz** — eine
+    // gescheiterte Nachricht ist ausgesondert, nicht offen (ADR-0017), und ein Lauf mit ausgesondertem
+    // `AdvanceWindow` oder `WindowClosed` bleibt für immer unvollständig; ihn liest der Bericht nicht
+    // (er endete mit Exit 1).
     write_line(protocol, "Lauf: Analyse")?;
     // Der Kategorisierer sammelt erst **jetzt**: Phase 1 kann einen liegengebliebenen alten Lauf zu
     // Ende geführt haben, dessen Anfragen nicht in den Export dieses Laufs gehören (Issue 0011).
     adapters.categorizer.start_collecting();
-    let occurrences_before = occurrences.count();
-    let candidates_before = occurrences.candidates();
-    enqueue(&outbox, START_MESSAGE_TYPE, &mint_run_id(&outbox)?)?;
+    drop(history.take());
+    report.run_id = mint_run_id(&outbox)?;
+    enqueue(&outbox, START_MESSAGE_TYPE, &report.run_id)?;
     dead_lettered.extend(drain(&outbox, &dispatcher, protocol, &mut report)?);
 
-    report.occurrences = occurrences.count().saturating_sub(occurrences_before);
-    report.savings_candidates = occurrences.candidates().saturating_sub(candidates_before);
+    // Ohne Ergebnis war der Bestand leer: kein Fenster, keine Vorkommen — ein leerer Bericht.
+    let evaluation = history.take().unwrap_or_default();
+    report.occurrences = evaluation.occurrences.len();
+    report.savings_candidates = evaluation.savings_candidates.len();
     let report = finish(&outbox, protocol, report, dead_lettered)?;
     // Erst nach einem **gelungenen** Lauf (ADR-0016 C): kein Export eines halben Laufs.
     if let Some(target) = &paths.category_export {
@@ -364,6 +394,14 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
             protocol,
         )?;
     }
+    report_step::write(
+        &outbox,
+        paths,
+        protocol,
+        &report,
+        evaluation,
+        own_account_rows,
+    )?;
     Ok(report)
 }
 
@@ -505,7 +543,7 @@ struct Complete<'a> {
     seed: u64,
     own_accounts: OwnAccountsConfig,
     savings_threshold: SavingsThresholdConfig,
-    occurrences: &'a CountingHistorySink,
+    history: &'a RecordingHistorySink,
 }
 
 impl<'a, C> DispatcherBuilder<'a, C> {
@@ -583,10 +621,10 @@ impl<'a> DispatcherBuilder<'a, WithOwnAccounts> {
 }
 
 impl<'a> DispatcherBuilder<'a, WithSavingsThreshold> {
-    /// Die Senke, die die fenster-übergreifenden Vorkommen und Spar-Kandidaten zählt.
-    fn occurrences(
+    /// Der Abnehmer, der das Ergebnis der fenster-übergreifenden Reichweite für den Bericht festhält.
+    fn history_sink(
         self,
-        occurrences: &'a CountingHistorySink,
+        history: &'a RecordingHistorySink,
     ) -> DispatcherBuilder<'a, Complete<'a>> {
         self.advance(
             |WithSavingsThreshold {
@@ -599,7 +637,7 @@ impl<'a> DispatcherBuilder<'a, WithSavingsThreshold> {
                 seed,
                 own_accounts,
                 savings_threshold,
-                occurrences,
+                history,
             },
         )
     }
@@ -615,7 +653,7 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
             seed,
             own_accounts,
             savings_threshold,
-            occurrences,
+            history,
         } = self.config;
         let outbox = self.outbox;
         let adapters = self.adapters;
@@ -684,7 +722,7 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
                 &adapters.analysis_windows,
                 own_accounts,
                 savings_threshold,
-                occurrences.clone(),
+                history.clone(),
                 stores.auswerten,
             )),
         )?;
@@ -950,3 +988,6 @@ mod aderlass_tests;
 
 #[cfg(test)]
 mod kategorien_tests;
+
+#[cfg(test)]
+mod bericht_tests;

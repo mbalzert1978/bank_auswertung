@@ -56,6 +56,7 @@ fn pfade(db: &TempDbPath, csv: &str, export: &TempDatei) -> RunPaths {
         persons_config: fixture("lauf/namen_kategorien.toml"),
         savings_config: fixture("lauf/sparen.toml"),
         category_export: Some(export.0.clone()),
+        report: db.report_path(),
     }
 }
 

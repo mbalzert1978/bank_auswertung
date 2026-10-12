@@ -39,6 +39,7 @@ fn lauf_pfade(db: &TempDbPath) -> RunPaths {
         persons_config: fixture("lauf/namen.toml"),
         savings_config: fixture("lauf/sparen.toml"),
         category_export: None,
+        report: db.report_path(),
     }
 }
 

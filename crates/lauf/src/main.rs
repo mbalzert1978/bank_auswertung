@@ -1,16 +1,16 @@
 //! **Das Programm** ([Issue 0083](../../../docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)):
-//! die dünnste denkbare Hülle um [`io::run::run`]. Sie liest sieben Pfade von der Kommandozeile, fährt
-//! **einen** Lauf und setzt den Exit-Code — mehr tut sie nicht. Dazu kommt seit Issue 0011 der
-//! Unterbefehl `kategorien-import`, der eine Chat-Antwort über [`io::run::import_categories`] ins
+//! die dünnste denkbare Hülle um [`io::run::run`]. Sie liest acht Pfade von der Kommandozeile, fährt
+//! **einen** Lauf und setzt den Exit-Code — mehr tut sie nicht. Den HTML-Bericht (Issue 0012) schreibt
+//! der Lauf selbst, und nur, wenn er gelingt. Dazu kommt seit Issue 0011 der Unterbefehl
+//! `kategorien-import`, der eine Chat-Antwort über [`io::run::import_categories`] ins
 //! Kategorie-Register übernimmt, und die optionale Option `--kategorien-export`.
 //!
 //! **Warum so wenig.** Die Verdrahtung der Pipeline gehört in die Infrastruktur, nicht in die
 //! Kommandozeile: sie ist derselbe Lauf, ob ihn ein Terminal, ein Test oder später ein Scheduler
 //! anstößt. Diese Crate bindet darum als einzige interne Abhängigkeit `io` — und keine externe, auch
-//! keinen Argument-Parser: sieben benannte Pflicht-Optionen zu lesen ist keine Bibliothek wert.
+//! keinen Argument-Parser: acht benannte Pflicht-Optionen zu lesen ist keine Bibliothek wert.
 //!
-//! **Das Lauf-Protokoll geht auf den Fehlerkanal**, damit die Standardausgabe für den späteren
-//! `report` frei bleibt. Es ist redigiert (siehe [`io::run`]): Nachrichtentypen, Zählwerte und im
+//! **Das Lauf-Protokoll geht auf den Fehlerkanal**, die Standardausgabe bleibt frei. Es ist redigiert (siehe [`io::run`]): Nachrichtentypen, Zählwerte und im
 //! Fehlerfall die bereits redigierte `Display` des Slice-Fehlers — nie ein Rohwert, nie Freitext, nie
 //! eine IBAN, nie der Seed.
 
@@ -76,7 +76,7 @@ const KATEGORIEN_IMPORT: &str = "kategorien-import";
 
 const USAGE: &str = "\
 Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <datei> \
---eigene-konten <datei> --personen <datei> --sparen <datei>
+--eigene-konten <datei> --personen <datei> --sparen <datei> --bericht <datei.html>
 
   --db              SQLite-Datei (Outbox + Ergebnis-Tabellen); wird bei Bedarf angelegt
   --csv             CSV-CAMT-v8-Kontoauszug, den `einlesen` beschafft
@@ -90,8 +90,11 @@ Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <dat
   --sparen          Spar-Config (jahresbetrag_ab_cent): ab diesem Jahresbetrag in Cent wird ein
                     Kostentreiber als Spar-Kandidat vorgeschlagen — ein Vorschlag, entschieden
                     wird von dir. Vorlage: sparen.example.toml
+  --bericht         Ziel des HTML-Berichts. Er entsteht nur, wenn der Lauf gelingt (Exit 0),
+                    und zeigt genau diesen Lauf; eine ältere Datei dort wird ersetzt. Endet
+                    der Lauf mit einem Fehler, bleibt sie unberührt.
 
-Alle sieben sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
+Alle acht sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
 
   --kategorien-export <datei>
                     optional: schreibt die Buchungsarten, die das Kategorie-Register noch nicht
@@ -152,8 +155,8 @@ impl std::fmt::Display for Aufruffehler {
     }
 }
 
-/// Die sieben Optionen, während sie eingesammelt werden — jede noch **offen**, bis sie gesetzt ist. Der
-/// Übergang „alle sieben da" ist genau der Punkt, an dem daraus [`RunPaths`] wird
+/// Die acht Optionen, während sie eingesammelt werden — jede noch **offen**, bis sie gesetzt ist. Der
+/// Übergang „alle acht da" ist genau der Punkt, an dem daraus [`RunPaths`] wird
 /// ([`vollstaendig`](Aufrufoptionen::vollstaendig)); vorher gibt es keinen Wert, der so tut, als wäre
 /// er vollständig.
 #[derive(Debug, Default)]
@@ -167,6 +170,7 @@ struct Aufrufoptionen {
     savings_config: Option<PathBuf>,
     /// Optional — fehlt sie, entsteht kein Export.
     category_export: Option<PathBuf>,
+    report: Option<PathBuf>,
 }
 
 impl Aufrufoptionen {
@@ -184,6 +188,7 @@ impl Aufrufoptionen {
             "--personen" => Some(("--personen", &mut self.persons_config)),
             "--sparen" => Some(("--sparen", &mut self.savings_config)),
             "--kategorien-export" => Some(("--kategorien-export", &mut self.category_export)),
+            "--bericht" => Some(("--bericht", &mut self.report)),
             _ => None,
         }
     }
@@ -210,6 +215,7 @@ impl Aufrufoptionen {
                 .savings_config
                 .ok_or(Aufruffehler::OptionFehlt("--sparen"))?,
             category_export: self.category_export,
+            report: self.report.ok_or(Aufruffehler::OptionFehlt("--bericht"))?,
         })
     }
 }
@@ -278,7 +284,7 @@ fn parse_import(args: impl Iterator<Item = String>) -> Result<Befehl, Aufruffehl
     optionen.vollstaendig()
 }
 
-/// Liest die sieben Pflicht-Optionen eines Laufs und die optionale `--kategorien-export`.
+/// Liest die acht Pflicht-Optionen eines Laufs und die optionale `--kategorien-export`.
 fn parse_run(args: impl Iterator<Item = String>) -> Result<RunPaths, Aufruffehler> {
     let mut args = args;
     let mut optionen = Aufrufoptionen::default();
@@ -317,6 +323,8 @@ mod tests {
             "personen.toml",
             "--sparen",
             "sparen.toml",
+            "--bericht",
+            "bericht.html",
         ]
         .iter()
         .map(|argument| (*argument).to_string())
@@ -324,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn sieben_optionen_ergeben_die_lauf_pfade() {
+    fn acht_optionen_ergeben_die_lauf_pfade() {
         let paths = parse_run(vollstaendige_argumente().into_iter()).expect("vollständiger Aufruf");
 
         assert_eq!(paths.database, PathBuf::from("lauf.sqlite"));
@@ -337,6 +345,7 @@ mod tests {
         );
         assert_eq!(paths.persons_config, PathBuf::from("personen.toml"));
         assert_eq!(paths.savings_config, PathBuf::from("sparen.toml"));
+        assert_eq!(paths.report, PathBuf::from("bericht.html"));
         // Ohne die Option entsteht kein Export.
         assert_eq!(paths.category_export, None);
     }
@@ -436,6 +445,7 @@ mod tests {
             "--eigene-konten",
             "--personen",
             "--sparen",
+            "--bericht",
         ]
         .into_iter()
         .enumerate()

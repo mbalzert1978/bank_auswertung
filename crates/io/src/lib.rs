@@ -68,8 +68,12 @@
 //! **Das Kategorisierer-Orakel ist ein Chat** ([Issue 0011](../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)):
 //! im Lauf sammelt der [`auswerten::CollectingCategorizer`] die Anfragen der unbekannten Arten und
 //! antwortet leer; [`auswerten::chat_export`] schreibt sie am Ende eines gelungenen Laufs als Datei,
-//! [`auswerten::chat_import`] übernimmt die Antwort über das Register. **Noch draußen:** der
-//! `report`-Presenter.
+//! [`auswerten::chat_import`] übernimmt die Antwort über das Register.
+//!
+//! **Am Ende eines gelungenen Laufs steht der HTML-Bericht**
+//! ([Issue 0012](../../../docs/issues/0012-html-bericht.md)): er beschriftet und formatiert, was die
+//! Domäne für **diesen** Lauf errechnet hat — Konten über ihre Rolle, Personen nur pseudonym —, und
+//! ist der Egress des Programms (kein `Serialize` auf dem Bericht-DTO).
 
 mod common;
 
@@ -81,6 +85,7 @@ pub mod config;
 pub mod einlesen;
 pub mod fenstern;
 pub mod obfuskierung;
+mod report;
 pub mod run;
 pub mod schema;
 pub mod sqlite;
