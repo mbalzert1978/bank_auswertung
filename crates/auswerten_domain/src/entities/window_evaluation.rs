@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::entities::AnalysisWindow;
 use crate::value_objects::WindowedBooking;
 use crate::value_objects::{
-    BookingKind, Category, CategoryAnswer, CounterAccount, Currency, Fee, Fingerprint,
-    InternalTransfer, Month, MonthlyCashflow, VerifiedOwnAccounts, WindowId,
+    Category, CategoryAnswer, CounterAccount, Currency, Fee, Fingerprint, InternalTransfer,
+    MonthlyCashflow, VerifiedOwnAccounts, WindowId, bucket_by_month, fees, internal_transfers,
 };
 
 /// Das **Pro-Fenster-Ergebnis** — was dieser Slice aus **einem** eingefrorenen Auswertungsfenster
@@ -74,26 +74,10 @@ impl WindowEvaluation {
                 .filter(|booking| booking.transfer_role(&own_accounts).is_none())
                 .map(|booking| ((), booking)),
         );
-        // Die andere Seite: dieselben Monats-Buckets, aber je **Rolle des Gegenkontos** getrennt —
-        // ein Abfluss aufs Sparkonto und einer aufs Haushaltskonto sind nicht dieselbe Bewegung.
-        let transfers = bucket_by_month(
-            snapshot
-                .bookings()
-                .iter()
-                .filter_map(|booking| Some((booking.transfer_role(&own_accounts)?, booking))),
-        );
-        // Und die **Überlagerung**: was die Bank innerhalb desselben Cashflows selbst einzog, je
-        // Monat und belastetem Konto. Sie liest aus **derselben** Menge wie der Cashflow oben — nur
-        // so gilt „die Gebühren sind ein Teil der Monats-Buckets" von Bauart wegen und nicht bloß
-        // in der Praxis (siehe [`Fee`]).
-        let fees = bucket_by_month(
-            snapshot
-                .bookings()
-                .iter()
-                .filter(|booking| booking.transfer_role(&own_accounts).is_none())
-                .filter(|booking| booking.kind() == BookingKind::Fee)
-                .map(|booking| (booking.ordering_account().clone(), booking)),
-        );
+        // Die andere Seite (je Rolle des Gegenkontos) und die Überlagerung (je belastetem Konto):
+        // dieselben Funktionen, mit denen auch die fenster-übergreifende Reichweite sie rechnet.
+        let transfers = internal_transfers(snapshot.bookings(), &own_accounts);
+        let fees = fees(snapshot.bookings(), &own_accounts);
         // Die **distinkten** Fingerabdrücke des Fensters: der Schlüssel steht für eine *Art* von
         // Buchung, nicht für die einzelne — zwanzig Buchungen desselben Händlers sind **eine** Art.
         // Das `BTreeSet` faltet sie darum zusammen und legt sie zugleich in einer stabilen,
@@ -120,14 +104,8 @@ impl WindowEvaluation {
             window,
             currency: snapshot.currency().clone(),
             months: months.into_values().collect(),
-            transfers: transfers
-                .into_iter()
-                .map(|((_month, role), flow)| InternalTransfer::of(role, flow))
-                .collect(),
-            fees: fees
-                .into_iter()
-                .map(|((_month, account), flow)| Fee::of(account, flow))
-                .collect(),
+            transfers,
+            fees,
             fingerprints: fingerprints.into_iter().collect(),
             counter_accounts: counter_accounts.into_iter().collect(),
             categories: unambiguous(categories),
@@ -209,27 +187,6 @@ impl WindowEvaluation {
     pub fn categories(&self) -> &[CategoryAnswer] {
         &self.categories
     }
-}
-
-/// Faltet Buchungen zu **Monats-Buckets** — die eine Bucketing-Mechanik, die sich alle drei Sichten
-/// teilen: jede Buchung fällt in den Monat ihres Buchungstags und wächst dort die Spalte ihrer
-/// Richtung.
-///
-/// Der `key` je Buchung ist, was die Sichten **zusätzlich** zum Monat trennt: nichts (`()`) beim
-/// Cashflow, die Rolle des Gegenkontos bei den Umbuchungen, das belastete Konto bei den Gebühren. Er
-/// steht im Schlüssel **hinter** dem Monat, sodass die `BTreeMap` zuerst chronologisch ordnet und
-/// erst danach nach ihm — dieselbe stabile, eingabe-unabhängige Reihenfolge für alle drei.
-fn bucket_by_month<'a, K: Ord>(
-    bookings: impl Iterator<Item = (K, &'a WindowedBooking)>,
-) -> BTreeMap<(Month, K), MonthlyCashflow> {
-    bookings.fold(BTreeMap::new(), |mut buckets, (key, booking)| {
-        let month = Month::of(booking.day());
-        let bucket = buckets
-            .entry((month, key))
-            .or_insert_with(|| MonthlyCashflow::empty(month));
-        *bucket = bucket.plus(booking.amount(), booking.direction());
-        buckets
-    })
 }
 
 /// Macht aus den Antworten des Orakels eine **Abbildung** Fingerabdruck → Kategorie: je Schlüssel

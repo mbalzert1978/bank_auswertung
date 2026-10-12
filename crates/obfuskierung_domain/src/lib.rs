@@ -35,5 +35,5 @@ pub use ports::{
 pub use value_objects::{
     AccountToken, BookingId, CreditorId, KnownPersons, NonEmptyString, ObfuscatedCounterparty,
     ObfuscatedText, PassThrough, Pseudonym, RawCounterparty, Recipient, Replacement, Seed,
-    is_valid_creditor_id,
+    is_scrubbed, is_valid_creditor_id,
 };

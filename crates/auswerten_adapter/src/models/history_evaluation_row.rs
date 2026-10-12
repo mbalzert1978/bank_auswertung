@@ -1,7 +1,8 @@
 use auswerten_domain::{HistoryEvaluation, PriceIncrease, Recurrence, Rhythm};
 
 use crate::models::{
-    AccountCashflowRow, CostDriverRow, DriverRankRow, OccurrenceRow, SavingsCandidateRow,
+    AccountCashflowRow, CostDriverRow, DriverRankRow, FeeRow, InternalTransferRow, OccurrenceRow,
+    SavingsCandidateRow,
 };
 
 /// Das **Ergebnis der fenster-übergreifenden Reichweite** als Ausgangs-DTO — die `Response` des
@@ -36,6 +37,12 @@ pub struct HistoryEvaluationRow {
     pub recurrences: Vec<RecurrenceRow>,
     /// Der genettete Cashflow je eigenem Konto und Monat — nach Konto, darin chronologisch.
     pub account_cashflows: Vec<AccountCashflowRow>,
+    /// Die Umbuchungen des Laufs je Monat und Gegenkonto-Rolle, chronologisch — was das Netting aus
+    /// den [`account_cashflows`](Self::account_cashflows) herausnahm.
+    pub transfers: Vec<InternalTransferRow>,
+    /// Die Bank-Gebühren des Laufs je Monat und belastetem Konto (Token), chronologisch — ein
+    /// Ausschnitt der [`account_cashflows`](Self::account_cashflows).
+    pub fees: Vec<FeeRow>,
     /// Das Pareto-Ranking der Kostentreiber, der größte Abfluss zuerst.
     pub ranking: Vec<DriverRankRow>,
     /// Die Spar-Kandidaten, der höchste Jahresbetrag zuerst.
@@ -109,6 +116,12 @@ impl From<&HistoryEvaluation> for HistoryEvaluationRow {
                 .iter()
                 .map(AccountCashflowRow::from)
                 .collect(),
+            transfers: evaluation
+                .transfers()
+                .iter()
+                .map(InternalTransferRow::from)
+                .collect(),
+            fees: evaluation.fees().iter().map(FeeRow::from).collect(),
             ranking: evaluation
                 .ranking()
                 .iter()

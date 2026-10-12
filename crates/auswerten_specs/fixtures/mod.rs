@@ -18,8 +18,8 @@
 use auswerten_adapter::{
     AccountCashflowRow, AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRow,
     CostDriverRow, CounterAccountRow, DriverRankRow, EvaluationTestApi, FeeRow, HistoryTestApi,
-    InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig,
-    PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow, WindowBookingRow,
+    InternalTransferRow, KindAnchorRow, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow,
+    OwnAccountsConfig, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow, WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -509,10 +509,31 @@ pub(crate) fn konto_monat(
     }
 }
 
-/// Der erwartete Kostentreiber einer **Buchungsart**, über ihren Fingerabdruck.
+/// Der erwartete Kostentreiber einer **Buchungsart**, über ihren Fingerabdruck — samt dem Anker,
+/// den der Adapter neben dem Schlüssel ausgibt. Die Specs schreiben den erwarteten Schlüssel in seiner
+/// dokumentierten Form (`COMPANY:<id>[|MERCHANT:<token>]`, `PERSON:<pseudonym>`); der erwartete Anker
+/// ist dieselbe Aussage als Struktur.
 pub(crate) fn art(fingerprint: &str) -> CostDriverRow {
+    let anchor = match fingerprint.strip_prefix("COMPANY:") {
+        Some(company) => {
+            let (creditor_id, merchant) = company
+                .split_once("|MERCHANT:")
+                .map_or((company, None), |(id, merchant)| (id, Some(merchant)));
+            KindAnchorRow::Company {
+                creditor_id: creditor_id.to_string(),
+                merchant: merchant.map(str::to_string),
+            }
+        }
+        None => KindAnchorRow::Person {
+            pseudonym: fingerprint
+                .strip_prefix("PERSON:")
+                .unwrap_or(fingerprint)
+                .to_string(),
+        },
+    };
     CostDriverRow::Kind {
         fingerprint: fingerprint.to_string(),
+        anchor,
     }
 }
 

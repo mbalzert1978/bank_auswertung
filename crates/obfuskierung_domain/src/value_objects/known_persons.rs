@@ -1,4 +1,5 @@
 use crate::value_objects::non_empty_string::NonEmptyString;
+use crate::value_objects::scrubbing;
 
 /// Die **bekannten Personen-Namen**, die der Freitext-Engpass ([`ObfuscatedText`](crate::ObfuscatedText))
 /// im Verwendungszweck ersetzt — ein reiner **Wert**, den die Domäne über den Port
@@ -49,6 +50,13 @@ impl KnownPersons {
         });
         patterns.dedup_by(|left, right| left.key == right.key);
         Self { patterns }
+    }
+
+    /// Nennt `text` einen dieser Namen — erkannt **genau so**, wie der Freitext-Engpass ihn ersetzen
+    /// würde (ganzes Wort, ohne Rücksicht auf Groß-/Kleinschreibung, auch „Nachname, Vorname").
+    #[must_use]
+    pub fn named_in(&self, text: &str) -> bool {
+        scrubbing::names_person(text, self)
     }
 
     /// Wie viele Zeichen am Anfang von `text` ein bekannter Name belegt — `None`, wenn dort keiner

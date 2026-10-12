@@ -20,3 +20,9 @@ auswerten_adapter = { path = "../auswerten_adapter" }
 einlesen_adapter = { path = "../einlesen_adapter" }
 fenstern_adapter = { path = "../fenstern_adapter" }
 obfuskierung_adapter = { path = "../obfuskierung_adapter" }
+
+# Nur für die compilerfeste „kein `Serialize`"-Sperre auf dem Bericht-DTO (Issue 0012) — der Bericht
+# selbst bindet kein serde.
+[dev-dependencies]
+serde = "1"
+static_assertions = "1.1.0"

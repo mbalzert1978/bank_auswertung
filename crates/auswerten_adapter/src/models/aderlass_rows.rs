@@ -1,7 +1,7 @@
 use std::num::NonZeroU64;
 
 use auswerten_domain::{
-    AccountCashflow, CostDriver, RankedDriver, SavingsCandidate, SavingsThreshold,
+    AccountCashflow, CostDriver, KindAnchor, RankedDriver, SavingsCandidate, SavingsThreshold,
 };
 
 use crate::models::account_role_vocabulary::role_label;
@@ -54,13 +54,34 @@ pub struct AccountCashflowRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CostDriverRow {
     /// Eine **Buchungsart**, geschlüsselt über ihren Fingerabdruck (Gläubiger-ID, Pseudonym oder
-    /// Händler-Token hinter einem Durchleiter).
-    Kind { fingerprint: String },
+    /// Händler-Token hinter einem Durchleiter) — und mit ihrem **Anker**, der Struktur dahinter, damit
+    /// ein Leser die Art beschriften kann, ohne den Schlüssel zu zerlegen.
+    Kind {
+        fingerprint: String,
+        anchor: KindAnchorRow,
+    },
     /// Die **Gebühren eines Kontos** — was die Bank auf diesem `KONTO_…` selbst einzog.
     Fee { account: String },
     /// Alle Abflüsse **ohne Gegenpartei**, die keine Gebühr sind — gesammelt, damit die Anteile des
     /// Rankings das Ganze ergeben. Nie ein Spar-Kandidat.
     Unattributed,
+}
+
+/// Der **Anker** einer Buchungsart als adapter-eigener Grenztyp — re-deklariert statt aus der Domäne
+/// re-exportiert, und weiterhin ein Summentyp: eine Firma trägt ihre Gläubiger-ID (und hinter einem
+/// Durchleiter den Händler-Token), eine Person nur ihr Pseudonym.
+///
+/// **Datenschutz:** dieselben Werte, die schon im Fingerabdruck stehen — eine öffentliche Gläubiger-ID,
+/// ein Händler-Token nach der Egress-Wortregel, ein seed-basiertes Pseudonym. Kein Name, keine IBAN.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KindAnchorRow {
+    Company {
+        creditor_id: String,
+        merchant: Option<String>,
+    },
+    Person {
+        pseudonym: String,
+    },
 }
 
 /// Ein **Platz im Pareto-Ranking** als Ausgangs-DTO.
@@ -114,6 +135,20 @@ impl From<&CostDriver> for CostDriverRow {
         match driver {
             CostDriver::Kind(fingerprint) => Self::Kind {
                 fingerprint: fingerprint.as_str().to_string(),
+                anchor: match fingerprint.anchor() {
+                    KindAnchor::Company {
+                        creditor_id,
+                        merchant,
+                    } => KindAnchorRow::Company {
+                        creditor_id: creditor_id.as_str().to_string(),
+                        merchant: merchant
+                            .as_ref()
+                            .map(|merchant| merchant.as_str().to_string()),
+                    },
+                    KindAnchor::Person { pseudonym } => KindAnchorRow::Person {
+                        pseudonym: pseudonym.as_str().to_string(),
+                    },
+                },
             },
             CostDriver::Fee(account) => Self::Fee {
                 account: account.as_str().to_string(),

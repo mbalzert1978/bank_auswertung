@@ -105,8 +105,8 @@ pub use ports::{
 pub use value_objects::{
     AccountCashflow, AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer,
     CategoryRequest, CostDriver, CounterAccount, Counterparty, CreditorId, Currency, DayStamp,
-    Direction, Fee, Fingerprint, HistoryEvaluation, InternalTransfer, Month, MonthlyCashflow,
-    NonEmptyString, Occurrence, OwnAccounts, PriceIncrease, RankedDriver, Recipient, Recurrence,
-    Rhythm, RunHistory, RunSpan, SavingsCandidate, SavingsThreshold, SeedMarker, Share, WindowId,
-    WindowedBooking, is_valid_creditor_id,
+    Direction, Fee, Fingerprint, HistoryEvaluation, InternalTransfer, KindAnchor, Month,
+    MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts, PriceIncrease, RankedDriver,
+    Recipient, Recurrence, Rhythm, RunHistory, RunSpan, SavingsCandidate, SavingsThreshold,
+    SeedMarker, Share, WindowId, WindowedBooking, is_valid_creditor_id,
 };

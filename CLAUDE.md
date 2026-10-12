@@ -60,7 +60,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   (deliberately free of architecture/crate detail so it cannot go stale); the architecture
   is owned by [docs/adr/](docs/adr/) and this file.
 - [CONTEXT.md](CONTEXT.md) — domain glossary (the ubiquitous language).
-- [docs/adr/](docs/adr/) — seventeen ADRs (0008/0009 governing the pipeline/kernel — refined
+- [docs/adr/](docs/adr/) — eighteen ADRs (0008/0009 governing the pipeline/kernel — refined
   by **0011** (built): each slice decoupled from the Outbox mechanics, kernel cut flipped and
   merged into `application_kernel`; and by **0012**, which fixes the pipeline to
   **durchweg terminal** — no dead-letter/retry in the slice, fallible read/store/publish —
@@ -77,7 +77,9 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   window-spanning query scoped by it) and skips `Umsatz vorgemerkt`; **0017** (*accepted*, **built** —
   issue 0085) answers 0012's deferred question: the broker **dead-letters** a failed message via a
   `status` column in the outbox (terminal at once, transient after 3 attempts), runs are never blocked
-  by it, and a dead-lettered `Ingested` marks every later analysis **incomplete**; 0010 governing seed-based pseudonym
+  by it, and a dead-lettered `Ingested` marks every later analysis **incomplete**; **0018** (*accepted*,
+  **built** — issue 0012) makes the `report` an `io` formatter at the end of an exit-0 run — no outbox
+  consumer, no port, no crate; 0010 governing seed-based pseudonym
   stability; 0001–0007 each carry a superseded banner pointing at the canonical successor).
 - [docs/prd/0001-bank-auswertung.md](docs/prd/0001-bank-auswertung.md) — PRD
   (mirrors the README; adds user stories + the module breakdown).
@@ -114,9 +116,10 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   [Issue 0009](docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
   ([`io::auswerten::SqliteCategoryRegistry`](crates/io/src/auswerten/registry.rs)). The `Kategorisierer`
   oracle is a **chat** since [Issue 0011](docs/issues/0011-kategorisierer-chat-payload-adapter.md)
-  (export at the end of a run, import as its own command). Still **without** a real adapter: the
-  `report`;
-- [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: seven mandatory
+  (export at the end of a run, import as its own command). The **HTML report** lives in `io` too since
+  [Issue 0012](docs/issues/0012-html-bericht.md) (`crates/io/src/report/`, written by `io::run` at the
+  end of an exit-0 run);
+- [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: eight mandatory
   path options in (plus the optional `--kategorien-export` and the `kategorien-import` subcommand,
   issue 0011), exit code out. Binds `io` as its **only** internal and **no** external dependency
   (asserted by the `architecture` test);
@@ -347,8 +350,13 @@ the purpose, company → only the name, **persons never** (so card payments get 
 **egress word rule** drops every word with a digit or `@` before splitting. The creditor ID is
 **parsed** (form + mod 97) in `obfuskieren` (an invalid one makes the counterparty a person) **and**
 again at `auswerten`'s ACL (a row from an older file with an invalid one ends the run terminally).
-**Still open:** the
-`report` presenter with its egress-DTO `Serialize` guard. Also deferred: persistent seed management
+The `report`
+is **built** (issue 0012, ADR-0018): HTML in `io`, its display DTO carries the no-`Serialize` guard,
+every number comes from the one `HistoryEvaluation` of the run (which now also carries the run's
+transfers and fees), accounts appear by role, persons only as a short pseudonym, categories only from
+the register (else „unbekannt"). Companies appear by their scrubbed name **only if it names nobody on
+`personen.toml`** (same detection as the scrubber), else by their creditor ID. **Limit:** a natural
+person with a creditor ID who is not on `personen.toml` appears with their name. Also deferred: persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
 [Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
 persisting the seed across runs is not). Note what the `obfuskiert` table stores: **not the seed but
@@ -403,9 +411,8 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   cashflow numbers are now right rather than merely computed, and what the bank itself takes is named
   separately. On top of them the
   Pareto/savings-candidate analyzer ([0007](docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md))
-  is **built** (candidate = annual amount over a config value, decision V3); next is the `report`
-  ([0012](docs/issues/0012-html-bericht.md)) — after it the program says for the first time **where the
-  money goes**. One **HITL** item is now open on 0006
+  is **built** (candidate = annual amount over a config value, decision V3), and so is the `report`
+  ([0012](docs/issues/0012-html-bericht.md)) — the program now says **where the money goes**. One **HITL** item is now open on 0006
   too: which booking texts his bank actually sets for fees.
 - **Towards a safe operation** — the schema owner + version stamp
   ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)) and the
@@ -431,11 +438,14 @@ Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate),
 kanonisch über den Skill **`/cargo-six-gates`** — er führt alle sechs aus und meldet
 PASS/FAIL je Gate. Definition und Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
 
-A real run (issue 0083) — all seven options are mandatory, the run log goes to stderr:
+A real run (issue 0083) — all eight options are mandatory, the run log goes to stderr:
 
 ```bash
-cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.toml --seed seed.toml --eigene-konten eigene-konten.toml --personen personen.toml --sparen sparen.toml
+cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.toml --seed seed.toml --eigene-konten eigene-konten.toml --personen personen.toml --sparen sparen.toml --bericht bericht.html
 ```
+
+`--bericht` is the HTML report (issue 0012): written only when the run ends with exit 0, for exactly
+the run id that run minted (ADR-0016); after exit 1 an older file there stays untouched.
 
 `--sparen` is the savings threshold (issue 0007; copy `sparen.example.toml`, not secret):
 `jahresbetrag_ab_cent` — from this annual amount on, a cost driver is proposed as a savings candidate.
@@ -444,8 +454,8 @@ cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.tom
 `personen.example.toml`, gitignored). It is **mandatory even when empty** (`namen = []`): a forgotten
 list stops the run instead of silently scrubbing fewer names.
 
-Exit code `0` = the outbox ran empty (the log still says „Analyse unvollständig" if an earlier run
-dead-lettered a booking), `1` = this run dead-lettered a message (named, redacted — the message is out
+Exit code `0` = the outbox ran empty and the report is written (log and report still say „Analyse
+unvollständig" if an earlier run dead-lettered a booking), `1` = this run dead-lettered a message (named, redacted — the message is out
 of delivery and does not block later runs), `2` = the command line was wrong. The invented fixtures under
 [`crates/io/fixtures/lauf/`](crates/io/fixtures/lauf/) plus
 [`lauf.csv`](crates/io/fixtures/einlesen/csv/lauf.csv) are a runnable example.
@@ -471,7 +481,9 @@ Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 ## Architecture — the big picture
 
 Hexagonal (Ports & Adapters) als modularer Monolith aus Feature-Slice-Triaden; Pipeline
-`einlesen → obfuskieren → fenstern → auswerten → report`, jeder Schritt ein Outbox-Consumer,
+`einlesen → obfuskieren → fenstern → auswerten → report`, jeder Schritt bis `auswerten` ein
+Outbox-Consumer, `report` der `io`-Formatierer am Ende eines Exit-0-Laufs
+([ADR-0018](docs/adr/0018-bericht-als-io-formatierer-am-ende-eines-laufs.md)),
 `obfuskieren` die **Privacy-Grenze**, `auswerten` die Analyse (das LLM nur Orakel für
 **unbekannte** Fingerabdrücke). Der `Speicher` ist **kein eigener Port**, sondern die Summe der
 SQLite-Ablagen in `io`: die vier Slice-Stores (je hinter dem Seam ihres Slice, sie speichern **DTOs**,
@@ -549,7 +561,7 @@ each step runnable/valuable against fakes, real `io` last:
    enqueue the triggers and turn the broker loop against the real adapters; the pipeline now runs
    outside tests. The one schema owner + version stamp is **built** (0084), and so is the
    dead-letter that keeps a poisoned message from being redelivered forever (0085).
-8. **`report`** HTML output.
+8. **`report`** HTML output — **built** (issue 0012), in `io`, at the end of an exit-0 run.
 9. **Iteration** — review together, learn corrections, name savings.
 
 Prerequisites before their step (see README "Offen" / PRD) — **data**, no longer adapters: a

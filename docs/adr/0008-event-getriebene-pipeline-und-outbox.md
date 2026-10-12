@@ -10,6 +10,10 @@
 > ID ist der publizierte Zeiger; Aggregate referenzieren Fremd-Entitäten **nur per ID**)
 > korrigiert/präzisiert, steht **kanonisch** im Abschnitt „Was dieses ADR supersedet /
 > verfeinert" von [ADR-0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md).
+>
+> **`report` verfeinert durch [ADR-0018](0018-bericht-als-io-formatierer-am-ende-eines-laufs.md):**
+> der Bericht ist **kein** Outbox-Consumer und keine eigene Crate, sondern ein `io`-Formatierer, den
+> der Lauf am Ende eines Exit-0-Laufs aufruft.
 
 Die Auswertung ist eine **Pipeline**; jeder Schritt ist ein **eigener Slice**, per
 **Outbox** vom vorigen getriggert. Dieses ADR macht das zur tragenden Architektur und

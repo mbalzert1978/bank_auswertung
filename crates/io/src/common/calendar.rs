@@ -43,11 +43,20 @@ pub(crate) fn day_stamp(iso: &str) -> Option<i64> {
 /// [`day_stamp`]). `None`, wenn der Stamp jenseits des von chrono darstellbaren Kalenderbereichs liegt
 /// (praktisch unerreichbar: er stammt stets aus einem zuvor per [`day_stamp`] gelesenen Kalendertag).
 pub(crate) fn iso_day(stamp: i64) -> Option<String> {
+    date(stamp).map(|date| date.format("%Y-%m-%d").to_string())
+}
+
+/// Der `i64`-Tag-Stamp in **deutscher Schreibweise** (`TT.MM.JJJJ`) — für den Bericht (Issue 0012).
+/// `None` unter derselben Bedingung wie bei [`iso_day`].
+pub(crate) fn german_day(stamp: i64) -> Option<String> {
+    date(stamp).map(|date| date.format("%d.%m.%Y").to_string())
+}
+
+fn date(stamp: i64) -> Option<NaiveDate> {
     stamp
         .checked_add(i64::from(CE_DAYS_AT_UNIX_EPOCH))
         .and_then(|ce| i32::try_from(ce).ok())
         .and_then(NaiveDate::from_num_days_from_ce_opt)
-        .map(|date| date.format("%Y-%m-%d").to_string())
 }
 
 #[cfg(test)]

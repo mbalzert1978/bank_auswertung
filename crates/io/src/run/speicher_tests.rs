@@ -33,6 +33,7 @@ fn pfade(db: &TempDbPath, csv: &str) -> RunPaths {
         persons_config: fixture("lauf/namen.toml"),
         savings_config: fixture("lauf/sparen.toml"),
         category_export: None,
+        report: db.report_path(),
     }
 }
 
@@ -180,7 +181,7 @@ fn gefragte_arten(paths: &RunPaths) -> Result<Vec<String>, Box<dyn std::error::E
     let kategorien = SqliteCategoryRegistry::new(outbox.clone());
     let orakel = MitschreibendesOrakel::default();
     let mut dispatcher = Dispatcher::new();
-    register(
+    dispatcher::register(
         &mut dispatcher,
         AUSWERTEN_CONSUMED,
         Box::new(consumer(

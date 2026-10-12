@@ -137,10 +137,10 @@ pub use models::{
     CONSUMED_HISTORY_MESSAGE_TYPE, CONSUMED_MESSAGE_TYPE, CategoryAnswerRow, CategoryRequestRow,
     CategoryRow, CostDriverRow, CounterAccountRow, DriverRankRow, EvaluateHistoryCommand,
     EvaluateHistoryCommandDecoder, EvaluateWindowCommand, EvaluateWindowCommandDecoder, FeeRow,
-    HistoryEvaluationRow, InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow,
-    OwnAccountsConfig, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow, RunHistoryRow,
-    SavingsCandidateRow, SavingsThresholdConfig, WindowBookingRow, WindowEvaluationRow,
-    account_role_label,
+    HistoryEvaluationRow, InternalTransferRow, KindAnchorRow, MonthlyCashflowRow, OccurrenceRow,
+    OwnAccountRow, OwnAccountsConfig, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow,
+    RunHistoryRow, SavingsCandidateRow, SavingsThresholdConfig, WindowBookingRow,
+    WindowEvaluationRow, account_role_label,
 };
 pub use testapi::{EvaluationTestApi, HistoryTestApi};
 
@@ -160,7 +160,7 @@ pub use auswerten_domain::is_valid_creditor_id;
 mod datenschutz {
     use super::{
         AccountCashflowRow, CategoryRequestRow, CostDriverRow, DriverRankRow, HistoryEvaluationRow,
-        OccurrenceRow, PriceIncreaseRow, RecurrenceRow, SavingsCandidateRow,
+        KindAnchorRow, OccurrenceRow, PriceIncreaseRow, RecurrenceRow, SavingsCandidateRow,
     };
     use serde::{Deserialize, Serialize};
     use static_assertions::assert_not_impl_any;
@@ -188,6 +188,7 @@ mod datenschutz {
     // nach draußen per `derive`.
     assert_not_impl_any!(AccountCashflowRow: Serialize, Deserialize<'static>);
     assert_not_impl_any!(CostDriverRow: Serialize, Deserialize<'static>);
+    assert_not_impl_any!(KindAnchorRow: Serialize, Deserialize<'static>);
     assert_not_impl_any!(DriverRankRow: Serialize, Deserialize<'static>);
     assert_not_impl_any!(SavingsCandidateRow: Serialize, Deserialize<'static>);
 }
