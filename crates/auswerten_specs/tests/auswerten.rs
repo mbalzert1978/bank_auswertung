@@ -896,8 +896,8 @@ fn zwei_arten_mit_demselben_text_bekommen_je_ihre_eigene_antwort() {
 fn die_anfrage_traegt_weder_kontotoken_noch_pseudonym_noch_seed() {
     // **Datenschutz am einzigen Punkt, an dem Daten die Maschine verlassen.** Die Buchung führt ein
     // Gegenkonto-Token; die Anfrage trägt es nicht — sie hat kein Feld dafür. Was hinausgeht, ist
-    // der Schlüssel (ein Derivat der öffentlichen Gläubiger-ID) und der obfuskierte Text, sonst
-    // nichts. Die „kein `Serialize`"-Sperre auf dem Egress-DTO greift zur **Compile-Zeit**; dieser
+    // der Schlüssel (ein Derivat der öffentlichen Gläubiger-ID) und der Firmenname, sonst nichts —
+    // der Zweck einer gewöhnlichen Firma bleibt seit Issue 0011 ganz zu Hause. Die „kein `Serialize`"-Sperre auf dem Egress-DTO greift zur **Compile-Zeit**; dieser
     // Test hält den **Inhalt** fest, den sie schützt.
     let schluessel = fingerabdruck(HAENDLER);
     let api = api()
@@ -912,7 +912,7 @@ fn die_anfrage_traegt_weder_kontotoken_noch_pseudonym_noch_seed() {
 
     api.run(FENSTER).expect("eine Buchung mit Gegenkonto");
 
-    api.assert_asked(vec![anfrage(&schluessel, "Edeka Sagt Danke")]);
+    api.assert_asked(vec![anfrage(&schluessel, "Edeka")]);
 }
 
 #[test]

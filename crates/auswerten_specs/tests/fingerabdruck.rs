@@ -94,8 +94,8 @@ fn verschiedene_haendler_hinter_demselben_intermediaer_ergeben_verschiedene_fing
         fees: vec![],
         // **Zwei** Arten, nicht eine: der Händler-Token des Verwendungszwecks trennt sie.
         fingerprints: vec![
-            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT-IHR-EINKAUF".to_string(),
-            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB-IHR-EINKAUF".to_string(),
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:REWE-MARKT-IHR-EINKAUF".to_string(),
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:SPOTIFY-AB-IHR-EINKAUF".to_string(),
         ],
         counter_accounts: vec![],
         categories: vec![],
@@ -137,9 +137,7 @@ fn derselbe_haendler_hinter_einem_intermediaer_ueberlebt_die_wechselnde_referenz
         months: vec![monat(2024, 1, 0, 1_200), monat(2024, 2, 0, 1_200)],
         transfers: vec![],
         fees: vec![],
-        fingerprints: vec![
-            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
-        ],
+        fingerprints: vec!["COMPANY:LU96ZZZ0000000000000000058|MERCHANT:REWE-MARKT".to_string()],
         counter_accounts: vec![],
         categories: vec![],
     });
@@ -179,8 +177,8 @@ fn ein_intermediaer_ohne_gefuehrten_namen_verklumpt_seine_haendler_nicht() {
         fees: vec![],
         // Zwei Arten — erkannt über die **Gläubiger-ID**, die immer da ist.
         fingerprints: vec![
-            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-REWE-MARKT".to_string(),
-            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB".to_string(),
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:REWE-MARKT".to_string(),
+            "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:SPOTIFY-AB".to_string(),
         ],
         counter_accounts: vec![],
         categories: vec![],

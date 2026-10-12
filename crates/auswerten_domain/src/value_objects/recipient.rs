@@ -27,18 +27,3 @@ pub enum Recipient {
     /// Keine Gegenpartei — z. B. eine Entgeltzeile.
     Absent,
 }
-
-impl Recipient {
-    /// Das **Kategorie-Signal** der Gegenpartei: der Klartext-Firmenname, sonst nichts.
-    ///
-    /// Er ist es, weil er eine **Firma** benennt — `obfuskieren` pseudonymisiert ihn genau darum
-    /// nicht (CONTEXT.md „Empfänger": das wichtigste Signal für die Kategorie). Das Pseudonym einer
-    /// Privatperson ist **keines**: `PERSON_7` sagt über die Art der Buchung nichts aus, und es
-    /// hinauszureichen wäre Egress ohne jeden Gegenwert.
-    pub(crate) fn category_signal(&self) -> Option<&NonEmptyString> {
-        match self {
-            Recipient::Company { name, .. } => name.as_ref(),
-            Recipient::Person { .. } | Recipient::Absent => None,
-        }
-    }
-}

@@ -290,13 +290,13 @@ fn zwei_haendler_hinter_demselben_durchleiter_ergeben_zwei_wiederkehr_gruppen() 
         wiederkehr_in(&api),
         Ok(vec![
             wiederkehr(
-                "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-SPOTIFY-AB",
+                "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:SPOTIFY-AB",
                 RecurrenceRhythm::Monthly,
                 1_099,
                 13_188
             ),
             wiederkehr(
-                "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-STREAMFLIX",
+                "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:STREAMFLIX",
                 RecurrenceRhythm::Monthly,
                 1_799,
                 21_588

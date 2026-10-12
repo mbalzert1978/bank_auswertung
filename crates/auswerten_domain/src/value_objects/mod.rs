@@ -50,6 +50,7 @@ mod monthly_cashflow;
 mod non_empty_string;
 mod occurrence;
 mod own_accounts;
+mod party;
 mod price_increase;
 mod recipient;
 mod recurrence;

@@ -150,9 +150,11 @@ impl CategorizerSeam for MitschreibendesOrakel {
         &self,
         requests: &[CategoryRequestRow],
     ) -> Result<Vec<CategoryAnswerRow>, CategorizerUnavailable> {
-        self.gefragt
-            .borrow_mut()
-            .extend(requests.iter().map(|request| request.fingerprint.clone()));
+        self.gefragt.borrow_mut().extend(
+            requests
+                .iter()
+                .map(|request| request.fingerprint().to_string()),
+        );
         Ok(Vec::new())
     }
 }
