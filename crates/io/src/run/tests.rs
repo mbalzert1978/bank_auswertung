@@ -48,11 +48,27 @@ fn zaehle(paths: &RunPaths, sql: &str) -> rusqlite::Result<i64> {
 
 /// Die Zahl noch **offener** Nachrichten — nach einem gelungenen Lauf muss sie null sein.
 fn offene_nachrichten(paths: &RunPaths) -> rusqlite::Result<i64> {
-    zaehle(
-        paths,
-        "SELECT count(*) FROM outbox WHERE processed_on_utc IS NULL;",
-    )
+    zaehle(paths, "SELECT count(*) FROM outbox WHERE status = 'open';")
 }
+
+/// Die **ausgesonderten** Nachrichten der Lauf-Datenbank — über den öffentlichen Weg, auf dem auch ein
+/// Mensch sie abfragen würde ([`SqliteOutbox::dead_letters`]).
+fn ausgesonderte(paths: &RunPaths) -> Result<Vec<DeadLetter>, Box<dyn std::error::Error>> {
+    Ok(schema::open(&AppConfig::new(&paths.database))?.dead_letters()?)
+}
+
+/// Die Rohwerte der Fixture `pflichtfeld_fehlt.csv` (eine Zeile ohne Betrag): Auftrags-IBAN,
+/// Gegen-IBAN, Gläubiger-ID, Mandats- und Kundenreferenz, BIC, Empfängername und Verwendungszweck.
+const ROHWERTE_PFLICHTFELD_FEHLT: [&str; 8] = [
+    "DE89370400440532013000",
+    "DE11520513735120710131",
+    "DE98ZZZ09999999999",
+    "MND-001",
+    "E2E-001",
+    "GENODEF1XXX",
+    "EDEKA SAGT DANKE",
+    "Einkauf",
+];
 
 /// Die Zahl der Zeilen einer Ergebnis-Tabelle.
 fn zeilen(paths: &RunPaths, table: &str) -> rusqlite::Result<i64> {
@@ -153,10 +169,12 @@ fn das_lauf_protokoll_traegt_keinen_rohwert_keinen_freitext_keine_iban_und_nicht
 
 #[expect(
     clippy::panic_in_result_fn,
-    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
 )]
 #[test]
-fn ein_terminal_gescheiterter_lauf_nennt_den_redigierten_fehler() -> rusqlite::Result<()> {
+fn ein_terminal_gescheiterter_lauf_sondert_aus_und_nennt_den_redigierten_fehler()
+-> Result<(), Box<dyn std::error::Error>> {
     // Terminal scheitern lassen, wo es real passiert: die Quelldatei fehlt. Der Fehler ist der
     // **nackte, redigierte** Domänen-Fehler des `einlesen`-Slice, den `io` durchreicht.
     let db = TempDbPath::new("lauf_terminal");
@@ -167,9 +185,9 @@ fn ein_terminal_gescheiterter_lauf_nennt_den_redigierten_fehler() -> rusqlite::R
     let fehler = run(&paths, &mut protokoll).expect_err("eine fehlende Quelldatei ist terminal");
 
     assert!(
-        matches!(&fehler, RunError::Message { message_type, .. }
-            if message_type == EINLESEN_CONSUMED),
-        "der Abbruch muss die gescheiterte Nachricht benennen: {fehler:?}"
+        matches!(&fehler, RunError::DeadLettered(ausgesondert)
+            if matches!(ausgesondert.as_slice(), [eine] if eine.message_type() == EINLESEN_CONSUMED)),
+        "der Abbruch muss die ausgesonderte Nachricht benennen: {fehler:?}"
     );
     let meldung = fehler.to_string();
     assert!(
@@ -182,8 +200,56 @@ fn ein_terminal_gescheiterter_lauf_nennt_den_redigierten_fehler() -> rusqlite::R
             "der Fehler darf `{rohwert}` nicht zitieren: {meldung}"
         );
     }
-    // Die Nachricht bleibt **offen** — der nächste Lauf nimmt sie wieder auf (ADR-0012/Issue 0085).
-    assert_eq!(offene_nachrichten(&paths)?, 1);
+    // Ausgesondert statt offen (Issue 0085): nicht mehr zuzustellen, aber abfragbar.
+    assert_eq!(offene_nachrichten(&paths)?, 0);
+    assert_eq!(ausgesonderte(&paths)?.len(), 1);
+    // Die Analyse läuft trotzdem (ADR-0017). Ein ausgesonderter Import-**Auslöser** macht sie nicht
+    // „unvollständig": sein Batch ist atomar, es fehlt keine einzelne Buchung, sondern der ganze Auszug.
+    let text = String::from_utf8(protokoll)?;
+    assert!(text.contains(START_MESSAGE_TYPE), "{text}");
+    assert!(!text.contains("Analyse unvollständig"), "{text}");
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn der_aussonderungs_grund_eines_echten_laufs_traegt_keinen_rohwert_und_keinen_freitext()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Die reale Kette über einer Zeile voller Rohwerte, der der Betrag fehlt: `einlesen` scheitert
+    // terminal, der Broker sondert den Auslöser aus. Weder der abgelegte Grund noch die Meldung des
+    // Laufs noch sein Protokoll dürfen einen Wert dieser Zeile tragen.
+    let db = TempDbPath::new("lauf_grund_redigiert");
+    let mut paths = lauf_pfade(&db);
+    paths.transactions = fixture("einlesen/csv/pflichtfeld_fehlt.csv");
+    let mut protokoll = Vec::new();
+
+    let fehler = run(&paths, &mut protokoll).expect_err("ein fehlendes Pflichtfeld ist terminal");
+
+    let ausgesondert = ausgesonderte(&paths)?;
+    let gruende: Vec<&str> = ausgesondert.iter().map(DeadLetter::reason).collect();
+    // Positiv: der Grund ist da und nennt das fehlende Feld beim statischen Namen.
+    assert!(
+        matches!(gruende.as_slice(), [grund] if grund.contains("mandatory field missing")),
+        "{gruende:?}"
+    );
+    let meldung = fehler.to_string();
+    let text = String::from_utf8(protokoll)?;
+    for rohwert in ROHWERTE_PFLICHTFELD_FEHLT {
+        for (wo, ausgabe) in [
+            ("Grund", gruende.join("\n")),
+            ("Meldung", meldung.clone()),
+            ("Protokoll", text.clone()),
+        ] {
+            assert!(
+                !ausgabe.contains(rohwert),
+                "{wo} darf `{rohwert}` nicht tragen:\n{ausgabe}"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -652,38 +718,108 @@ fn eine_datei_mit_abweichender_schema_version_laesst_den_lauf_terminal_und_redig
 
 #[expect(
     clippy::panic_in_result_fn,
-    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
 )]
 #[test]
-fn ein_offener_ausloeser_einer_anderen_quelle_bricht_den_lauf_ab() -> rusqlite::Result<()> {
-    // Der Fall, der vorher **still** danebenging: ein gescheiterter Lauf lässt seinen Auslöser
-    // offen liegen. Da der Slice seine Quelle über den Datenquellen-Port *dieses* Laufs beschafft
-    // (Issue 0018) und nicht über den `partition_key`, las die liegengebliebene Nachricht beim
-    // nächsten Mal die **neue** Datei — der Lauf importierte sie zweimal und meldete Exit 0.
+fn ein_offener_ausloeser_einer_anderen_quelle_bricht_den_lauf_ab()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Ein Lauf, der nach dem Einreihen seines Auslösers abbrach (Absturz, abgebrochener Prozess),
+    // hinterlässt ihn **offen**. Da der Slice seine Quelle über den Datenquellen-Port *dieses* Laufs
+    // beschafft (Issue 0018) und nicht über den `partition_key`, läse die liegengebliebene Nachricht
+    // beim nächsten Mal die **neue** Datei — der Lauf importierte sie zweimal und meldete Exit 0.
     let db = TempDbPath::new("lauf_fremder_rest");
-    let mut kaputt = lauf_pfade(&db);
-    kaputt.transactions = fixture("einlesen/csv/pflichtfeld_fehlt.csv");
-    let mut protokoll = Vec::new();
-
-    run(&kaputt, &mut protokoll).expect_err("ein fehlendes Pflichtfeld ist terminal");
-    assert_eq!(
-        offene_nachrichten(&kaputt)?,
-        1,
-        "der gescheiterte Auslöser bleibt offen (ADR-0012)"
-    );
+    schema::open(&AppConfig::new(db.path()))?.enqueue(EINLESEN_CONSUMED, "anderer_auszug.csv")?;
 
     let gut = lauf_pfade(&db);
-    let fehler = run(&gut, &mut protokoll).expect_err("der fremde Rest muss den Lauf stoppen");
+    let fehler = run(&gut, &mut Vec::new()).expect_err("der fremde Rest muss den Lauf stoppen");
 
     assert!(
         matches!(&fehler, RunError::PendingImport { pending, requested }
-            if pending == "pflichtfeld_fehlt.csv" && requested == "lauf.csv"),
+            if pending == "anderer_auszug.csv" && requested == "lauf.csv"),
         "der Abbruch muss beide Quellen benennen: {fehler:?}"
     );
     assert_eq!(
         zeilen(&gut, "einlesen_lines")?,
         0,
         "und zwar **bevor** irgendetwas geschrieben wurde"
+    );
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn ein_ausgesonderter_ausloeser_haelt_den_naechsten_lauf_nicht_auf()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Vor Issue 0085 blieb der Auslöser eines gescheiterten Laufs offen — jeder spätere Lauf stellte ihn
+    // erneut zu, und einer mit einer anderen Datei brach mit `PendingImport` ab. Jetzt ist er
+    // ausgesondert: der nächste Lauf geht an ihm vorbei, nennt ihn aber in der Schlussbilanz.
+    let db = TempDbPath::new("lauf_ausgesondert_dann_gut");
+    let mut kaputt = lauf_pfade(&db);
+    kaputt.transactions = fixture("einlesen/csv/pflichtfeld_fehlt.csv");
+    run(&kaputt, &mut Vec::new()).expect_err("ein fehlendes Pflichtfeld ist terminal");
+    assert_eq!(
+        offene_nachrichten(&kaputt)?,
+        0,
+        "nichts bleibt offen liegen"
+    );
+
+    let gut = lauf_pfade(&db);
+    let mut protokoll = Vec::new();
+    // Der nächste Lauf wird nicht aufgehalten — er gelingt.
+    run(&gut, &mut protokoll)?;
+
+    assert_eq!(zeilen(&gut, "einlesen_lines")?, ZEILEN_ERSTES_KONTO);
+    assert_eq!(offene_nachrichten(&gut)?, 0);
+    assert_eq!(ausgesonderte(&gut)?.len(), 1, "die alte bleibt abfragbar");
+    let text = String::from_utf8(protokoll)?;
+    assert!(text.contains("früher ausgesondert: 1"), "{text}");
+    Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert \
+              trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
+)]
+#[test]
+fn eine_in_einem_frueheren_lauf_ausgesonderte_buchung_macht_jeden_spaeteren_lauf_unvollstaendig()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Lauf 1 trifft auf eine vergiftete `obfuskierung`-Nachricht: ein `Ingested`, dessen Zeiger auf
+    // keine eingelesene Zeile zeigt (Stellvertreter für jede Buchung, an der `obfuskieren` terminal
+    // scheitert). Sie wird ausgesondert — und ihre Buchung fehlt fortan in `obfuskiert`, denn eine
+    // bekannte Zeile wird nie neu publiziert. Ein späterer Lauf mit einer anderen Datei gelingt, darf
+    // das aber nicht verschweigen.
+    let db = TempDbPath::new("lauf_unvollstaendig");
+    schema::open(&AppConfig::new(db.path()))?.enqueue(OBFUSKIERUNG_CONSUMED, "gibt-es-nicht")?;
+    let erster = lauf_pfade(&db);
+    let fehler = run(&erster, &mut Vec::new()).expect_err("Lauf 1 hat selbst ausgesondert");
+    assert!(
+        matches!(&fehler, RunError::DeadLettered(ausgesondert)
+            if ausgesondert.iter().all(|eine| eine.message_type() == OBFUSKIERUNG_CONSUMED)),
+        "{fehler:?}"
+    );
+
+    let zweiter = lauf_pfade_mit(&db, ZWEITES_KONTO);
+    let mut protokoll = Vec::new();
+    let bericht = run(&zweiter, &mut protokoll)?;
+
+    assert_eq!(bericht.incomplete(), 1, "aus der Datei, nicht aus dem Lauf");
+    let text = String::from_utf8(protokoll)?;
+    assert!(
+        text.contains("Analyse unvollständig: 1 Buchung(en) ausgesondert"),
+        "{text}"
+    );
+    assert!(text.contains("früher ausgesondert: 1"), "{text}");
+    // Und die Analyse lief — über alles, was da ist.
+    assert!(
+        bericht
+            .processed()
+            .contains_key(CONSUMED_HISTORY_MESSAGE_TYPE)
     );
     Ok(())
 }

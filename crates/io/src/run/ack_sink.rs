@@ -33,7 +33,7 @@ impl AckSink {
 impl OutboxHandler for AckSink {
     /// Öffnet die Arbeitseinheit **allein für den Ack** und committet sie. Ein gescheiterter Commit ist
     /// — wie überall — ein io-interner [`OutboxError::Retry`]: die Nachricht bleibt offen und wird
-    /// erneut zugestellt.
+    /// erneut zugestellt, bis der Broker sie nach der Höchstzahl an Versuchen aussondert.
     fn handle(&self, message: OutboxMessage) -> Result<(), OutboxError> {
         self.outbox
             .begin(MessageId(&message.id))

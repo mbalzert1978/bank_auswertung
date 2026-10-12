@@ -45,6 +45,7 @@ pub struct OutboxMessage {
     /// nativ speicherbar und wire-/serde-neutral — der Envelope trägt keine
     /// plattform-spezifische Zeitrepräsentation.
     pub occurred_on_utc: i64,
-    /// Bisherige Zustellversuche (für Retry/Dead-Letter-Entscheidungen).
+    /// Bisherige Zustellversuche — der Broker zählt sie und sondert eine transient scheiternde
+    /// Nachricht nach [`MAX_DELIVERY_ATTEMPTS`](crate::sqlite::MAX_DELIVERY_ATTEMPTS) Versuchen aus.
     pub attempt: u32,
 }

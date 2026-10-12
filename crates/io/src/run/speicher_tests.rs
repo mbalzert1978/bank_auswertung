@@ -16,7 +16,7 @@ use super::*;
 
 use crate::auswerten::{SqliteCategoryRegistry, consumer};
 use crate::outbox::OutboxMessage;
-use crate::pipeline_test_support::TempDbPath;
+use crate::pipeline_test_support::{TempDbPath, all_processed};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR")))
@@ -191,7 +191,7 @@ fn gefragte_arten(paths: &RunPaths) -> Result<Vec<String>, Box<dyn std::error::E
         outbox.enqueue(AUSWERTEN_CONSUMED, id)?;
     }
     let ergebnisse: Vec<(OutboxMessage, _)> = outbox.deliver_open(&dispatcher)?;
-    if ergebnisse.len() != fenster.len() || ergebnisse.iter().any(|(_, ok)| ok.is_err()) {
+    if ergebnisse.len() != fenster.len() || !all_processed(&ergebnisse) {
         return Err("die erneute Auswertung der Fenster ist gescheitert".into());
     }
     let mut gefragt = orakel.gefragt.take();

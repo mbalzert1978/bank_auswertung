@@ -17,18 +17,21 @@ use std::fmt;
 /// Die frühere Erzählung, `io` klassifiziere die Disposition in Warning/Retry/Critical,
 /// war ein Missverständnis, das
 /// [ADR-0012](../../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
-/// ausgeräumt hat: die Pipeline ist **durchweg terminal**. Wie ein terminaler Fehlschlag
-/// zu behandeln wäre — Versuchszählung, Dead-Letter — ist dort ausdrücklich **vertagt**
-/// und heute **nicht gebaut**
-/// ([Issue 0085](../../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md));
-/// eine gescheiterte Nachricht bleibt schlicht offen liegen.
+/// ausgeräumt hat: die Pipeline ist **durchweg terminal**. Was mit der gescheiterten Nachricht
+/// geschieht, entscheidet seit
+/// [Issue 0085](../../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)
+/// der **Broker** ([`SqliteOutbox::deliver_open`](crate::sqlite::SqliteOutbox::deliver_open)) an
+/// diesem Ort: `Warning`/`Critical` sondern die Nachricht sofort aus, `Retry` erst nach
+/// [`MAX_DELIVERY_ATTEMPTS`](crate::sqlite::MAX_DELIVERY_ATTEMPTS) Versuchen. Die `Display` ist der
+/// abgelegte, redigierte Aussonderungs-Grund.
 ///
 /// Geschlossener Summentyp — nur diese Fälle sind konstruierbar. Der Kernel bleibt
 /// dependency-frei: `Display`/`Error` sind von Hand geschrieben, kein `thiserror`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutboxError {
     /// Die **Arbeitseinheit** brach — das Commit der Transaktion, nicht die Fachlichkeit.
-    /// Die Nachricht bleibt offen; ein späterer Lauf nimmt sie wieder auf (at-least-once).
+    /// Die Nachricht bleibt offen und wird erneut zugestellt (at-least-once), bis die Versuche
+    /// erschöpft sind — der einzige **transiente** Fall.
     Retry {
         /// Die Ursache des gescheiterten Commits.
         reason: String,
@@ -53,8 +56,8 @@ impl fmt::Display for OutboxError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             // Jede Variante benennt den **Ort** des Bruchs, ohne ihn zu bewerten und ohne das
-            // „gescheitert" der Hülle zu wiederholen, die sie einbettet
-            // ([`RunError::Message`](crate::run::RunError)).
+            // „gescheitert" der Hülle zu wiederholen, die sie einbettet (der Aussonderungs-Grund,
+            // [`DeadLetter`](crate::sqlite::DeadLetter)).
             OutboxError::Retry { reason } => write!(f, "beim Commit: {reason}"),
             OutboxError::Warning { reason } => write!(f, "im Slice: {reason}"),
             OutboxError::Critical { message, source } => {

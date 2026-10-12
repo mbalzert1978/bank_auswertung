@@ -4,6 +4,12 @@
 > [0088](../issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md)).
 > Rahmen mit Markus abgestimmt im
 > [Abschlussplan](../plans/2026-10-12-1343-abschlussplan.md), Schritt 2.
+>
+> **Verfeinert durch [ADR-0017](0017-dead-letter-als-status-spalte-der-outbox.md):** „bis der nächste
+> Programmstart ihn zu Ende führt" (Entscheidung zur Lauf-Identität) gilt nur noch **nach einem
+> Absturz**. Eine gescheiterte Nachricht wird ausgesondert, nicht offen gelassen — ein ausgesondertes
+> `AdvanceWindow`/`WindowClosed` lässt seinen Lauf für immer unvollständig. Die Grenze „der Bericht liest
+> nur den eigenen Exit-0-Lauf" trägt das bereits.
 
 Dieses ADR macht **mehrere Läufe in eine Datenbank** richtig: je eigenem Konto ein Lauf, auch
 wiederholt. Es verfeinert [ADR-0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)

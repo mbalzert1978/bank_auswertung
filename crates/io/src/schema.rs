@@ -30,7 +30,7 @@
 //!
 //! **Version 1** ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md))
 //! steht **neben** der Leiter, weil sie keine Stufe ist, sondern ein Neubau (`rebuild_unkeyed_v1`): sie
-//! landet direkt auf der aktuellen Version. Die erste echte Migration war 1 → 2: `einlesen_lines` bekommt den Zeilen-Schlüssel (`row_key`,
+//! landet auf Version 2 und steigt von dort die Leiter hinauf. Die erste echte Migration war 1 → 2: `einlesen_lines` bekommt den Zeilen-Schlüssel (`row_key`,
 //! `UNIQUE`), `auswertungsfenster` den Lauf (`run_id`). Eine Version-1-Datei **ohne** Bestand wird
 //! umgebaut; eine **mit** Bestand wird abgewiesen — terminal, redigiert, unangetastet. Ihre Zeilen
 //! lassen sich nicht nachträglich schlüsseln: der Schlüssel entsteht aus Spalten, die Version 1 nie
@@ -43,6 +43,15 @@
 //! samt seinem Index kommt hinzu, keine vorhandene Tabelle ändert sich. Eine Version-2-Datei wird darum
 //! **mit** ihrem Bestand umgebaut — es geht nichts verloren, und danach trägt sie genau das Schema einer
 //! frischen Datei.
+//!
+//! **Version 3 → 4** ([Issue 0085](../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md),
+//! [ADR-0017](../../../docs/adr/0017-dead-letter-als-status-spalte-der-outbox.md)) gibt der Outbox
+//! ihre `status`-Spalte (`open`/`processed`/`dead_letter`) und den redigierten Aussonderungs-Grund.
+//! Auch hier geht **mit** Bestand nichts verloren: jede Zeile weiß schon, wo sie steht —
+//! `processed_on_utc` gesetzt heißt `processed`, sonst `open`. Die Tabelle wird umgebaut und ihr
+//! Bestand übernommen, samt `rowid` (sie trägt die Zustell-Reihenfolge). Die Ziel-DDL ist in der
+//! Sprosse **eingefroren** (`OUTBOX_VERSION_4`): ändert sich die Outbox später, bleibt diese Sprosse,
+//! was sie ist, und die Änderung wird eine eigene.
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
@@ -56,7 +65,7 @@ use crate::sqlite::{OUTBOX_TABLE, SqliteOutbox, StoreSpec, TableSpec};
 /// Die Schema-Version **dieses Programms** — der Wert, mit dem eine frisch angelegte Datei gestempelt
 /// wird und den eine vorgefundene Datei tragen muss. Hochzählen nur zusammen mit einer Migration in
 /// `ensure`.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// Öffnet die Datenbank-Datei unter dem konfigurierten Pfad als Rückgrat — der **produktive**
 /// Öffnungspfad. Eine frische Datei bekommt Schema und Stempel, eine passend gestempelte wird
@@ -151,10 +160,16 @@ struct Rung {
 
 /// Die Leiter, aufsteigend und lückenlos bis `SCHEMA_VERSION - 1` (ein Test wacht darüber). Eine neue
 /// Migration hängt **eine** Sprosse ans Ende.
-const LADDER: [Rung; 1] = [Rung {
-    from: 2,
-    migrate: add_category_register,
-}];
+const LADDER: [Rung; 2] = [
+    Rung {
+        from: 2,
+        migrate: add_category_register,
+    },
+    Rung {
+        from: 3,
+        migrate: add_outbox_status,
+    },
+];
 
 /// Steigt von der vorgefundenen Version Sprosse für Sprosse bis [`SCHEMA_VERSION`] und stempelt dann.
 fn climb(transaction: &Transaction<'_>, found: i64) -> rusqlite::Result<()> {
@@ -168,16 +183,75 @@ fn climb(transaction: &Transaction<'_>, found: i64) -> rusqlite::Result<()> {
 /// Sprosse 2 → 3 (Issue 0009): legt das Kategorie-Register samt seinem Index an. **Additiv** — keine
 /// vorhandene Tabelle wird berührt, ihr Bestand bleibt, wie er ist.
 fn add_category_register(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
-    transaction.execute_batch(LEARNED_CATEGORIES_TABLE.ddl)
+    transaction.execute_batch(REGISTER_VERSION_3)
 }
 
-/// Version 1 (ADR-0016) — **keine Sprosse, sondern ein Neubau**, der direkt auf der **aktuellen**
-/// Version landet: baut die beiden damals geänderten Tabellen (`einlesen_lines` +`row_key`,
-/// `auswertungsfenster` +`run_id`) neu — **nur**, wenn beide leer sind. Leer heißt: nichts geht
-/// verloren, und `DROP` + Neuanlage **aller** Tabellen aus der heutigen DDL gibt der Datei **genau**
-/// das Schema, das eine frische Datei bekommt (kein `ALTER TABLE` mit Ersatz-Default, das davon
-/// abwiche). Die übrigen Tabellen bleiben, ihr `CREATE … IF NOT EXISTS` läuft ins Leere; was seit
-/// Version 2 neu ist, entsteht dabei gleich mit.
+/// Das Register, wie Sprosse 2 → 3 es anlegt — **eingefroren** wie [`OUTBOX_VERSION_4`], nicht aus
+/// `LEARNED_CATEGORIES_TABLE` gelesen: eine spätere Änderung des Registers bekommt ihre eigene Sprosse.
+const REGISTER_VERSION_3: &str = "\
+CREATE TABLE learned_categories (
+    fingerprint TEXT    PRIMARY KEY CHECK (trim(fingerprint) <> ''),
+    category    TEXT    NOT NULL    CHECK (trim(category) <> ''),
+    created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
+);
+CREATE INDEX window_evaluation_fingerprints_fingerprint_idx
+    ON window_evaluation_fingerprints (fingerprint);";
+
+/// Sprosse 3 → 4 (Issue 0085, ADR-0017): baut die Outbox auf die Form mit Status-Spalte und
+/// Aussonderungs-Grund um und übernimmt jede Zeile — `processed_on_utc` gesetzt wird `processed`,
+/// sonst `open`. Die `rowid` reist mit, weil sie die Zustell-Reihenfolge trägt.
+///
+/// **Umbau statt `ALTER TABLE ADD COLUMN`:** die Status-Spalte braucht die Tabellen-`CHECK`s, die
+/// `ADD COLUMN` nicht nachrüsten kann, und erst die Neuanlage gibt der Datei **genau** das Schema einer
+/// frischen. Die alte Tabelle wird dafür umbenannt, ihr Index vorher verworfen (sonst zöge er mit und
+/// blockierte den Namen des neuen).
+fn add_outbox_status(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS outbox_open_idx; ALTER TABLE outbox RENAME TO outbox_version_3;",
+    )?;
+    transaction.execute_batch(OUTBOX_VERSION_4)?;
+    transaction.execute_batch(
+        "INSERT INTO outbox (rowid, id, message_type, partition_key, content, occurred_on_utc, \
+                             attempt, status, processed_on_utc, created_at, updated_at) \
+         SELECT rowid, id, message_type, partition_key, content, occurred_on_utc, attempt, \
+                CASE WHEN processed_on_utc IS NULL THEN 'open' ELSE 'processed' END, \
+                processed_on_utc, created_at, updated_at \
+         FROM outbox_version_3; \
+         DROP TABLE outbox_version_3;",
+    )
+}
+
+/// Die Outbox, wie Sprosse 3 → 4 sie anlegt — **eingefroren**, nicht aus `OUTBOX_TABLE` gelesen: eine
+/// spätere Änderung der Outbox darf diese Sprosse nicht verschieben, sondern bekommt ihre eigene. Dass
+/// sie heute der aktuellen DDL gleicht, hält der Migrationstest fest (Schema-Vergleich mit einer
+/// frischen Datei).
+const OUTBOX_VERSION_4: &str = "\
+CREATE TABLE outbox (
+    id                 TEXT    PRIMARY KEY,
+    message_type       TEXT    NOT NULL,
+    partition_key      TEXT    NOT NULL,
+    content            TEXT    NOT NULL DEFAULT '',
+    occurred_on_utc    INTEGER NOT NULL,
+    attempt            INTEGER NOT NULL DEFAULT 0,
+    status             TEXT    NOT NULL DEFAULT 'open'
+                               CHECK (status IN ('open', 'processed', 'dead_letter')),
+    processed_on_utc   INTEGER,
+    dead_letter_reason TEXT,
+    created_at         INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at         INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    CHECK ((status = 'processed') = (processed_on_utc IS NOT NULL)),
+    CHECK ((status = 'dead_letter') = (dead_letter_reason IS NOT NULL))
+);
+CREATE INDEX outbox_open_idx
+    ON outbox (status) WHERE status = 'open';";
+
+/// Version 1 (ADR-0016) — **keine Sprosse, sondern ein Neubau**, der auf **Version 2** landet und
+/// von dort die Leiter hinaufsteigt: baut die beiden damals geänderten Tabellen (`einlesen_lines`
+/// +`row_key`, `auswertungsfenster` +`run_id`) neu — **nur**, wenn beide leer sind. Leer heißt: nichts
+/// geht verloren, und `DROP` + Neuanlage gibt beiden **genau** ihre v2-Form (kein `ALTER TABLE` mit
+/// Ersatz-Default, das davon abwiche). Alles danach — Register, Outbox-Status — tun die Sprossen,
+/// derselbe Weg wie für jede Version-2-Datei; kein zweiter Pfad kennt sie.
 ///
 /// Trägt eine der beiden schon Zeilen, wird die Datei abgewiesen (siehe Modul-Doku) — innerhalb der
 /// Transaktion von `ensure`, also unangetastet.
@@ -190,7 +264,11 @@ fn rebuild_unkeyed_v1(transaction: &Transaction<'_>) -> Result<(), SchemaError> 
         }));
     }
     transaction.execute_batch("DROP TABLE einlesen_lines; DROP TABLE auswertungsfenster;")?;
-    create(transaction)?;
+    // Landet auf Version 2: die beiden Tabellen in ihrer v2-Form (die heutige Store-DDL — ändert eine
+    // spätere Sprosse sie, ist hier ihre v2-Form einzufrieren; der Migrationstest schlüge sonst an).
+    // Ab da steigt die Leiter, wie für jede Version-2-Datei.
+    store_tables().try_for_each(|table| transaction.execute_batch(table.ddl))?;
+    climb(transaction, 2)?;
     Ok(())
 }
 
@@ -602,14 +680,15 @@ CREATE TABLE auswertungsfenster (
     const ALT_IBAN: &str = "DE93100000000000000100";
 
     /// Legt eine Datei an, wie Version 1 sie hinterließ: alle Tabellen jener Zeit, die beiden
-    /// geänderten in ihrer alten Form, **ohne** das Register (es kam erst mit Version 3), Stempel 1.
+    /// geänderten in ihrer alten Form, **ohne** das Register (es kam erst mit Version 3), die Outbox
+    /// ohne Status-Spalte (die kam mit Version 4), Stempel 1.
     fn version_1_datei(name: &str) -> Result<TempDbPath, Box<dyn std::error::Error>> {
         let db = TempDbPath::new(name);
         drop(open(&AppConfig::new(db.path()))?);
         let conn = roh(&db)?;
         conn.execute_batch(&format!(
             "DROP TABLE einlesen_lines; DROP TABLE auswertungsfenster; \
-             {OHNE_REGISTER} {V1_EINLESEN_LINES} {V1_AUSWERTUNGSFENSTER}"
+             {OHNE_REGISTER} {V1_EINLESEN_LINES} {V1_AUSWERTUNGSFENSTER} {ALTE_OUTBOX}"
         ))?;
         conn.pragma_update(None, "user_version", 1)?;
         Ok(db)
@@ -708,7 +787,7 @@ CREATE TABLE auswertungsfenster (
         let alt = TempDbPath::new("schema_v2_bestand");
         drop(open(&AppConfig::new(alt.path()))?);
         let conn = roh(&alt)?;
-        conn.execute_batch(OHNE_REGISTER)?;
+        conn.execute_batch(&format!("{OHNE_REGISTER} {ALTE_OUTBOX}"))?;
         conn.pragma_update(None, "user_version", 2)?;
         conn.execute(
             "INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc) \
@@ -729,6 +808,88 @@ CREATE TABLE auswertungsfenster (
         let nachrichten: i64 =
             conn.query_row("SELECT count(*) FROM outbox;", [], |row| row.get(0))?;
         assert_eq!(nachrichten, 1);
+        Ok(())
+    }
+
+    // --- Sprosse 3 → 4 (Issue 0085) -----------------------------------------------------------
+
+    /// Ersetzt die Outbox einer frischen Datei durch ihre Form **vor** Version 4: ohne Status-Spalte,
+    /// offen hieß `processed_on_utc IS NULL`. Eingefroren wie die Version-1-Tabellen oben.
+    const ALTE_OUTBOX: &str = "\
+DROP TABLE outbox;
+CREATE TABLE outbox (
+    id              TEXT    PRIMARY KEY,
+    message_type    TEXT    NOT NULL,
+    partition_key   TEXT    NOT NULL,
+    content         TEXT    NOT NULL DEFAULT '',
+    occurred_on_utc INTEGER NOT NULL,
+    attempt         INTEGER NOT NULL DEFAULT 0,
+    processed_on_utc INTEGER,
+    created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
+);
+CREATE INDEX outbox_open_idx
+    ON outbox (processed_on_utc) WHERE processed_on_utc IS NULL;";
+
+    /// `rowid`, ID, Status, Versuche und Ack-Stempel jeder Outbox-Zeile in Zustell-Reihenfolge.
+    type Nachricht = (i64, String, String, i64, Option<i64>);
+
+    fn nachrichten(conn: &Connection) -> rusqlite::Result<Vec<Nachricht>> {
+        let mut statement = conn.prepare(
+            "SELECT rowid, id, status, attempt, processed_on_utc FROM outbox ORDER BY rowid;",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?;
+        rows.collect()
+    }
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn eine_version_3_datei_mit_bestand_bekommt_die_status_spalte_und_behaelt_jede_nachricht()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Eine Outbox mit Geschichte und **nicht aufsteigend** eingefügten `rowid`s: zuerst eine
+        // verarbeitete Nachricht auf `rowid` 7, dann eine offene mit einem gescheiterten Versuch auf
+        // `rowid` 3. Die Zustell-Reihenfolge hängt an der `rowid` — die Migration muss sie mitnehmen.
+        let alt = TempDbPath::new("schema_v3_bestand");
+        drop(open(&AppConfig::new(alt.path()))?);
+        let conn = roh(&alt)?;
+        conn.execute_batch(ALTE_OUTBOX)?;
+        conn.pragma_update(None, "user_version", 3)?;
+        conn.execute_batch(
+            "INSERT INTO outbox (rowid, id, message_type, partition_key, occurred_on_utc, \
+                                 attempt, processed_on_utc) VALUES (7, 'erst', 'A', 'k1', 1, 0, 5); \
+             INSERT INTO outbox (rowid, id, message_type, partition_key, occurred_on_utc, \
+                                 attempt) VALUES (3, 'dann', 'B', 'k2', 2, 1);",
+        )?;
+        drop(conn);
+        let frisch = TempDbPath::new("schema_v4_frisch");
+        drop(open(&AppConfig::new(frisch.path()))?);
+
+        drop(open(&AppConfig::new(alt.path()))?);
+
+        let conn = roh(&alt)?;
+        assert_eq!(user_version(&conn)?, SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 4);
+        assert_eq!(
+            nachrichten(&conn)?,
+            [
+                (3, "dann".to_string(), "open".to_string(), 1, None),
+                (7, "erst".to_string(), "processed".to_string(), 0, Some(5)),
+            ],
+            "jede Nachricht bleibt, auf ihrer rowid, mit ihrem Stand"
+        );
+        // Genau das Schema einer frischen Datei — die eingefrorene DDL der Sprosse gleicht der heutigen.
+        assert_eq!(schema_text(&conn)?, schema_text(&roh(&frisch)?)?);
         Ok(())
     }
 }

@@ -684,7 +684,7 @@ mod tests {
     use crate::obfuskierung::seed_marker;
     use crate::outbox::UnitOfWork;
     use crate::pipeline_test_support::{
-        CapturingAck, SEED, Stage, drain, register_fresh, seed_through, stamp,
+        CapturingAck, SEED, Stage, all_processed, drain, register_fresh, seed_through, stamp,
     };
     use crate::sqlite::SqliteOutbox;
     use crate::{Dispatcher, MessageId, UnitFactory};
@@ -958,7 +958,7 @@ mod tests {
         let outcomes = drain(&outbox, &dispatcher)?;
 
         assert!(
-            outcomes.iter().all(|(_, outcome)| outcome.is_ok()),
+            all_processed(&outcomes),
             "die volle Pipeline muss ohne Fehler durchlaufen: {outcomes:?}"
         );
 

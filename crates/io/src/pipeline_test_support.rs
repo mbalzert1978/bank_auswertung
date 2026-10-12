@@ -24,7 +24,7 @@ use crate::obfuskierung::{
     ObfuskierungSqliteStore, SeededObfuscator, consumer as obfuskierung_consumer,
 };
 use crate::outbox::{OutboxError, OutboxHandler, OutboxMessage, UnitOfWork};
-use crate::sqlite::SqliteOutbox;
+use crate::sqlite::{Delivery, SqliteOutbox};
 
 /// Registriert einen frischen Consumer und stellt sicher, dass er **keinen** bestehenden verdrängt —
 /// die eine Quelle je Dispatch-Key. Bündelt das über alle Store-Testmodule wiederholte
@@ -42,8 +42,8 @@ pub(crate) fn register_fresh<'a>(
     );
 }
 
-/// Nagelt einen terminalen, redigierten Fehlschlag **beidseitig** fest: der eine `Warning`-Ausgang
-/// trägt das erwartete Diagnose-Präfix des jeweiligen Seams (**positiv**) **und** keinen Rohwert
+/// Nagelt einen terminalen, redigierten Fehlschlag **beidseitig** fest: der eine `Warning`-Ausgang —
+/// vom Broker sofort ausgesondert (Issue 0085) — trägt das erwartete Diagnose-Präfix des jeweiligen Seams (**positiv**) **und** keinen Rohwert
 /// (**negativ**). Bündelt die über die Store-Testmodule wiederholte Zusicherung an **einer** Stelle
 /// ([Issue 0079](../../../../docs/issues/0079-leak-tests-auf-das-diagnose-praefix-festnageln.md)):
 /// eine nur negative Prüfung bliebe grün, fiele die durchgereichte Diagnose ganz weg oder käme sie
@@ -54,12 +54,20 @@ pub(crate) fn register_fresh<'a>(
 )]
 #[track_caller]
 pub(crate) fn assert_redacted_diagnosis(
-    outcomes: &[(OutboxMessage, Result<(), OutboxError>)],
+    outcomes: &[(OutboxMessage, Delivery)],
     expected_prefix: &str,
     raw_value: &str,
 ) {
     let reason = match outcomes {
-        [(_, Err(OutboxError::Warning { reason }))] => reason,
+        [
+            (
+                _,
+                Delivery::DeadLettered {
+                    error: OutboxError::Warning { reason },
+                    ..
+                },
+            ),
+        ] => reason,
         other => panic!("genau ein terminaler Warning-Ausgang erwartet: {other:?}"),
     };
     assert!(
@@ -71,6 +79,14 @@ pub(crate) fn assert_redacted_diagnosis(
         !reason.contains(raw_value),
         "die Diagnose darf keinen Rohwert tragen (Redaktion) — Präfix `{expected_prefix}`"
     );
+}
+
+/// Wurde **jede** Nachricht des Aufrufs verarbeitet? Die eine Zusicherung „die Kette lief ohne
+/// Fehlschlag durch", statt dasselbe `matches!` in jedem Store-Testmodul.
+pub(crate) fn all_processed(deliveries: &[(OutboxMessage, Delivery)]) -> bool {
+    deliveries
+        .iter()
+        .all(|(_, delivery)| matches!(delivery, Delivery::Processed))
 }
 
 /// Der feste Test-Seed, mit dem das Seeding den obfuskierten Bestand tokenisiert. Downstream-Stores
@@ -127,7 +143,7 @@ pub(crate) fn seed_through(
     outbox.enqueue(EINLESEN_CONSUMED, fixture)?;
     let einlesen_out = outbox.deliver_open(&stage1)?;
     assert!(
-        einlesen_out.iter().all(|(_, outcome)| outcome.is_ok()),
+        all_processed(&einlesen_out),
         "einlesen muss atomar verarbeiten: {einlesen_out:?}"
     );
 
@@ -147,7 +163,7 @@ pub(crate) fn seed_through(
     register_fresh(&mut stage2, OBFUSKIERUNG_CONSUMED, Box::new(obfuskierung));
     let obfuskierung_out = outbox.deliver_open(&stage2)?;
     assert!(
-        obfuskierung_out.iter().all(|(_, outcome)| outcome.is_ok()),
+        all_processed(&obfuskierung_out),
         "obfuskierung muss atomar verarbeiten: {obfuskierung_out:?}"
     );
     Ok(())
@@ -257,14 +273,14 @@ impl OutboxHandler for CapturingAck {
 pub(crate) fn drain(
     outbox: &SqliteOutbox,
     dispatcher: &Dispatcher<'_>,
-) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
+) -> rusqlite::Result<Vec<(OutboxMessage, Delivery)>> {
     let mut all = Vec::new();
     for _ in 0..32 {
         let batch = outbox.deliver_open(dispatcher)?;
         if batch.is_empty() {
             return Ok(all);
         }
-        let failed = batch.iter().any(|(_, outcome)| outcome.is_err());
+        let failed = !all_processed(&batch);
         all.extend(batch);
         if failed {
             return Ok(all);

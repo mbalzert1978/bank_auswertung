@@ -20,15 +20,17 @@ ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)).
 | [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) | Zwei Kernel-Crates + idiomatische Outbox-Verträge | **maßgeblich** (in Teilen verfeinert) | [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Kernel-Flip + Fehler-Mapping) |
 | [0010](0010-seed-basierte-pseudonym-stabilitaet.md) | Seed-basierte Pseudonym-Stabilität | **maßgeblich** | — |
 | [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) | Slice-reine Pipeline, Outbox-Mechanik in `io` | **maßgeblich** (entschiedener Plan; in Teilen superseded) | [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (löst 0011s Entscheidung B ab — die Fehler-Taktik) |
-| [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) | Durchweg-terminale Pipeline + uniformes ID-Handoff | **maßgeblich** | — |
+| [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) | Durchweg-terminale Pipeline + uniformes ID-Handoff | **maßgeblich** | [0017](0017-dead-letter-als-status-spalte-der-outbox.md) (beantwortet die vertagte Frage, wie `io` einen terminalen Fehlschlag surfacet) |
 | [0013](0013-zeitfenster-collector-paginierender-analyse-kopf.md) | Zeitfenster-Schritt `fenstern`, zwei Analyse-Reichweiten | **maßgeblich** (akzeptiert, gebaut) | — (verfeinert 0008: Pipeline `einlesen → obfuskieren → fenstern → auswerten → report`) |
 | [0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md) | `io`-Persistenz über rusqlite, synchrone Spine, kein `sqlx` | **maßgeblich** (akzeptiert) | — |
 | [0015](0015-generischer-slice-store-ueber-storespec.md) | Generischer Slice-Store über `StoreSpec` | **maßgeblich** (akzeptiert, gebaut) | — |
-| [0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md) | Zeilen-Schlüssel, lauf-eigene Fenster, vorgemerkte Umsätze überspringen | **maßgeblich** (akzeptiert, gebaut) | — (verfeinert 0012: fachliche Zeilen-Identität neben der DB-ID; verfeinert 0013: Scope der fenster-übergreifenden Reichweite = Lauf) |
+| [0016](0016-zeilen-schluessel-und-lauf-eigene-fenster.md) | Zeilen-Schlüssel, lauf-eigene Fenster, vorgemerkte Umsätze überspringen | **maßgeblich** (akzeptiert, gebaut) | [0017](0017-dead-letter-als-status-spalte-der-outbox.md) (ein gescheiterter Lauf wird nur nach einem Absturz zu Ende geführt) — verfeinert selbst 0012: fachliche Zeilen-Identität neben der DB-ID; verfeinert 0013: Scope der fenster-übergreifenden Reichweite = Lauf |
+| [0017](0017-dead-letter-als-status-spalte-der-outbox.md) | Dead-Letter als Status-Spalte der Outbox | **maßgeblich** (akzeptiert, gebaut) | — (verfeinert 0012: wie `io` einen terminalen Fehlschlag surfacet; verfeinert 0016: Lauf-Vollständigkeit) |
 
 ## Supersession-Graph (Kante zeigt vom Ablöser zum abgelösten ADR)
 
 ```
+0017 ──▶ 0012, 0016   (verfeinert: Dead-Letter als Status-Spalte, Lauf-Folgen; kanonisch in 0017)
 0016 ──▶ 0012, 0013   (verfeinert: Zeilen-Schlüssel + Lauf-Identität als Scope; kanonisch in 0016)
 0013 ──▶ 0008   (verfeinert: Schritt `fenstern` + zwei Analyse-Reichweiten; kanonisch in 0013)
 0012 ──▶ 0008, 0011   (durchweg-terminale Fehler-Taktik + uniformes ID-Handoff; kanonisch in 0012)

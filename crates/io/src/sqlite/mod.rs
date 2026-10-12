@@ -34,8 +34,10 @@
 //! stille Audit-Spalten-Nachrüstung auf Alt-Dateien: eine Datei ohne passenden Stempel wird jetzt
 //! abgewiesen, statt still umgebaut — die Achse für eine Schema-Änderung ist die Version.
 
+mod delivery;
 mod slice_store;
 
+pub use delivery::{DeadLetter, Delivery, MAX_DELIVERY_ATTEMPTS};
 pub use slice_store::{MintedId, SliceStore, SliceUnit, StagedRow, StoreSpec, TableSpec};
 
 use std::cell::RefCell;
@@ -43,7 +45,7 @@ use std::rc::Rc;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
+use crate::outbox::{OutboxCommand, OutboxMessage, OutboxPublisher, UnitOfWork};
 use crate::{Dispatcher, MessageId};
 
 /// Das SQLite-Outbox-Rückgrat: hält die Verbindung und die Outbox-Tabelle. Es ist zugleich der
@@ -127,39 +129,55 @@ impl SqliteOutbox {
     /// → [`begin`](SqliteOutbox::begin)); der Broker hält **keinen** ambient Zustand über die gerade
     /// laufende Nachricht.
     ///
-    /// Scheitert der Commit einer Nachricht (Retry) oder ihr Handler terminal, bleibt sie **offen**
-    /// und wird beim nächsten Lauf erneut zugestellt (at-least-once, resumierbar). Nachrichten, die ein
-    /// Handler in diesem Lauf **neu** publiziert, holt erst der nächste Lauf ab (Schnappschuss-Semantik).
-    ///
-    /// **Redelivery ist heute unbegrenzt** (Fundament-Scope, Issue 0052): eine dauerhaft scheiternde
-    /// Nachricht bleibt offen und wird jeden Lauf erneut zugestellt. Die attempt-basierte Eskalation
-    /// Retry → Dead-Letter nach erschöpften Versuchen (Build-Order Schritt 5) ist **noch nicht gebaut**;
-    /// die `attempt`-Spalte wird dafür bereits mitgeführt, aber von **keinem** Pfad erhöht oder
-    /// honoriert. Wie `io` einen terminalen Fehlschlag surfacet, ist per
+    /// **Was mit einer gescheiterten Nachricht geschieht, entscheidet hier der Broker**
+    /// ([Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)
+    /// beantwortet die in
     /// [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
-    /// vertagt.
+    /// vertagte Frage) — je Nachricht, gleich nach ihrem Versuch, siehe [`Delivery`]:
     ///
-    /// Gibt je Nachricht **den zugestellten Envelope samt ihrem Zustell-Ausgang** zurück; die
-    /// Reihenfolge folgt der Einreihung. Der Envelope reist mit, weil der Aufrufer sonst nur eine
-    /// opake ID hätte: das **Lauf-Protokoll** ([`run`](crate::run)) zählt je `message_type`, und
-    /// dieser Typ ist ein statischer Dispatch-Key, kein Rohwert.
+    /// - **terminal** (`Warning` — der Slice scheiterte; `Critical` — die Hülle trug nicht): die
+    ///   Nachricht wird **sofort** ausgesondert, mit dem redigierten Grund.
+    /// - **transient** (`Retry` — der Commit scheiterte): sie bleibt offen und wird erneut zugestellt,
+    ///   bis [`MAX_DELIVERY_ATTEMPTS`] Versuche verbraucht sind; dann wird auch sie ausgesondert.
+    ///
+    /// Eine ausgesonderte Nachricht ist nicht mehr offen: kein späterer Schnappschuss liefert sie
+    /// wieder, und die Nachrichten hinter ihr laufen weiter. Der Slice merkt davon nichts — er gibt
+    /// weiterhin nur seinen nackten Domänen-Fehler zurück.
+    ///
+    /// Nachrichten, die ein Handler in diesem Aufruf **neu** publiziert, holt erst der nächste Aufruf ab
+    /// (Schnappschuss-Semantik).
+    ///
+    /// Gibt je Nachricht **den zugestellten Envelope samt ihrem Ausgang** zurück; die Reihenfolge folgt
+    /// der Einreihung. Der Envelope reist mit, weil der Aufrufer sonst nur eine opake ID hätte: das
+    /// **Lauf-Protokoll** ([`run`](crate::run)) zählt je `message_type`, und dieser Typ ist ein
+    /// statischer Dispatch-Key, kein Rohwert.
+    ///
+    /// **Kein verbuchter Ausgang geht verloren:** lässt sich ein Fehlschlag nicht verbuchen, steht das
+    /// als [`Delivery::Unrecorded`] **neben** den schon verbuchten Ausgängen dieses Aufrufs, und der
+    /// Broker stellt danach nichts mehr zu (die übrigen Nachrichten bleiben offen) — statt alles
+    /// Verbuchte mit einem Fehler zu verwerfen.
+    ///
+    /// # Errors
+    ///
+    /// Ein `rusqlite`-Fehler, wenn sich die offenen Nachrichten gar nicht erst lesen lassen.
     pub fn deliver_open(
         &self,
         dispatcher: &Dispatcher,
-    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
-        let open = self.open_messages()?;
-        let outcomes = open
-            .into_iter()
-            .map(|message| {
-                let delivered = message.clone();
-                let outcome = dispatcher.dispatch(message);
-                (delivered, outcome)
-            })
-            .collect();
-        Ok(outcomes)
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Delivery)>> {
+        let mut deliveries = Vec::new();
+        for message in self.open_messages()? {
+            let outcome = dispatcher.dispatch(message.clone());
+            let delivery = self.settle(&message, outcome);
+            let unrecorded = matches!(delivery, Delivery::Unrecorded { .. });
+            deliveries.push((message, delivery));
+            if unrecorded {
+                break;
+            }
+        }
+        Ok(deliveries)
     }
 
-    /// Der Schnappschuss der offenen Nachrichten (`processed_on_utc IS NULL`) in Einreih-Reihenfolge.
+    /// Der Schnappschuss der offenen Nachrichten (`status = 'open'`) in Einreih-Reihenfolge.
     /// Die Leihgabe der Verbindung endet mit dieser Methode — der anschließende Dispatch öffnet die
     /// Verbindung für den schreibenden Commit frisch.
     fn open_messages(&self) -> rusqlite::Result<Vec<OutboxMessage>> {
@@ -248,7 +266,7 @@ impl UnitOfWork for SqliteUnit {
     /// davon persistiert, die Nachricht bleibt offen.
     ///
     /// **Idempotenter Ack (Effekt-genau-einmal):** der Ack trifft nur eine **noch offene** Zeile
-    /// (`WHERE … AND processed_on_utc IS NULL`). Aktualisiert er `0` Zeilen — die Nachricht war schon
+    /// (`WHERE … AND status = 'open'`). Aktualisiert er `0` Zeilen — die Nachricht war schon
     /// verarbeitet, etwa durch einen überlappenden Zusteller auf derselben Datei —, bricht der Commit
     /// mit einem [`SqliteCommitError`] ab und **rollt die gestageten Seiteneffekte zurück**, statt sie
     /// doppelt zu committen. Das härtet das Outbox-Pattern über die (dokumentierte) strikt serielle
@@ -279,12 +297,10 @@ impl UnitOfWork for SqliteUnit {
 
 /// Ein gescheiterter Outbox-Commit. Die `Display` ist **redigiert** (reine Transaktions-Mechanik,
 /// nie ein Roh-Zeilenwert). Ein Commit-Fehler wird zu [`OutboxError::Retry`](crate::outbox::OutboxError)
-/// und die Nachricht **erneut zugestellt** — heute **unbegrenzt** (die attempt-basierte Eskalation
-/// Retry → Dead-Letter ist noch nicht gebaut, Build-Order Schritt 5; wie `io` einen terminalen
-/// Fehlschlag surfacet, ist per
-/// [ADR-0012](../../../../docs/adr/0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md)
-/// vertagt). **Sobald** diese Eskalation gebaut ist, wird diese `Display` nach erschöpften Versuchen
-/// als Dead-Letter-Grund gespiegelt — darum ist die Redaktion jetzt schon Pflicht. Der rohe
+/// und die Nachricht **erneut zugestellt**, bis [`MAX_DELIVERY_ATTEMPTS`] Versuche verbraucht sind;
+/// dann wird sie ausgesondert, und diese `Display` liegt als Aussonderungs-Grund an ihrer Outbox-Zeile
+/// ([Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md))
+/// — darum ist die Redaktion Pflicht. Der rohe
 /// `rusqlite`-Fehler wird **nur** im (Entwickler-)`Debug` gehalten, nie über `Display` oder `source`
 /// nach außen gereicht.
 #[derive(Debug)]
@@ -350,37 +366,49 @@ impl From<rusqlite::Error> for SqliteCommitError {
     }
 }
 
-/// Das Outbox-Tabellen-Schema. `processed_on_utc IS NULL` markiert eine **offene** Nachricht.
+/// Das Outbox-Tabellen-Schema. Die **`status`-Spalte** trägt, wo eine Nachricht steht
+/// ([Issue 0085](../../../../docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
+/// `open` (wird zugestellt), `processed` (geackt) oder `dead_letter` (aus der Zustellung genommen).
+/// Nur `open` wird zugestellt — ausgesonderte Nachrichten bleiben als Zeile liegen und sind über
+/// [`SqliteOutbox::dead_letters`] abfragbar, statt verloren zu gehen.
+///
+/// **Illegale Kombinationen sind unkonstruierbar** (`.rules/sql/schema-konventionen.md`, ADR-0005):
+/// `processed_on_utc` steht genau bei `processed`, `dead_letter_reason` genau bei `dead_letter` — je
+/// ein Tabellen-`CHECK`. Eine geackte Nachricht mit Aussonderungs-Grund oder eine offene mit Ack-Stempel
+/// lehnt SQLite ab.
+///
+/// **`attempt`** zählt die Zustellversuche: jeder Ack und jeder gescheiterte Versuch zieht ihn hoch
+/// (s. [`SqliteOutbox::deliver_open`]). An ihm entscheidet der Broker, wann ein **transienter**
+/// Fehlschlag die Nachricht aus der Zustellung nimmt ([`MAX_DELIVERY_ATTEMPTS`]).
 ///
 /// **Partieller Index auf offene Nachrichten:** [`deliver_open`](SqliteOutbox::deliver_open) fragt
-/// `WHERE processed_on_utc IS NULL` ab, und verarbeitete Zeilen werden (im Fundament-Scope) nie
-/// gelöscht — ohne Index wäre das ein Full-Table-Scan pro Lauf über eine wachsende Tabelle. Der
-/// **partielle** Index deckt genau dieses Prädikat und indiziert **nur** die (wenigen) offenen Zeilen,
-/// bleibt also klein, während verarbeitete Zeilen anwachsen.
+/// `WHERE status = 'open'` ab, und verarbeitete Zeilen werden nie gelöscht — ohne Index wäre das ein
+/// Full-Table-Scan pro Lauf über eine wachsende Tabelle. Der **partielle** Index deckt genau dieses
+/// Prädikat und indiziert **nur** die (wenigen) offenen Zeilen.
 ///
-/// **`attempt` ist bewusst mitgeführt, aber im Fundament-Scope (Issue 0052) ungenutzt:** die Spalte
-/// hält im Envelope den Zustellversuchs-Zähler bereit, den erst die attempt-basierte
-/// Retry → Dead-Letter-Eskalation (Build-Order Schritt 5) erhöht und honoriert. Bis dahin bleibt sie
-/// auf `0`, und Redelivery ist unbegrenzt (s. [`SqliteOutbox::deliver_open`]).
 /// `created_at`/`updated_at` (Epoch-Millis) tragen den Row-Audit-Zeitstempel jeder Nachricht
 /// (`.rules/sql/schema-konventionen.md`) — bewusst getrennt vom fachlichen `occurred_on_utc`
 /// (Auftrittszeitpunkt der Nachricht) und dem Ack-Marker `processed_on_utc`: `created_at` hält die
-/// Einfüge-Zeit, `updated_at` wird beim Ack mitgezogen (s. `ACK_MESSAGE`), damit die letzte
-/// Zeilen-Änderung rekonstruierbar bleibt.
+/// Einfüge-Zeit, `updated_at` wird bei jedem Statuswechsel und jedem gezählten Versuch mitgezogen.
 const OUTBOX_DDL: &str = "\
 CREATE TABLE IF NOT EXISTS outbox (
-    id              TEXT    PRIMARY KEY,
-    message_type    TEXT    NOT NULL,
-    partition_key   TEXT    NOT NULL,
-    content         TEXT    NOT NULL DEFAULT '',
-    occurred_on_utc INTEGER NOT NULL,
-    attempt         INTEGER NOT NULL DEFAULT 0,
-    processed_on_utc INTEGER,
-    created_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
-    updated_at      INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
+    id                 TEXT    PRIMARY KEY,
+    message_type       TEXT    NOT NULL,
+    partition_key      TEXT    NOT NULL,
+    content            TEXT    NOT NULL DEFAULT '',
+    occurred_on_utc    INTEGER NOT NULL,
+    attempt            INTEGER NOT NULL DEFAULT 0,
+    status             TEXT    NOT NULL DEFAULT 'open'
+                               CHECK (status IN ('open', 'processed', 'dead_letter')),
+    processed_on_utc   INTEGER,
+    dead_letter_reason TEXT,
+    created_at         INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    updated_at         INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
+    CHECK ((status = 'processed') = (processed_on_utc IS NOT NULL)),
+    CHECK ((status = 'dead_letter') = (dead_letter_reason IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS outbox_open_idx
-    ON outbox (processed_on_utc) WHERE processed_on_utc IS NULL;";
+    ON outbox (status) WHERE status = 'open';";
 
 // Die wiederholten `unixepoch('subsec')`-Aufrufe (auch in INSERT_MESSAGE_RETURNING) liefern
 // **denselben** Zeitpunkt: SQLite berechnet die aktuelle Zeit genau **einmal pro Statement** und
@@ -419,7 +447,7 @@ RETURNING id;";
 const SELECT_OPEN: &str = "\
 SELECT id, message_type, partition_key, content, occurred_on_utc, attempt
 FROM outbox
-WHERE processed_on_utc IS NULL
+WHERE status = 'open'
 ORDER BY rowid;";
 
 /// Nur der `partition_key` der ältesten offenen Nachricht **eines** Typs — die schmalste Auskunft für
@@ -428,19 +456,21 @@ ORDER BY rowid;";
 const SELECT_PENDING_KEY: &str = "\
 SELECT partition_key
 FROM outbox
-WHERE processed_on_utc IS NULL AND message_type = ?1
+WHERE status = 'open' AND message_type = ?1
 ORDER BY rowid
 LIMIT 1;";
 
-/// Ackt **nur eine noch offene** Nachricht (`AND processed_on_utc IS NULL`). Der Zusatz macht den
-/// Ack **idempotent**: trifft er keine offene Zeile (bereits verarbeitet / überlappende Zustellung
+/// Ackt **nur eine noch offene** Nachricht (`AND status = 'open'`) und zählt den Versuch mit. Der
+/// Zusatz macht den Ack **idempotent**: trifft er keine offene Zeile (bereits verarbeitet / überlappende Zustellung
 /// durch einen zweiten Prozess auf derselben Datei), aktualisiert er `0` Zeilen — und der Commit von
 /// [`SqliteUnit`] scheitert, statt still Seiteneffekte doppelt zu committen.
 const ACK_MESSAGE: &str = "\
 UPDATE outbox
-SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER),
+SET status           = 'processed',
+    attempt          = attempt + 1,
+    processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER),
     updated_at       = CAST(unixepoch('subsec') * 1000 AS INTEGER)
-WHERE id = ?1 AND processed_on_utc IS NULL;";
+WHERE id = ?1 AND status = 'open';";
 
 /// Mintet eine neue ID **synchron an der DB** — dasselbe Rezept, das jeder slice-spezifische Store
 /// beim Ablegen braucht: ein zufälliges 128-Bit-`randomblob`, hex-kodiert.
@@ -450,6 +480,7 @@ pub(crate) const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 mod tests {
     use super::*;
     use crate::config::AppConfig;
+    use crate::outbox::OutboxError;
     use crate::pipeline_test_support::TempDbPath;
     use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
     use application_kernel::CommandDecoder;
@@ -560,7 +591,7 @@ mod tests {
 
     fn is_processed(outbox: &SqliteOutbox, id: &str) -> rusqlite::Result<bool> {
         outbox.inner.conn.borrow().query_row(
-            "SELECT processed_on_utc IS NOT NULL FROM outbox WHERE id = ?1;",
+            "SELECT status = 'processed' FROM outbox WHERE id = ?1;",
             (id,),
             |row| row.get(0),
         )
@@ -645,7 +676,7 @@ mod tests {
         assert!(
             matches!(
                 outcomes.as_slice(),
-                [(message, Err(OutboxError::Retry { .. }))] if message.id == root
+                [(message, Delivery::Redelivery { error: OutboxError::Retry { .. }, .. })] if message.id == root
             ),
             "ein gescheiterter Commit muss zu Retry führen: {outcomes:?}"
         );
@@ -699,7 +730,7 @@ mod tests {
         assert!(
             matches!(
                 erster_lauf.as_slice(),
-                [(message, Err(OutboxError::Retry { .. }))] if message.id == root
+                [(message, Delivery::Redelivery { error: OutboxError::Retry { .. }, .. })] if message.id == root
             ),
             "der abgestürzte Versuch muss als Retry erscheinen: {erster_lauf:?}"
         );
@@ -712,7 +743,7 @@ mod tests {
         // Lauf 2 (Resume): dieselbe offene Nachricht wird **erneut** zugestellt und diesmal geackt.
         let zweiter_lauf = outbox.deliver_open(&dispatcher)?;
         assert!(
-            matches!(zweiter_lauf.as_slice(), [(message, Ok(()))] if message.id == root),
+            matches!(zweiter_lauf.as_slice(), [(message, Delivery::Processed)] if message.id == root),
             "der Resume-Lauf muss dieselbe Nachricht erneut zustellen und ackt sie: {zweiter_lauf:?}"
         );
         assert_eq!(
@@ -779,7 +810,7 @@ mod tests {
         // Nach dem Neustart holt der Broker die offene Nachricht ab und ackt sie (resumierbar).
         let outcomes = outbox.deliver_open(&dispatcher)?;
         assert!(
-            matches!(outcomes.as_slice(), [(message, Ok(()))] if message.id == root),
+            matches!(outcomes.as_slice(), [(message, Delivery::Processed)] if message.id == root),
             "nach dem Neustart wird die offene Nachricht zugestellt: {outcomes:?}"
         );
         assert!(is_processed(&outbox, &root)?, "und ist nun geackt");
@@ -803,7 +834,7 @@ mod tests {
         let root = outbox.enqueue(ROOT_TYPE, "root-key")?;
         // Ein überlappender Zusteller hat die Nachricht bereits verarbeitet (Ack gesetzt).
         outbox.inner.conn.borrow().execute(
-            "UPDATE outbox SET processed_on_utc = 1 WHERE id = ?1;",
+            "UPDATE outbox SET status = 'processed', processed_on_utc = 1 WHERE id = ?1;",
             (root.as_str(),),
         )?;
 

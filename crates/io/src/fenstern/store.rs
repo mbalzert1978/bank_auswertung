@@ -286,9 +286,9 @@ mod tests {
     use crate::obfuskierung::ObfuskierungSqliteStore;
     use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{
-        CapturingAck, Stage, drain, register_fresh, seed_through, stamp,
+        CapturingAck, Stage, all_processed, drain, register_fresh, seed_through, stamp,
     };
-    use crate::sqlite::SqliteOutbox;
+    use crate::sqlite::{Delivery, SqliteOutbox};
 
     /// Die `message_type`s der stromabwärtigen Nachrichten — aus den kanonischen
     /// `PublishCommand::MESSAGE_TYPE`s der DTOs statt als String-Literal, damit eine Umbenennung
@@ -374,7 +374,7 @@ mod tests {
         store: FensternSqliteStore,
         window_days: NonZeroU32,
         ack: &CapturingAck,
-    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Delivery)>> {
         let source = ObfuskiertWindowSource::new(outbox.clone());
         let mut dispatcher = Dispatcher::new();
         register_fresh(
@@ -434,7 +434,7 @@ mod tests {
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
-            outcomes.iter().all(|(_, outcome)| outcome.is_ok()),
+            all_processed(&outcomes),
             "der ganze Lauf muss ohne Fehler durchlaufen: {outcomes:?}"
         );
 
@@ -520,7 +520,7 @@ mod tests {
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
-            matches!(outcomes.as_slice(), [(_, Ok(()))]),
+            matches!(outcomes.as_slice(), [(_, Delivery::Processed)]),
             "nur der Anstoß läuft, er publiziert nichts weiter: {outcomes:?}"
         );
         assert!(
@@ -543,7 +543,16 @@ mod tests {
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
-            matches!(outcomes.as_slice(), [(_, Err(OutboxError::Warning { .. }))]),
+            matches!(
+                outcomes.as_slice(),
+                [(
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                )]
+            ),
             "eine fehlende obfuskiert-Tabelle muss die Anker-Frage terminal + redigiert failen \
              lassen: {outcomes:?}"
         );
@@ -568,7 +577,16 @@ mod tests {
 
         // Der Grund trägt die redigierte io-Diagnose, nie eine rohe Buchungs-ID.
         assert!(
-            matches!(outcomes.last(), Some((_, Err(OutboxError::Warning { .. })))),
+            matches!(
+                outcomes.last(),
+                Some((
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                ))
+            ),
             "ein unerreichbarer Fenster-Store muss den Fenster-Schritt terminal failen lassen: \
              {outcomes:?}"
         );
@@ -604,7 +622,16 @@ mod tests {
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
         assert!(
-            matches!(outcomes.last(), Some((_, Err(OutboxError::Warning { .. })))),
+            matches!(
+                outcomes.last(),
+                Some((
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                ))
+            ),
             "eine fehlende Detail-Tabelle muss den Fenster-Schritt terminal + redigiert failen \
              lassen: {outcomes:?}"
         );

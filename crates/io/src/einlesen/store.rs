@@ -362,7 +362,7 @@ mod tests {
     };
     use crate::outbox::{OutboxError, OutboxMessage};
     use crate::pipeline_test_support::{assert_redacted_diagnosis, csv_source, register_fresh};
-    use crate::sqlite::SqliteOutbox;
+    use crate::sqlite::{Delivery, SqliteOutbox};
     use einlesen_adapter::SourceSeam;
 
     /// Die rohe Auftraggeber-IBAN der `gueltig.csv`-Fixture — sie darf in **keinem** Fehlergrund
@@ -410,7 +410,7 @@ mod tests {
         outbox: &SqliteOutbox,
         store: EinlesenSqliteStore,
         fixture: &str,
-    ) -> rusqlite::Result<Vec<(OutboxMessage, Result<(), OutboxError>)>> {
+    ) -> rusqlite::Result<Vec<(OutboxMessage, Delivery)>> {
         let source = csv_source(fixture);
         let konsument = consumer(
             &source,
@@ -450,7 +450,7 @@ mod tests {
 
         // Der Auslöser ist atomar verarbeitet (geackt) — genau ein Ok-Ausgang.
         assert!(
-            matches!(outcomes.as_slice(), [(_, Ok(()))]),
+            matches!(outcomes.as_slice(), [(_, Delivery::Processed)]),
             "der Auslöser muss atomar verarbeitet werden: {outcomes:?}"
         );
         // Die eine Fixture-Zeile liegt feld-treu in der echten Tabelle (ganze DTO in einem Vergleich).
@@ -511,7 +511,16 @@ mod tests {
         let outcomes = deliver(&outbox, store.clone(), "batch_eine_kaputt.csv")?;
 
         assert!(
-            matches!(outcomes.as_slice(), [(_, Err(OutboxError::Warning { .. }))]),
+            matches!(
+                outcomes.as_slice(),
+                [(
+                    _,
+                    Delivery::DeadLettered {
+                        error: OutboxError::Warning { .. },
+                        ..
+                    }
+                )]
+            ),
             "eine kaputte Zeile failt den Batch terminal: {outcomes:?}"
         );
         // Batch-atomar: **weder** die gültige Zeile ist abgelegt **noch** eine Nachricht publiziert.
@@ -543,7 +552,7 @@ mod tests {
             let outcomes = deliver(&outbox, store.clone(), fixture)?;
 
             assert!(
-                matches!(outcomes.as_slice(), [(_, Ok(()))]),
+                matches!(outcomes.as_slice(), [(_, Delivery::Processed)]),
                 "der {fixture}-Auslöser muss atomar verarbeitet werden: {outcomes:?}"
             );
             // Beide Rohbeträge tragen dieselben vier Ziffern; korrekt skaliert stehen sie als 1234
@@ -587,7 +596,8 @@ mod tests {
         // zugestellt — gezählt wird hier nur der Auslöser.)
         assert!(
             outcomes.iter().any(|(message, outcome)| {
-                message.message_type == CONSUMED_MESSAGE_TYPE && outcome.is_ok()
+                message.message_type == CONSUMED_MESSAGE_TYPE
+                    && matches!(outcome, Delivery::Processed)
             }),
             "der zweite Auslöser wird ebenso atomar verarbeitet: {outcomes:?}"
         );
@@ -644,7 +654,7 @@ mod tests {
         let outcomes = deliver(&outbox, store.clone(), "vorgemerkt.csv")?;
 
         assert!(
-            matches!(outcomes.as_slice(), [(_, Ok(()))]),
+            matches!(outcomes.as_slice(), [(_, Delivery::Processed)]),
             "eine vorgemerkte Zeile bricht nichts ab: {outcomes:?}"
         );
         let lines = store.lines()?;
