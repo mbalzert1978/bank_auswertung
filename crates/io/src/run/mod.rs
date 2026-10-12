@@ -878,8 +878,8 @@ mod tests {
     fn ein_zweiter_lauf_auf_derselben_datei_stoesst_den_import_erneut_an() -> rusqlite::Result<()> {
         // Der Lauf ist **resumierbar**, nicht idempotent: er reiht seine Auslöser jedes Mal neu ein.
         // Diese Zusage festzuhalten ist wichtiger als sie zu verstecken — wer zweimal importiert, hat
-        // den Bestand zweimal. Die Entdopplung ist ein eigenes Thema (Schema/Versionsstempel,
-        // Issue 0084), kein stiller Nebeneffekt hier.
+        // den Bestand zweimal. Die Entdopplung ist ein eigenes Thema (Zeilen-Schlüssel,
+        // Issue 0088), kein stiller Nebeneffekt hier.
         let db = TempDbPath::new("lauf_zweimal");
         let paths = lauf_pfade(&db);
         let mut protokoll = Vec::new();

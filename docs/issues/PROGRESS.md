@@ -1,6 +1,36 @@
 # Issue Progress
 
-Stand: 2026-07-31
+Stand: 2026-10-12
+
+## Abschlussplan — Fortschritt (Auftrag „Schritte 0–5 hands-off")
+
+Plan: [2026-10-12-1343-abschlussplan.md](../plans/2026-10-12-1343-abschlussplan.md). Eine neue
+Sitzung setzt **hier** fort: erledigt = gemergt in `dev` + gepusht; offen = noch nicht
+begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
+
+| Schritt | Ticket | GitHub | Status | Commit |
+|---|---|---|---|---|
+| 0 Aufräumen | — | — | erledigt | (Schritt-0-Commit) |
+| 1 Schema-Version | [0084](0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md) | #101 | offen | — |
+| 2 Zeilen-Schlüssel + lauf-eigene Fenster | [0088](0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md) | #105 | offen (nach 1) | — |
+| 3a Wiederkehr | [0005](0005-wiederkehr-erkennung.md) | #94 | offen | — |
+| 3b Scrubbing | [0010](0010-scrubbing-regeln-fuer-obfuskiertertext.md) | #97 | offen | — |
+| 4a Cashflow/Pareto/Spar | [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md) | #95 | offen (nach 2 + 3a) | — |
+| 4b Kategorie-Register | [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md) | #96 | offen | — |
+| 4c Dead-Letter | [0085](0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md) | #102 | offen (nach 2) | — |
+| 5a HTML-Bericht | [0012](0012-html-bericht.md) | #99 | offen (nach 4a) | — |
+| 5b Chat-Export/-Import | [0011](0011-kategorisierer-chat-payload-adapter.md) | #98 | offen (nach 3a, 3b, 4b) | — |
+| E2E vier Konten + Leak-Test | — | — | offen (nach 5a + 5b) | — |
+| Schritt-6-Checkliste | — | — | offen | — |
+
+Weitere GitHub-Spiegel (Schritt 0): 0002 → #93, 0013 → #100, 0086 → #103, 0087 → #104.
+
+Schritt 0 im Detail: 0084 `blocked` → `open` (0083 ist gebaut); 0008 geschlossen (ADR-0010 +
+0059); Blocker 0008 aus 0009 gestrichen; neues Ticket 0088 für Schritt 2; Doku-Widersprüche
+korrigiert (Entdopplung zeigt auf 0088 statt 0084 in CLAUDE.md, `lauf`, `io::run`; `io`-Crate-Doku
+behauptet keinen Dead-Letter mehr; PRD-Stellen nachgezogen; ADR-Index bis 0015; ADR-0015 kündigt
+kein `sqlx` mehr an).
+
 
 ## Erledigt
 

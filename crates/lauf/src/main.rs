@@ -59,7 +59,7 @@ ACHTUNG — ein Lauf ist resümierbar, aber NICHT idempotent: dieselbe CSV zweim
 dieselbe --db eingelesen ergibt den Bestand zweimal. Weil `fenstern` je Lauf die ganze
 Historie neu paginiert, wächst dabei nicht nur der Bestand, sondern auch das
 Analyse-Ergebnis überproportional — die Zahlen sind danach nicht doppelt, sondern falsch.
-Für einen Wiederholungslauf eine frische --db verwenden. Die Entdopplung ist Issue 0084.";
+Für einen Wiederholungslauf eine frische --db verwenden. Die Entdopplung ist Issue 0088.";
 
 /// Warum die Kommandozeile nicht trägt. **Redigiert wie alles andere:** die Meldung nennt die
 /// **Option**, nie den übergebenen Wert — ein Pfad kann Kontonamen tragen, und ein verrutschtes

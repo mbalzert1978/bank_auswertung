@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#104](https://github.com/mbalzert1978/bank_auswertung/issues/104)
+
 ## What to build
 
 Der `einlesen`-CSV-Fixture-Bestand ist gewachsen: acht Dateien, die denselben Header

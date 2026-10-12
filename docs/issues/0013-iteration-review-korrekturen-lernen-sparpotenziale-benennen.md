@@ -8,6 +8,8 @@ status: blocked
 
 **Typ:** HITL — gemeinsame Review-Sitzung mit Markus, kein reiner Code-Slice.
 
+> GitHub-Issue: [#100](https://github.com/mbalzert1978/bank_auswertung/issues/100)
+
 ## Was zu bauen ist
 
 Baureihenfolge-Schritt 7, der Abschluss der ersten vollen

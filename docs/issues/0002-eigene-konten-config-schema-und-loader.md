@@ -8,6 +8,8 @@ status: open
 
 **Typ:** HITL — braucht Markus' echte eigene IBANs + Konto-Rollen.
 
+> GitHub-Issue: [#93](https://github.com/mbalzert1978/bank_auswertung/issues/93)
+
 > **Umbau durch [ADR-0008](../adr/0008-event-getriebene-pipeline-und-outbox.md).** Die
 > ursprünglich hierfür gebaute Slice-Triade `eigene_konten_{domain,adapter,specs}` wurde
 > **entfernt**: in der event-getriebenen Pipeline wird `Gegenkonto::Eigen|Fremd` **nicht**

@@ -16,15 +16,19 @@ ADR supersedet" von [ADR-0008](0008-event-getriebene-pipeline-und-outbox.md)).
 | [0005](0005-domaenenmodell-value-objects-und-summentypen.md) | Domänenmodell: Value Objects & Summentypen | in Teilen superseded | [0007](0007-modularer-monolith-feature-slices.md) |
 | [0006](0006-pseudonym-stabilitaet.md) | Pseudonym-Stabilität | superseded | [0010](0010-seed-basierte-pseudonym-stabilitaet.md) (Mechanismus), [0007](0007-modularer-monolith-feature-slices.md) (Verortung) |
 | [0007](0007-modularer-monolith-feature-slices.md) | Modularer Monolith aus Feature-Slices | in Teilen superseded | [0008](0008-event-getriebene-pipeline-und-outbox.md), [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) |
-| [0008](0008-event-getriebene-pipeline-und-outbox.md) | Event-getriebene Pipeline aus Slices mit Outbox | **maßgeblich** (in Teilen verfeinert) | [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) (Kernel-Aspekt), [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Slice-Mechanik), [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (Fehler-Taktik + ID-Handoff) |
+| [0008](0008-event-getriebene-pipeline-und-outbox.md) | Event-getriebene Pipeline aus Slices mit Outbox | **maßgeblich** (in Teilen verfeinert) | [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) (Kernel-Aspekt), [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Slice-Mechanik), [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (Fehler-Taktik + ID-Handoff), [0013](0013-zeitfenster-collector-paginierender-analyse-kopf.md) (Schritt `fenstern`) |
 | [0009](0009-kernel-split-und-idiomatische-outbox-vertraege.md) | Zwei Kernel-Crates + idiomatische Outbox-Verträge | **maßgeblich** (in Teilen verfeinert) | [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) (Kernel-Flip + Fehler-Mapping) |
 | [0010](0010-seed-basierte-pseudonym-stabilitaet.md) | Seed-basierte Pseudonym-Stabilität | **maßgeblich** | — |
 | [0011](0011-slice-reine-pipeline-outbox-mechanik-in-io.md) | Slice-reine Pipeline, Outbox-Mechanik in `io` | **maßgeblich** (entschiedener Plan; in Teilen superseded) | [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) (löst 0011s Entscheidung B ab — die Fehler-Taktik) |
 | [0012](0012-durchweg-terminale-pipeline-und-uniformes-id-handoff.md) | Durchweg-terminale Pipeline + uniformes ID-Handoff | **maßgeblich** | — |
+| [0013](0013-zeitfenster-collector-paginierender-analyse-kopf.md) | Zeitfenster-Schritt `fenstern`, zwei Analyse-Reichweiten | **maßgeblich** (akzeptiert, gebaut) | — (verfeinert 0008: Pipeline `einlesen → obfuskieren → fenstern → auswerten → report`) |
+| [0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md) | `io`-Persistenz über rusqlite, synchrone Spine, kein `sqlx` | **maßgeblich** (akzeptiert) | — |
+| [0015](0015-generischer-slice-store-ueber-storespec.md) | Generischer Slice-Store über `StoreSpec` | **maßgeblich** (akzeptiert, gebaut) | — |
 
 ## Supersession-Graph (Kante zeigt vom Ablöser zum abgelösten ADR)
 
 ```
+0013 ──▶ 0008   (verfeinert: Schritt `fenstern` + zwei Analyse-Reichweiten; kanonisch in 0013)
 0012 ──▶ 0008, 0011   (durchweg-terminale Fehler-Taktik + uniformes ID-Handoff; kanonisch in 0012)
 0011 ──▶ 0008, 0009   (Slice = reine Pipeline, Outbox-Mechanik + Kernel-Flip in io; kanonisch in 0011)
 0010 ──▶ 0006   (Pseudonym-Stabilität: Seed statt persistenter Zuordnungstabelle; kanonisch in 0010)

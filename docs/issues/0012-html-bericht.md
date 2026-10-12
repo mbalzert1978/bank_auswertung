@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#99](https://github.com/mbalzert1978/bank_auswertung/issues/99)
+
 ## Was zu bauen ist
 
 Der `Bericht`-Port (outbound), HTML zuerst (Baureihenfolge-Schritt 6): zeigt

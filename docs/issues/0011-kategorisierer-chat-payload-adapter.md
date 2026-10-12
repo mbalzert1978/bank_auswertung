@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#98](https://github.com/mbalzert1978/bank_auswertung/issues/98)
+
 ## Was zu bauen ist
 
 Der `Kategorisierer`-Port (outbound), Chat-Payload-Adapter zuerst

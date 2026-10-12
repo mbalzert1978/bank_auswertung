@@ -264,11 +264,11 @@ verschoben (s. dort den Supersession-Hinweis).
   Fluent-TestApi mit **Fakes** (Fake-`OutboxPublisher`, Fake-Stores, Fake-Quelle);
   das echte `io`-Crate (SQLite-Outbox + -Stores, Datei/CSV-Parse) erfüllt später
   dieselben Seams.
-  > **Teilweise überholt** ([ADR-0014](../adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md),
-  > Issues 0050–0054): `einlesen` läuft inzwischen end-to-end gegen echtes `io`
-  > (rusqlite-Outbox + -Store, CSV-Quelle, `Calendar`/`Money`-Seams) — kein Fake
-  > mehr in diesem Slice. `obfuskieren`/`fenstern`/`auswerten` fahren weiterhin
-  > gegen Fakes.
+  > **Überholt** ([ADR-0014](../adr/0014-io-persistenz-rusqlite-synchron-kein-sqlx.md),
+  > Issues 0050–0059, 0083): **alle vier** Slices haben ihren realen `io`-Store und ihre
+  > reale Lese-Quelle; das Programm `bank-auswertung` fährt die ganze Kette gegen echtes
+  > SQLite und die echte CSV-Quelle. Die Fluent-TestApis der Slices laufen weiter gegen
+  > Fakes — das ist die Black-Box-Spezifikation, nicht ein fehlender Adapter.
 - **Referenz:** die interne C#-Vorlage unter `examples/` (Slices `Downloader`/
   `Stager`, `Outbox`, `Common`) ist das kanonische Vorbild für Handler, Bridges und
   Outbox-Verträge.
@@ -407,8 +407,7 @@ Invarianten aus Nutzersicht._
    > gesplittet in zwei Pipeline-Schritte — **`einlesen`** (Rohdaten prüfen/erfassen,
    > CSV-CAMT-v8 ist nur eine Eingabeform hinter dem Quell-Seam) und das nachgelagerte
    > **`obfuskieren`** (Token-Vergabe + Freitext-Scrubbing). Die **Slice-Umbenennung
-   > `csv_camt_v8` → `einlesen`** ist **beschlossen, aber noch nicht ausgeführt**
-   > (Crates/Code führen bis zum Bau weiter `csv_camt_v8`).
+   > `csv_camt_v8` → `einlesen`** ist **ausgeführt** (Crates `einlesen_*`).
 3. **Analyse-Kern**: Wiederkehr + Gebühren + Aderlass + Pareto. Schon ohne LLM
    wertvoll (Lackmustest).
 4. **`Speicher` (SQLite)** für DTOs + Kategorie-Register.

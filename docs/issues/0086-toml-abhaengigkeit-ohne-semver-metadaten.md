@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#103](https://github.com/mbalzert1978/bank_auswertung/issues/103)
+
 ## What to build
 
 Die `toml`-Abhängigkeit von `io` ist mit Build-Metadaten hinter einem `+` angegeben. Cargo

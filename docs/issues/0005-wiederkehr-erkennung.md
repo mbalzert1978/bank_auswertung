@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#94](https://github.com/mbalzert1978/bank_auswertung/issues/94)
+
 > **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
 > Analyzer-Baustein **unter dem `auswerten`-Slice**, die **fenster-übergreifende** Reichweite. Die
 > Wiederkehr läuft als **Read-Port-Query über alle `Auswertungsfenster`-Aggregate** eines Laufs,

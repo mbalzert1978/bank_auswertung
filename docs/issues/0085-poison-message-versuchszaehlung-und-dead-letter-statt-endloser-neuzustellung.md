@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#102](https://github.com/mbalzert1978/bank_auswertung/issues/102)
+
 ## What to build
 
 Eine Nachricht, deren Handler **terminal** scheitert, bleibt heute in der SQLite-Outbox

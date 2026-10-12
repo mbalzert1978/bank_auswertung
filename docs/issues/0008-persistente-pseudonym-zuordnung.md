@@ -1,12 +1,17 @@
 ---
 id: "0008"
 title: "Persistente Pseudonym-Zuordnung"
-status: open
+status: closed
 ---
 
 # Persistente Pseudonym-Zuordnung
 
 **Typ:** AFK
+
+> **Geschlossen (2026-10-12, Abschlussplan Schritt 0).** Erledigt durch
+> [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md) (Seed statt Zuordnungs-Speicher)
+> und [0059](0059-config-loader-toml-seed.md) (Seed-Loader). Ein Klartext↔Pseudonym-Speicher wird
+> bewusst **nicht** gebaut; die Abnahmekriterien unten sind damit gegenstandslos.
 
 > **Weitgehend hinfällig durch [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md).**
 > Die Pseudonym-Stabilität ruht heute auf einem **config-injizierten Seed** (deterministische

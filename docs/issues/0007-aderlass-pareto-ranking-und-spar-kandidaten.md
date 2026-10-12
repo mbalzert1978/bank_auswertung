@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#95](https://github.com/mbalzert1978/bank_auswertung/issues/95)
+
 > **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
 > Analyzer-Baustein **unter dem `auswerten`-Slice**, die **pro-Fenster**-Reichweite: Cashflow/Pareto/
 > Spar-Kandidaten **innerhalb** eines `Auswertungsfenster`s (Handler auf `FensterGeschlossen`). Der

@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#96](https://github.com/mbalzert1978/bank_auswertung/issues/96)
+
 > **Hinweis zum Zuordnungs-Speicher:** Seit
 > [ADR-0010](../adr/0010-seed-basierte-pseudonym-stabilitaet.md) gibt es **keinen**
 > persistenten Klartext↔Pseudonym-Speicher mehr (Slice 0008 hinfällig). Das lokal zu
@@ -53,4 +55,5 @@ machen.
 ## Blockiert durch
 
 - Blockiert durch [0001](0001-domaenen-skelett-buchung-fingerabdruck-obfuskiertertext-kategorieanfrage.md)
-- Blockiert durch [0008](0008-persistente-pseudonym-zuordnung.md)
+- ~~Blockiert durch [0008](0008-persistente-pseudonym-zuordnung.md)~~ — **entfällt**: 0008 ist
+  durch ADR-0010 + 0059 erledigt und geschlossen.

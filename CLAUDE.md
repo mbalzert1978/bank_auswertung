@@ -362,7 +362,7 @@ the **whole** obfuscated history per run, so run *n* adds *n* × the rows to
 `auswertungsfenster_buchungen` (measured: 53 → 159 → 318 over three runs, occurrences 49 → 147 →
 294). The numbers after a repeat run are not doubled, they are **wrong**. Use a fresh `--db` per run
 until the de-duplication lands
-([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)). A leftover
+([0088](docs/issues/0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md)). A leftover
 trigger from a *failed* run is caught (`RunError::PendingImport`, see `einlesen` above); a
 deliberate repeat of the *same* file is not — that one is the operator's call.
 Git worktrees go under `.claude/worktrees/` (local-only, gitignored).

@@ -1,12 +1,14 @@
 ---
 id: "0084"
 title: "Schema an einem Ort und Versionsstempel als Migrationsachse"
-status: blocked
+status: open
 ---
 
 # Schema an einem Ort und Versionsstempel als Migrationsachse
 
 **Typ:** AFK
+
+> GitHub-Issue: [#101](https://github.com/mbalzert1978/bank_auswertung/issues/101)
 
 ## What to build
 
@@ -32,5 +34,9 @@ der Weg, auf dem eine echte Datenbank entsteht.
 
 ## Blocked by
 
-- [0083](0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md) — der
-  produktive Öffnungspfad entsteht erst mit dem Lauf-Anstoß.
+- ~~[0083](0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)~~ —
+  **aufgelöst**: der produktive Öffnungspfad (`io::run`) steht seit 0083.
+
+> **Abgrenzung:** die **Entdopplung** wiederholter Importe ist **nicht** Teil dieses Tickets,
+> sondern [0088](0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md) —
+> sie ist die erste echte Migration auf dem Anker, den dieses Ticket legt.

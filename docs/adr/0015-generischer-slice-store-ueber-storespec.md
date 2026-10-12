@@ -196,15 +196,13 @@ Die getroffenen Weichen im Einzelnen:
   Store-Test — insb. das Kriterium *„Preflight probt alle N Inserts"* des `auswerten`-Capstones
   ([Issue 0077](../issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)).
 
-  Diese Rest-Drift wird **nicht** typseitig eingezäunt, weil sie ein Ablaufdatum hat: sobald der
-  MVP steht, ist der Wechsel auf **`sqlx`** vorgesehen, dessen `query!`-Makros den SQL zur
-  Compile-Zeit gegen die DB verifizieren — genau diese Drift-Klasse verschwindet dann von selbst.
-  `TableSpec::insert` ist die Stelle, die dabei zum Makro-Aufruf wird; die Struktur überlebt den
-  Wechsel, die Trage-Konstruktion darüber wird ohnehin neu geschnitten. Bis dahin gilt
-  [ADR-0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md) (rusqlite, synchrone Spine) — der
-  async-Ripple durch `application_kernel` und alle Slices ist der Grund, warum `sqlx` **heute**
-  nicht geht. Aufwand, der diese Drift jetzt von Hand einhegt, ist Arbeit an einem Problem mit
-  Verfallsdatum.
+  Diese Rest-Drift wird **nicht** typseitig eingezäunt. **Korrektur (2026-10-12):** eine frühere
+  Fassung dieses Absatzes kündigte für die Zeit nach dem MVP einen Wechsel auf **`sqlx`** an, dessen
+  `query!`-Makros die Drift von selbst beseitigen würden. Das widerspricht
+  [ADR-0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md), das `sqlx` **verworfen** hat (der
+  async-Ripple durch `application_kernel` und alle Slices) — ein solcher Wechsel ist **nicht**
+  geplant. Die Drift bleibt deshalb dauerhaft dem handgeschriebenen Store-Test je Slice anvertraut;
+  das Netz oben ist das einzige, und es reicht für vier Stores mit je einer Handvoll Statements.
 - Alle sechs Gates bleiben nach der Umsetzung grün; die vier bestehenden Store-Tests
   (feld-treue Ablage, terminal-redigierter Fehlschlag, Batch-Atomarität) bleiben die
   Spezifikation und sind der Regressionsschutz der Kollabierung.

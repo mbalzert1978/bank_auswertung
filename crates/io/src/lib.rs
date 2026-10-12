@@ -12,8 +12,9 @@
 //!   `CommandDecoder` (Shape Y — nur nackte Strings) und dispatcht das Kommando an den
 //!   `TransactionalHandler`, der **eine** `UnitOfWork` öffnet, den Slice-Handler **aus ihr** baut
 //!   (Store und Publish sind dieselbe committende Unit — eine gestagete Schreibung committet mit
-//!   der Nachricht oder gar nicht) und committet. Jeder Handler-Fehler ist **terminal** →
-//!   Dead-Letter über das **`Display`** des Fehlers (nie `Debug`). Den `OutboxError` der
+//!   der Nachricht oder gar nicht) und committet. Jeder Handler-Fehler ist **terminal** und
+//!   wird über sein **`Display`** gemeldet (nie `Debug`); einen Dead-Letter gibt es noch nicht —
+//!   die Nachricht bleibt offen (Issue 0085). Den `OutboxError` der
 //!   Nachrichtenverarbeitung baut der Consumer (Retry entsteht ausschließlich io-intern beim
 //!   Commit); die Auflösungs-Ebene baut ihr eigenes `Critical` im [`Dispatcher`].
 //! - [`PublishingPort`] macht den **letzten Outbox-Hop**: es bindet

@@ -8,6 +8,8 @@ status: open
 
 **Typ:** AFK
 
+> GitHub-Issue: [#97](https://github.com/mbalzert1978/bank_auswertung/issues/97)
+
 ## Was zu bauen ist
 
 Vertieft `ObfuskierterText` (D3, Slice 0001 lieferte nur eine minimale
