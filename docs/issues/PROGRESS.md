@@ -15,7 +15,7 @@ begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
 | 2 Zeilen-Schlüssel + lauf-eigene Fenster | [0088](0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md) | #105 | erledigt | 51ea0c8 |
 | 3a Wiederkehr | [0005](0005-wiederkehr-erkennung.md) | #94 | erledigt | 9ed77a9 |
 | 3b Scrubbing | [0010](0010-scrubbing-regeln-fuer-obfuskiertertext.md) | #97 | erledigt | 1ef9ab8 |
-| 4a Cashflow/Pareto/Spar | [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md) | #95 | offen (nach 2 + 3a) | — |
+| 4a Cashflow/Pareto/Spar | [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md) | #95 | erledigt | db8aa36 |
 | 4b Kategorie-Register | [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md) | #96 | erledigt | 1b70038 |
 | 4c Dead-Letter | [0085](0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md) | #102 | erledigt | e2bd671 |
 | 5a HTML-Bericht | [0012](0012-html-bericht.md) | #99 | offen (nach 4a) | — |
