@@ -52,7 +52,7 @@ impl AppConfig {
     }
 
     /// Der Pfad, unter dem das transaktionale Rückgrat persistiert
-    /// ([`SqliteOutbox::open`](crate::sqlite::SqliteOutbox::open)).
+    /// ([`schema::open`](crate::schema::open)).
     pub fn database_path(&self) -> &Path {
         &self.database_path
     }

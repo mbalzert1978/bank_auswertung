@@ -35,9 +35,7 @@ use rusqlite::types::{ToSql, ToSqlOutput};
 use rusqlite::{Connection, Transaction};
 
 use crate::outbox::{OutboxCommand, OutboxPublisher, UnitOfWork};
-use crate::sqlite::{
-    AUDIT_COLUMNS, MINT_ID, SqliteCommitError, SqliteOutbox, SqliteUnit, ensure_columns,
-};
+use crate::sqlite::{MINT_ID, SqliteCommitError, SqliteOutbox, SqliteUnit};
 use crate::{MessageId, UnitFactory};
 
 /// Eine SQL-fertige, **besitzende** Ablage-Schreibung: sie reist in die gestagete Closure und wird
@@ -45,15 +43,16 @@ use crate::{MessageId, UnitFactory};
 pub type StagedRow = Box<dyn FnOnce(&Transaction<'_>) -> rusqlite::Result<()> + 'static>;
 
 /// Eine Tabelle des Slice mit **ihrem** DDL und **ihrem** Ablage-Statement — beisammen statt in
-/// parallelen Listen. Eine Tabelle ohne Audit-Spalten-Nachrüstung oder ohne Preflight ist damit gar
-/// nicht erst deklarierbar: [`SliceStore::new`] und der Preflight laufen über **dieselbe** Liste.
+/// parallelen Listen. Eine Tabelle, die nicht angelegt oder nicht geprobt würde, ist damit gar nicht
+/// erst deklarierbar: der Schema-Besitzer ([`schema`](crate::schema)) und der Preflight laufen über
+/// **dieselbe** Liste.
 ///
 /// Die SQL bleibt pro Slice als `&'static str`-Literal authored — der generische Store fasst **keine**
 /// DDL an und leitet nichts aus SQL ab (kein Parsen, keine Magie): er liest nur, was der Slice
 /// deklariert hat.
 pub struct TableSpec {
-    /// Der Tabellenname — Ziel der Audit-Spalten-Nachrüstung (`ensure_columns`). Stets ein
-    /// Code-Literal, nie Fremd-Eingabe.
+    /// Der Tabellenname — stets ein Code-Literal, nie Fremd-Eingabe. Er macht die Liste prüfbar:
+    /// dass der Schema-Besitzer **jede** deklarierte Tabelle anlegt, belegt sein Test über die Namen.
     pub name: &'static str,
     /// Das `CREATE TABLE IF NOT EXISTS …` dieser Tabelle samt ihrer `CREATE INDEX IF NOT EXISTS`.
     pub ddl: &'static str,
@@ -112,8 +111,8 @@ pub trait StoreSpec {
     /// Der adaptereigene, **redigierte** Store-Fehler des Slice (`StoreUnavailable`).
     type Error;
 
-    /// Alle Tabellen des Slice, je mit DDL und Ablage-`INSERT` ([`TableSpec`]) — `new` legt jede an
-    /// und rüstet ihre Audit-Spalten nach, der Preflight probt jedes ihrer Statements.
+    /// Alle Tabellen des Slice, je mit DDL und Ablage-`INSERT` ([`TableSpec`]) — der Schema-Besitzer
+    /// ([`schema`](crate::schema)) legt jede an, der Preflight probt jedes ihrer Statements.
     fn tables() -> &'static [TableSpec];
 
     /// Deutet die DTO fehlbar in ihre besitzende Speicher-Form um — der **einzige** DTO-Kontakt des
@@ -131,8 +130,8 @@ pub trait StoreSpec {
     fn unavailable(error: rusqlite::Error) -> Self::Error;
 }
 
-/// Der generische Slice-Ergebnis-Store: hält das SQLite-Rückgrat und stellt beim Aufbau die
-/// Tabellen des Slice sicher. Ein Slice bindet ihn als Typ-Alias unter seinem sprechenden Namen und
+/// Der generische Slice-Ergebnis-Store: hält das SQLite-Rückgrat. Sein **Schema legt er nicht an** —
+/// das tut allein der Schema-Besitzer ([`schema`](crate::schema), Issue 0084). Ein Slice bindet ihn als Typ-Alias unter seinem sprechenden Namen und
 /// erfüllt damit seine `UnitFactory`. `Clone` teilt dasselbe Rückgrat (`Rc` im Innern).
 pub struct SliceStore<S> {
     outbox: SqliteOutbox,
@@ -153,31 +152,31 @@ impl<S> Clone for SliceStore<S> {
 }
 
 impl<S: StoreSpec> SliceStore<S> {
-    /// Baut den Store über dem gegebenen Rückgrat und legt die Tabellen des Slice an
-    /// (`IF NOT EXISTS` — ein bestehender Bestand bleibt erhalten). `ensure_columns` rüstet die
-    /// Audit-Spalten auf einer **alten** Tabelle nach, da `CREATE TABLE IF NOT EXISTS` das nicht tut.
-    /// Anlegen und Nachrüsten laufen über **eine** Liste, also je Tabelle beides oder keines.
-    pub fn new(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
-        outbox.with_connection(|conn| {
-            S::tables().iter().try_for_each(|table| {
-                conn.execute_batch(table.ddl)?;
-                ensure_columns(conn, table.name, AUDIT_COLUMNS)
-            })
-        })?;
-        Ok(Self {
-            outbox,
-            spec: PhantomData,
-        })
-    }
-
-    /// Baut den Store **ohne** sein Schema anzulegen — nur für Tests, die einen *unerreichbaren*
-    /// Store brauchen (die Ablage muss dann synchron und terminal failen).
-    #[cfg(test)]
-    pub(crate) const fn without_schema(outbox: SqliteOutbox) -> Self {
+    /// Baut den Store über dem gegebenen Rückgrat — **ohne** ein Schema anzulegen
+    /// ([Issue 0084](../../../../docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)):
+    /// die Tabellen des Slice stehen schon, weil der produktive Öffnungspfad
+    /// [`schema::open`](crate::schema::open) **alle** Tabellen an **einer** Stelle anlegt und die Datei
+    /// mit ihrer Schema-Version stempelt. Fehlt eine Tabelle trotzdem, failt die Ablage im Preflight
+    /// terminal und redigiert — der Store baut sich nichts still nach.
+    pub const fn new(outbox: SqliteOutbox) -> Self {
         Self {
             outbox,
             spec: PhantomData,
         }
+    }
+
+    /// Baut den Store und legt **nur seine eigenen** Tabellen an — der **Test-Weg** für die
+    /// Store-Tests, die einen Slice isoliert (ohne die Tabellen der übrigen) prüfen. Eine echte
+    /// Datenbank bekommt ihr Schema nie hierüber, sondern ausschließlich über
+    /// [`schema::open`](crate::schema::open).
+    #[cfg(test)]
+    pub(crate) fn with_own_tables(outbox: SqliteOutbox) -> rusqlite::Result<Self> {
+        outbox.with_connection(|conn| {
+            S::tables()
+                .iter()
+                .try_for_each(|table| conn.execute_batch(table.ddl))
+        })?;
+        Ok(Self::new(outbox))
     }
 
     /// Reicht die geteilte Verbindung an `f` — der Lese-Zugriff auf den abgelegten Bestand. Heute

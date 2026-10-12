@@ -34,8 +34,8 @@
 //! Preflight/Minten, die [`UnitFactory`](crate::UnitFactory) und der Outbox-Passthrough leben
 //! generisch in [`SliceStore`]/[`SliceUnit`]. Er ist der **Sieben-Tabellen-Fall** und damit der
 //! Capstone der Abstraktion: **alle sieben** Tabellen stehen mit DDL und Ablage-Statement in **einer**
-//! [`TableSpec`]-Liste (also legt `new` jede an, rüstet auf jeder die Audit-Spalten nach und der
-//! Preflight probt **jedes** ihrer Statements), und [`stage`](StoreSpec::stage) liefert **eine**
+//! [`TableSpec`]-Liste (also legt der Schema-Besitzer jede an und der Preflight probt **jedes**
+//! ihrer Statements), und [`stage`](StoreSpec::stage) liefert **eine**
 //! Schreibung, die Kopf- und alle sechs Detail-Listen positionsgetreu in dieselbe Transaktion
 //! schreibt. Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
@@ -427,7 +427,8 @@ fn position_or_sql_error(index: usize) -> rusqlite::Result<i64> {
 }
 
 /// Die **sieben** Tabellen des Slice, je mit ihrem DDL und ihrem Ablage-`INSERT` — der Capstone-Fall
-/// der Abstraktion. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen alle über diese Liste,
+/// der Abstraktion. Anlegen (durch den Schema-Besitzer, [`schema`](crate::schema)) und Preflight laufen beide
+/// über diese Liste,
 /// also gilt der Preflight-Beweis für **jede**: eine Tabelle, die eines davon verpasst, ist gar nicht
 /// erst deklarierbar.
 const TABLES: &[TableSpec] = &[
@@ -901,11 +902,11 @@ mod tests {
         seed_through(&outbox, Stage::Obfuskierung, "mehrseitig.csv")?;
 
         let window_source = ObfuskiertWindowSource::new(outbox.clone());
-        let fenstern_store = FensternSqliteStore::new(outbox.clone())?;
+        let fenstern_store = FensternSqliteStore::with_own_tables(outbox.clone())?;
         let window_days = NonZeroU32::new(3).expect("Seitengröße ist nicht null");
 
         let auswerten_source = AuswertungsfensterSource::new(outbox.clone());
-        let auswerten_store = AuswertenSqliteStore::new(outbox.clone())?;
+        let auswerten_store = AuswertenSqliteStore::with_own_tables(outbox.clone())?;
         let registry = AllKnownRegistry;
         let categorizer = NoopCategorizer;
         let sink = CollectingSink::default();
@@ -1026,8 +1027,8 @@ mod tests {
     #[test]
     fn ein_unerreichbarer_store_failt_save_terminal_und_redigiert() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
-        // Bewusst an `new` vorbeigebaut: die Ergebnis-Tabellen fehlen → unerreichbar.
-        let store = AuswertenSqliteStore::without_schema(outbox.clone());
+        // Die Ergebnis-Tabellen fehlen (`new` legt kein Schema an) → unerreichbar.
+        let store = AuswertenSqliteStore::new(outbox.clone());
         let unit = store.begin(MessageId("egal"));
 
         let fehler = unit
@@ -1053,10 +1054,10 @@ mod tests {
         // Detail-Listen etwas trägt, und liest alles zurück: so ist keine Tabelle davon abhängig,
         // wie die Beispieldaten gerade aussehen.
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = AuswertenSqliteStore::new(outbox.clone())?;
+        let store = AuswertenSqliteStore::with_own_tables(outbox.clone())?;
         // Der Kopf-`JOIN` in `stored_evaluations` verlangt ein reales Quell-Fenster
         // (Referenz-per-ID, ADR-0012); dessen Tabelle legt der `fenstern`-Store an.
-        FensternSqliteStore::new(outbox.clone())?;
+        FensternSqliteStore::with_own_tables(outbox.clone())?;
         outbox.with_connection(|conn| {
             conn.execute(
                 "INSERT INTO auswertungsfenster (id, from_day, to_day, currency) \
@@ -1137,14 +1138,14 @@ mod tests {
         // während der Ausfall-Test über den ganz schemalosen Store weiter grün bliebe.
         TABLES.iter().try_for_each(|fehlend| {
             let outbox = SqliteOutbox::open_in_memory()?;
-            // Bewusst an `new` vorbeigebaut, damit `new` die fehlende Tabelle nicht doch anlegt.
+            // Alle Tabellen bis auf die eine von Hand; `new` legt selbst keine an.
             outbox.with_connection(|conn| {
                 TABLES
                     .iter()
                     .filter(|table| table.name != fehlend.name)
                     .try_for_each(|table| conn.execute_batch(table.ddl))
             })?;
-            let store = AuswertenSqliteStore::without_schema(outbox.clone());
+            let store = AuswertenSqliteStore::new(outbox.clone());
             let unit = store.begin(MessageId("egal"));
 
             let fehler = unit.save(&leeres_ergebnis()).expect_err(&format!(

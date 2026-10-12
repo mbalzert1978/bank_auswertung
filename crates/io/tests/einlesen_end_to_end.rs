@@ -21,7 +21,6 @@
 use io::Dispatcher;
 use io::einlesen::{EinlesenSqliteStore, GermanCalendar, GermanMoney, IsoCurrencies};
 use io::outbox::OutboxError;
-use io::sqlite::SqliteOutbox;
 
 #[path = "../fixtures/einlesen/mod.rs"]
 mod fixtures;
@@ -40,8 +39,9 @@ use fixtures::{csv_source, read_transactions_envelope};
               der Dispatch-Ausgang, den die Tests prüfen"
 )]
 fn dispatch_ueber(fixture: &str) -> Result<(), OutboxError> {
-    let outbox = SqliteOutbox::open_in_memory().expect("In-Memory-Rückgrat öffnet");
-    let store = EinlesenSqliteStore::new(outbox).expect("einlesen-Tabelle wird angelegt");
+    // Über den Schema-Besitzer — derselbe Weg, auf dem eine echte Datei ihr Schema bekommt (0084).
+    let outbox = io::schema::open_in_memory().expect("In-Memory-Rückgrat mit Schema öffnet");
+    let store = EinlesenSqliteStore::new(outbox);
     let source = csv_source(fixture);
     let consumer = io::einlesen::consumer(
         &source,

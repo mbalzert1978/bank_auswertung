@@ -31,8 +31,8 @@
 //! ([Issue 0077](../../../../docs/issues/0077-auswerten-migrieren-f-nf-tabellen-fall-und-totes-sqlite-backed-unit-entfernen.md)),
 //! der die vier strukturgleichen `UnitFactory`-Traits zu **einem** kollabiert hat. Er ist
 //! der **Mehr-Tabellen-Fall** der Abstraktion: **beide** Tabellen stehen mit DDL und Ablage-Statement
-//! in **einer** [`TableSpec`]-Liste (also legt `new` beide an, rüstet auf beiden die Audit-Spalten
-//! nach und der Preflight probt **beide** Statements), und [`stage`](StoreSpec::stage) liefert
+//! in **einer** [`TableSpec`]-Liste (also legt der Schema-Besitzer beide an und der Preflight probt **beide**
+//! Statements), und [`stage`](StoreSpec::stage) liefert
 //! **eine** Schreibung, die Kopf- und Detail-Zeilen positionsgetreu in dieselbe Transaktion schreibt.
 //! Der Seam-Vertrag Richtung Slice ist davon **unberührt**
 //! ([ADR-0011](../../../../docs/adr/0011-slice-reine-pipeline-outbox-mechanik-in-io.md)).
@@ -190,8 +190,8 @@ impl WindowRow {
 }
 
 /// Die **beiden** Tabellen des Slice, je mit ihrem DDL und ihrem Ablage-`INSERT` — der
-/// Mehr-Tabellen-Fall der Abstraktion. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen alle
-/// über diese Liste, also gilt der Preflight-Beweis für **beide**: eine Tabelle, die eines davon
+/// Mehr-Tabellen-Fall der Abstraktion. Anlegen (durch den Schema-Besitzer, [`schema`](crate::schema))
+/// und Preflight laufen beide über diese Liste, also gilt der Preflight-Beweis für **beide**: eine Tabelle, die eines davon
 /// verpasst, ist gar nicht erst deklarierbar.
 const TABLES: &[TableSpec] = &[
     TableSpec {
@@ -411,7 +411,7 @@ mod tests {
         let id_c = obfuskiert_id_by_amount(&outbox, 3000)?;
         let id_d = obfuskiert_id_by_amount(&outbox, 4000)?;
 
-        let store = FensternSqliteStore::new(outbox.clone())?;
+        let store = FensternSqliteStore::with_own_tables(outbox.clone())?;
         let ack = CapturingAck::new(outbox.clone());
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
@@ -478,9 +478,9 @@ mod tests {
     fn ein_leerer_bestand_endet_erfolgreich_ohne_fenster() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         // Die obfuskiert-Tabelle existiert (für den Lese-Seam), ist aber leer.
-        ObfuskierungSqliteStore::new(outbox.clone())?;
+        ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
 
-        let store = FensternSqliteStore::new(outbox.clone())?;
+        let store = FensternSqliteStore::with_own_tables(outbox.clone())?;
         let ack = CapturingAck::new(outbox.clone());
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
@@ -502,8 +502,8 @@ mod tests {
     #[test]
     fn eine_fehlende_obfuskiert_tabelle_failt_die_anker_frage_terminal() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
-        // Bewusst **keine** obfuskiert-Tabelle angelegt (kein ObfuskierungSqliteStore::new).
-        let store = FensternSqliteStore::new(outbox.clone())?;
+        // Bewusst **keine** obfuskiert-Tabelle angelegt — nur die eigenen des fenstern-Stores.
+        let store = FensternSqliteStore::with_own_tables(outbox.clone())?;
         let ack = CapturingAck::new(outbox.clone());
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
@@ -526,8 +526,8 @@ mod tests {
         let outbox = SqliteOutbox::open_in_memory()?;
         seed_through(&outbox, Stage::Obfuskierung, "gueltig.csv")?;
 
-        // Bewusst an `new` vorbeigebaut: die Ergebnis-Tabellen fehlen → unerreichbar.
-        let store = FensternSqliteStore::without_schema(outbox.clone());
+        // Die Ergebnis-Tabellen fehlen (`new` legt kein Schema an) → unerreichbar.
+        let store = FensternSqliteStore::new(outbox.clone());
         let ack = CapturingAck::new(outbox.clone());
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 
@@ -562,10 +562,9 @@ mod tests {
         let outbox = SqliteOutbox::open_in_memory()?;
         seed_through(&outbox, Stage::Obfuskierung, "gueltig.csv")?;
 
-        // **Nur** die Kopf-Tabelle anlegen und bewusst an `new` vorbeibauen, damit `new` die
-        // fehlende Detail-Tabelle nicht doch anlegt.
+        // **Nur** die Kopf-Tabelle anlegen; `new` legt die fehlende Detail-Tabelle nicht nach.
         outbox.with_connection(|conn| conn.execute_batch(SCHEMA_WINDOWS))?;
-        let store = FensternSqliteStore::without_schema(outbox.clone());
+        let store = FensternSqliteStore::new(outbox.clone());
         let ack = CapturingAck::new(outbox.clone());
         let outcomes = run_fenstern(&outbox, store, drei_tage(), &ack)?;
 

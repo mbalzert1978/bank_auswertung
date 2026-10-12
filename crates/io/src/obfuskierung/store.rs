@@ -255,9 +255,9 @@ impl BookingRow {
     }
 }
 
-/// Die **eine** Tabelle des Slice mit ihrem DDL und ihrem Ablage-`INSERT`. Anlegen,
-/// Audit-Spalten-Nachrüstung und Preflight laufen alle über diese Liste — eine Tabelle, die eines
-/// davon verpasst, ist gar nicht erst deklarierbar.
+/// Die **eine** Tabelle des Slice mit ihrem DDL und ihrem Ablage-`INSERT`. Anlegen (durch den
+/// Schema-Besitzer, [`schema`](crate::schema)) und Preflight laufen beide über diese Liste — eine
+/// Tabelle, die eines davon verpasst, ist gar nicht erst deklarierbar.
 const TABLES: &[TableSpec] = &[TableSpec {
     name: "obfuskiert",
     ddl: SCHEMA,
@@ -442,7 +442,7 @@ mod tests {
     fn eine_reale_zeile_wird_obfuskiert_abgelegt_und_publiziert_einen_zeiger()
     -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = ObfuskierungSqliteStore::new(outbox.clone())?;
+        let store = ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
 
         let outcomes = run_pipeline(&outbox, store.clone(), "gueltig.csv", SEED)?;
 
@@ -548,7 +548,7 @@ mod tests {
         //    bitweise Umdeutung). Ein Marker ist Text, also ist die Frage gegenstandslos — was der
         //    Test festhält, indem er genau diesen Seed durchschickt.
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = ObfuskierungSqliteStore::new(outbox.clone())?;
+        let store = ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
 
         let outcomes = run_pipeline(&outbox, store.clone(), "gueltig.csv", u64::MAX)?;
         assert!(
@@ -582,10 +582,11 @@ mod tests {
     #[test]
     fn ein_unerreichbarer_store_failt_terminal_und_redigiert_ohne_zu_publizieren()
     -> rusqlite::Result<()> {
-        // Ein Store **ohne** seine Ergebnis-Tabelle (bewusst an `new` vorbeigebaut) ist unerreichbar:
+        // Ein Store **ohne** seine Ergebnis-Tabelle (das Test-Rückgrat trägt nur die Outbox, und `new`
+        // legt seit Issue 0084 kein Schema an) ist unerreichbar:
         // die Ablage failt synchron und terminal, bevor irgendetwas committet.
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = ObfuskierungSqliteStore::without_schema(outbox.clone());
+        let store = ObfuskierungSqliteStore::new(outbox.clone());
 
         let outcomes = run_pipeline(&outbox, store, "gueltig.csv", SEED)?;
 
@@ -614,9 +615,9 @@ mod tests {
         // (`read_ohne_einlesen_tabelle_failt_terminal`) festnagelt: eine kaputte Datenbank meldet
         // seit Issue 0078 nicht mehr „nicht gefunden".
         let outbox = SqliteOutbox::open_in_memory()?;
-        let store = ObfuskierungSqliteStore::new(outbox.clone())?;
+        let store = ObfuskierungSqliteStore::with_own_tables(outbox.clone())?;
         // Die einlesen-Tabelle existiert (für den Lese-Seam), ist aber leer.
-        EinlesenSqliteStore::new(outbox.clone())?;
+        EinlesenSqliteStore::with_own_tables(outbox.clone())?;
 
         let source = EinlesenRowSource::new(outbox.clone());
         let obfuscator = SeededObfuscator;

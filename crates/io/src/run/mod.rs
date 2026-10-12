@@ -62,6 +62,7 @@ use crate::obfuskierung::{
     SeededObfuscator, consumer as obfuskierung_consumer,
 };
 use crate::outbox::OutboxHandler;
+use crate::schema::{self, SchemaError, VersionMismatch};
 use crate::sqlite::SqliteOutbox;
 
 mod ack_sink;
@@ -89,8 +90,10 @@ const MAX_ROUNDS: usize = 4096;
 /// Verwechslungsgefahr.
 #[derive(Debug, Clone)]
 pub struct RunPaths {
-    /// Die SQLite-Datei, in der Outbox **und** alle vier Ergebnis-Tabellen liegen. Sie wird bei Bedarf
-    /// angelegt; ein bestehender Bestand bleibt erhalten (at-least-once, resumierbar).
+    /// Die SQLite-Datei, in der Outbox **und** alle vier Ergebnis-Tabellen liegen. Eine frische Datei
+    /// bekommt Schema und Versionsstempel; eine passend gestempelte wird mit ihrem Bestand
+    /// weiterbenutzt (at-least-once, resumierbar); eine mit abweichender Version bricht den Lauf ab
+    /// ([`RunError::SchemaVersion`]).
     pub database: PathBuf,
     /// Die CSV-CAMT-v8-Datei, aus der `einlesen` seinen Batch beschafft.
     pub transactions: PathBuf,
@@ -146,6 +149,10 @@ pub enum RunError {
     /// Das transaktionale Rückgrat (SQLite-Datei, Tabellen) ließ sich nicht öffnen oder anlegen. Trägt
     /// die durchgereichte io-Diagnose — Zugriffs-Mechanik, kein Zeileninhalt.
     Backbone(String),
+    /// Die Datenbank-Datei trägt eine **andere Schema-Version** als dieses Programm (Issue 0084) — auch
+    /// eine ungestempelte Datei mit Tabellen (Version 0). Der Lauf bricht ab, **bevor** er etwas in die
+    /// Datei schreibt. Trägt nur die beiden Versionsnummern, nie den Pfad.
+    SchemaVersion(VersionMismatch),
     /// Zwei Consumer auf demselben Dispatch-Key — ein Verdrahtungsfehler, der nicht still verschluckt
     /// wird. Der Key ist statisch.
     DuplicateConsumer { message_type: String },
@@ -173,6 +180,7 @@ impl std::fmt::Display for RunError {
         match self {
             Self::Config(error) => write!(f, "Konfiguration: {error}"),
             Self::Backbone(diagnosis) => write!(f, "Rückgrat nicht verfügbar: {diagnosis}"),
+            Self::SchemaVersion(mismatch) => mismatch.fmt(f),
             Self::DuplicateConsumer { message_type } => {
                 write!(f, "doppelte Registrierung für {message_type}")
             }
@@ -200,6 +208,15 @@ impl From<ConfigError> for RunError {
     }
 }
 
+impl From<SchemaError> for RunError {
+    fn from(error: SchemaError) -> Self {
+        match error {
+            SchemaError::VersionMismatch(mismatch) => Self::SchemaVersion(mismatch),
+            SchemaError::Unavailable(diagnosis) => Self::Backbone(diagnosis),
+        }
+    }
+}
+
 /// Fährt **einen vollständigen Pipeline-Lauf** gegen die realen `io`-Adapter und schreibt dabei das
 /// redigierte Lauf-Protokoll nach `protocol`.
 ///
@@ -213,9 +230,12 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let own_accounts =
         EigeneKontenConfig::load(&paths.own_accounts_config)?.to_own_accounts_config(seed);
 
-    let outbox = SqliteOutbox::open(&AppConfig::new(&paths.database)).map_err(backbone)?;
+    // Der **einzige** Weg, auf dem die Datei ihr Schema bekommt (Issue 0084): frisch → angelegt und
+    // gestempelt, passend gestempelt → benutzt, jede andere Version → Abbruch, bevor etwas geschrieben
+    // wird.
+    let outbox = schema::open(&AppConfig::new(&paths.database))?;
     let adapters = Adapters::new(&outbox, paths);
-    let stores = Stores::open(&outbox)?;
+    let stores = Stores::new(&outbox);
     let occurrences = CountingOccurrenceSink::default();
     let dispatcher = DispatcherBuilder::new(&outbox, &adapters, stores)
         .window_days(window_days)
@@ -272,7 +292,10 @@ impl Adapters {
 
 /// Die vier Ergebnis-Stores — je einer pro Slice, alle auf **demselben** Rückgrat. Anders als
 /// [`Adapters`] werden sie **besessen** in die Consumer verschoben, tragen also keine eigene
-/// Lebenszeit und dürfen im [`DispatcherBuilder`] selbst geöffnet werden.
+/// Lebenszeit und dürfen im [`DispatcherBuilder`] selbst geöffnet werden. Ihre Tabellen legen sie
+/// **nicht** an — das hat [`schema::open`] beim Öffnen des Rückgrats schon getan. Darum muss die
+/// Tabellen-Liste des Schema-Besitzers (`schema::tables`) **dieselben** Stores aufführen wie diese
+/// Struktur: ein hier ergänzter Store ohne Eintrag dort hätte keine Tabelle.
 struct Stores {
     einlesen: EinlesenSqliteStore,
     obfuskierung: ObfuskierungSqliteStore,
@@ -281,13 +304,13 @@ struct Stores {
 }
 
 impl Stores {
-    fn open(outbox: &SqliteOutbox) -> Result<Self, RunError> {
-        Ok(Self {
-            einlesen: EinlesenSqliteStore::new(outbox.clone()).map_err(backbone)?,
-            obfuskierung: ObfuskierungSqliteStore::new(outbox.clone()).map_err(backbone)?,
-            fenstern: FensternSqliteStore::new(outbox.clone()).map_err(backbone)?,
-            auswerten: AuswertenSqliteStore::new(outbox.clone()).map_err(backbone)?,
-        })
+    fn new(outbox: &SqliteOutbox) -> Self {
+        Self {
+            einlesen: EinlesenSqliteStore::new(outbox.clone()),
+            obfuskierung: ObfuskierungSqliteStore::new(outbox.clone()),
+            fenstern: FensternSqliteStore::new(outbox.clone()),
+            auswerten: AuswertenSqliteStore::new(outbox.clone()),
+        }
     }
 }
 
@@ -657,281 +680,4 @@ fn backbone(error: rusqlite::Error) -> RunError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::pipeline_test_support::TempDbPath;
-
-    /// Die vier Ergebnis-Tabellen der Kette — je Slice die, die sein Ergebnis trägt. Dass **alle
-    /// vier** nach einem Lauf gefüllt sind, ist die Aussage „die Pipeline lief durch" in
-    /// nachprüfbarer Form.
-    const ERGEBNIS_TABELLEN: [&str; 4] = [
-        "einlesen_lines",
-        "obfuskiert",
-        "auswertungsfenster",
-        "window_evaluations",
-    ];
-
-    /// **Rohwerte der Lauf-CSV**, die in **keiner** Ausgabe auftauchen dürfen: eine eigene IBAN, eine
-    /// fremde IBAN, ein Empfängername und ein Verwendungszweck. Der Seed steht daneben als Zahl.
-    const ROHWERTE: [&str; 5] = [
-        "DE93100000000000000100",
-        "DE10200000000000000101",
-        "MUSTERMARKT SE",
-        "Bezuege 06/2026",
-        "4711",
-    ];
-
-    fn fixture(name: &str) -> PathBuf {
-        PathBuf::from(format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR")))
-    }
-
-    /// Die Pfade des erfundenen Lauf-Bestands: die reale CSV-Fixture und die drei realen Configs. Die
-    /// **Mechanik** ist durchweg echt (SQLite-Datei, CSV-Quelle, toml-Loader) — **erfunden** sind
-    /// allein die Daten.
-    fn lauf_pfade(db: &TempDbPath) -> RunPaths {
-        RunPaths {
-            database: db.path().to_path_buf(),
-            transactions: fixture("einlesen/csv/lauf.csv"),
-            window_config: fixture("lauf/fenster.toml"),
-            seed_config: fixture("lauf/seed.toml"),
-            own_accounts_config: fixture("lauf/konten.toml"),
-        }
-    }
-
-    /// Zählt über eine **eigene** Verbindung auf die Lauf-Datenbank — der Lauf ist da längst beendet,
-    /// die Zählung sieht also nur committete Zeilen.
-    fn zaehle(paths: &RunPaths, sql: &str) -> rusqlite::Result<i64> {
-        SqliteOutbox::open(&AppConfig::new(&paths.database))?
-            .with_connection(|conn| conn.query_row(sql, [], |row| row.get(0)))
-    }
-
-    /// Die Zahl noch **offener** Nachrichten — nach einem gelungenen Lauf muss sie null sein.
-    fn offene_nachrichten(paths: &RunPaths) -> rusqlite::Result<i64> {
-        zaehle(
-            paths,
-            "SELECT count(*) FROM outbox WHERE processed_on_utc IS NULL;",
-        )
-    }
-
-    /// Die Zahl der Zeilen einer Ergebnis-Tabelle.
-    fn zeilen(paths: &RunPaths, table: &str) -> rusqlite::Result<i64> {
-        zaehle(paths, &format!("SELECT count(*) FROM {table};"))
-    }
-
-    #[expect(
-        clippy::panic_in_result_fn,
-        clippy::unwrap_in_result,
-        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
-    )]
-    #[test]
-    fn ein_lauf_fuellt_alle_vier_ergebnis_tabellen_und_laeuft_die_outbox_leer()
-    -> rusqlite::Result<()> {
-        let db = TempDbPath::new("lauf");
-        let paths = lauf_pfade(&db);
-        let mut protokoll = Vec::new();
-
-        let report = run(&paths, &mut protokoll).expect("der Lauf über die erfundene CSV gelingt");
-
-        // Kein Fake-Seam war beteiligt: echte SQLite-Datei, echte CSV-Quelle, echte Loader.
-        for table in ERGEBNIS_TABELLEN {
-            assert!(
-                zeilen(&paths, table)? > 0,
-                "die Ergebnis-Tabelle {table} muss nach dem Lauf gefüllt sein"
-            );
-        }
-        assert_eq!(
-            offene_nachrichten(&paths)?,
-            0,
-            "ein gelungener Lauf lässt die Outbox leer zurück"
-        );
-
-        // Die ganze Kette hat gearbeitet — jeder der sieben Dispatch-Keys mindestens einmal.
-        let verarbeitet = report.processed();
-        for message_type in [
-            EINLESEN_CONSUMED,
-            OBFUSKIERUNG_CONSUMED,
-            OBFUSCATED_MESSAGE_TYPE,
-            START_MESSAGE_TYPE,
-            FENSTERN_CONSUMED,
-            AUSWERTEN_CONSUMED,
-            CONSUMED_HISTORY_MESSAGE_TYPE,
-        ] {
-            assert!(
-                verarbeitet
-                    .get(message_type)
-                    .is_some_and(|count| *count > 0),
-                "{message_type} muss im Lauf vorgekommen sein: {verarbeitet:?}"
-            );
-        }
-        assert_eq!(
-            verarbeitet.get(EINLESEN_CONSUMED),
-            Some(&1),
-            "der Import wird genau einmal angestoßen"
-        );
-        assert_eq!(
-            verarbeitet.get(START_MESSAGE_TYPE),
-            Some(&1),
-            "die Analyse wird genau einmal angestoßen — nicht je Buchung"
-        );
-        assert_eq!(
-            verarbeitet.get(OBFUSKIERUNG_CONSUMED),
-            verarbeitet.get(OBFUSCATED_MESSAGE_TYPE),
-            "jede obfuskierte Buchung wird auch abgeräumt, sonst bliebe sie ewig offen"
-        );
-        Ok(())
-    }
-
-    #[expect(
-        clippy::panic_in_result_fn,
-        clippy::unwrap_in_result,
-        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
-    )]
-    #[test]
-    fn das_lauf_protokoll_traegt_keinen_rohwert_keinen_freitext_keine_iban_und_nicht_den_seed()
-    -> rusqlite::Result<()> {
-        let db = TempDbPath::new("lauf_protokoll");
-        let paths = lauf_pfade(&db);
-        let mut protokoll = Vec::new();
-
-        run(&paths, &mut protokoll).expect("der Lauf gelingt");
-
-        let text = String::from_utf8(protokoll).expect("das Protokoll ist Text");
-        for rohwert in ROHWERTE {
-            assert!(
-                !text.contains(rohwert),
-                "das Lauf-Protokoll darf `{rohwert}` nicht enthalten:\n{text}"
-            );
-        }
-        // Positiv: es trägt die Nachrichtentypen und die Schlussbilanz — sonst bliebe die Prüfung oben
-        // auch dann grün, wenn gar nichts geschrieben würde.
-        assert!(text.contains(EINLESEN_CONSUMED));
-        assert!(text.contains(CONSUMED_HISTORY_MESSAGE_TYPE));
-        assert!(text.contains("gesamt:"));
-        Ok(())
-    }
-
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
-    )]
-    #[test]
-    fn ein_terminal_gescheiterter_lauf_nennt_den_redigierten_fehler() -> rusqlite::Result<()> {
-        // Terminal scheitern lassen, wo es real passiert: die Quelldatei fehlt. Der Fehler ist der
-        // **nackte, redigierte** Domänen-Fehler des `einlesen`-Slice, den `io` durchreicht.
-        let db = TempDbPath::new("lauf_terminal");
-        let mut paths = lauf_pfade(&db);
-        paths.transactions = fixture("einlesen/csv/gibt-es-nicht.csv");
-        let mut protokoll = Vec::new();
-
-        let fehler =
-            run(&paths, &mut protokoll).expect_err("eine fehlende Quelldatei ist terminal");
-
-        assert!(
-            matches!(&fehler, RunError::Message { message_type, .. }
-                if message_type == EINLESEN_CONSUMED),
-            "der Abbruch muss die gescheiterte Nachricht benennen: {fehler:?}"
-        );
-        let meldung = fehler.to_string();
-        assert!(
-            meldung.contains("source unavailable"),
-            "die durchgereichte Diagnose muss erhalten bleiben: {meldung}"
-        );
-        for rohwert in ROHWERTE {
-            assert!(
-                !meldung.contains(rohwert),
-                "der Fehler darf `{rohwert}` nicht zitieren: {meldung}"
-            );
-        }
-        // Die Nachricht bleibt **offen** — der nächste Lauf nimmt sie wieder auf (ADR-0012/Issue 0085).
-        assert_eq!(offene_nachrichten(&paths)?, 1);
-        Ok(())
-    }
-
-    #[test]
-    fn eine_fehlende_config_beendet_den_lauf_bevor_irgendetwas_laeuft() {
-        let db = TempDbPath::new("lauf_config");
-        let mut paths = lauf_pfade(&db);
-        paths.own_accounts_config = fixture("lauf/gibt-es-nicht.toml");
-        let mut protokoll = Vec::new();
-
-        let fehler = run(&paths, &mut protokoll).expect_err("fehlende Config");
-
-        assert_eq!(
-            fehler,
-            RunError::Config(ConfigError::Unreadable(
-                crate::config::ConfigKind::EigeneKonten
-            ))
-        );
-        assert!(
-            protokoll.is_empty(),
-            "vor der geladenen Config wird nichts protokolliert — und nichts angestoßen"
-        );
-    }
-
-    #[expect(
-        clippy::panic_in_result_fn,
-        clippy::unwrap_in_result,
-        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
-    )]
-    #[test]
-    fn ein_zweiter_lauf_auf_derselben_datei_stoesst_den_import_erneut_an() -> rusqlite::Result<()> {
-        // Der Lauf ist **resumierbar**, nicht idempotent: er reiht seine Auslöser jedes Mal neu ein.
-        // Diese Zusage festzuhalten ist wichtiger als sie zu verstecken — wer zweimal importiert, hat
-        // den Bestand zweimal. Die Entdopplung ist ein eigenes Thema (Zeilen-Schlüssel,
-        // Issue 0088), kein stiller Nebeneffekt hier.
-        let db = TempDbPath::new("lauf_zweimal");
-        let paths = lauf_pfade(&db);
-        let mut protokoll = Vec::new();
-
-        run(&paths, &mut protokoll).expect("erster Lauf");
-        let nach_dem_ersten = zeilen(&paths, "einlesen_lines")?;
-        run(&paths, &mut protokoll).expect("zweiter Lauf");
-
-        assert_eq!(
-            zeilen(&paths, "einlesen_lines")?,
-            nach_dem_ersten * 2,
-            "zwei Läufe über dieselbe Datei importieren zweimal"
-        );
-        assert_eq!(offene_nachrichten(&paths)?, 0, "und beide laufen leer");
-        Ok(())
-    }
-
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens; der Result-Rückgabewert                   trägt allein die DB-Abfragen des Tests, nicht seinen Ausgang"
-    )]
-    #[test]
-    fn ein_offener_ausloeser_einer_anderen_quelle_bricht_den_lauf_ab() -> rusqlite::Result<()> {
-        // Der Fall, der vorher **still** danebenging: ein gescheiterter Lauf lässt seinen Auslöser
-        // offen liegen. Da der Slice seine Quelle über den Datenquellen-Port *dieses* Laufs beschafft
-        // (Issue 0018) und nicht über den `partition_key`, las die liegengebliebene Nachricht beim
-        // nächsten Mal die **neue** Datei — der Lauf importierte sie zweimal und meldete Exit 0.
-        let db = TempDbPath::new("lauf_fremder_rest");
-        let mut kaputt = lauf_pfade(&db);
-        kaputt.transactions = fixture("einlesen/csv/pflichtfeld_fehlt.csv");
-        let mut protokoll = Vec::new();
-
-        run(&kaputt, &mut protokoll).expect_err("ein fehlendes Pflichtfeld ist terminal");
-        assert_eq!(
-            offene_nachrichten(&kaputt)?,
-            1,
-            "der gescheiterte Auslöser bleibt offen (ADR-0012)"
-        );
-
-        let gut = lauf_pfade(&db);
-        let fehler = run(&gut, &mut protokoll).expect_err("der fremde Rest muss den Lauf stoppen");
-
-        assert!(
-            matches!(&fehler, RunError::PendingImport { pending, requested }
-                if pending == "pflichtfeld_fehlt.csv" && requested == "lauf.csv"),
-            "der Abbruch muss beide Quellen benennen: {fehler:?}"
-        );
-        assert_eq!(
-            zeilen(&gut, "einlesen_lines")?,
-            0,
-            "und zwar **bevor** irgendetwas geschrieben wurde"
-        );
-        Ok(())
-    }
-}
+mod tests;

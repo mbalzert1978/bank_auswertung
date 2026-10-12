@@ -14,17 +14,15 @@
 //! `TEXT`-Spalte (`MAX(booking_day)`, `booking_day < ?`), nicht auf dem `i64` — die Wahl der Epoche
 //! ändert daran nichts. Der `i64` trägt allein die **arithmetische** und die **Kalender**-Sicht.
 //!
-//! **Keine Migration nötig — die Achse steht fest, bevor die erste durable Zeile geschrieben wird.**
-//! Die Umstellung von der früheren CE-Zählung (`num_days_from_ce`) auf diese Achse ändert die
-//! Bedeutung persistierter `INTEGER`-Stamps (`auswertungsfenster.from_day`/`to_day`). Das wäre eine
-//! stille Fehldeutung eines **Altbestands** — nur gibt es keinen: die Pipeline hat **kein Binary**,
-//! [`SqliteOutbox::open`](crate::sqlite::SqliteOutbox) (datei-gestützt) läuft ausschließlich in Tests
-//! über frisch angelegten Schemata, und `fenstern`s Store landete selbst erst im Vorgänger-Ticket
-//! (0057, ebenfalls ohne durable Lauf). Es existiert also **keine** DB auf der alten Achse — die
-//! Vereinheitlichung passiert **vor** dem ersten durable Write. Wenn der Persistenz-Lebenszyklus
-//! (Binary + produktives `open`) kommt, gehört ein `PRAGMA user_version`-Achsen-Stempel dazu, damit
-//! eine **künftige** Achsen-Änderung fail-fast statt still korrumpiert — heute wäre der Stempel wirkungslos
-//! (jede bestehende DB stünde ununterscheidbar auf `user_version = 0`).
+//! **Die Achse stand fest, bevor die erste durable Zeile geschrieben wurde.** Die Umstellung von der
+//! früheren CE-Zählung (`num_days_from_ce`) auf diese Achse ändert die Bedeutung persistierter
+//! `INTEGER`-Stamps (`auswertungsfenster.from_day`/`to_day`). Sie geschah, bevor es ein Binary und
+//! damit eine durable Datei gab — eine DB auf der alten Achse existiert nicht.
+//!
+//! **Eine künftige Achsen-Änderung ist eine Migration.** Seit Issue 0084 öffnet der Lauf seine Datei
+//! über [`schema::open`](crate::schema::open): eine frische Datei wird mit der Schema-Version gestempelt
+//! (`PRAGMA user_version`), eine abweichende abgewiesen. Ändert sich die Achse wieder, zählt die
+//! Version hoch und `schema::ensure` bekommt den Migrations-Arm — fail-fast statt still korrumpiert.
 
 use chrono::{Datelike, NaiveDate};
 

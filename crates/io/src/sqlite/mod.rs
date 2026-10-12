@@ -5,14 +5,17 @@
 //! In-Memory-Doubles der io-privaten Outbox-Seams durch echte SQLite-Persistenz, **ohne** den
 //! generischen [`Dispatcher`]/[`OutboxConsumer`](crate::OutboxConsumer) anzurühren.
 //!
-//! Produktiv läuft es **datei-gestützt** ([`SqliteOutbox::open`]) — nur eine Datei überdauert das
-//! Prozess-Ende, und darauf ruht die Resume-Zusage über einen echten Absturz hinaus.
-//! [`SqliteOutbox::open_in_memory`] ist die bewusst **flüchtige** Variante für Tests/ephemere Läufe.
+//! Produktiv läuft es **datei-gestützt** — nur eine Datei überdauert das Prozess-Ende, und darauf
+//! ruht die Resume-Zusage über einen echten Absturz hinaus. **Geöffnet wird es nicht hier**, sondern
+//! über den Schema-Besitzer [`schema::open`](crate::schema::open)
+//! ([Issue 0084](../../../../docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)):
+//! er legt das Schema **aller** Tabellen an **einer** Stelle an, stempelt die Datei mit der
+//! Schema-Version und weist eine Datei abweichender Version ab. Dieses Modul selbst legt **kein**
+//! Schema an — es steuert nur die Outbox-Tabelle als [`TableSpec`] bei.
 //!
 //! Der erste **slice-spezifische Ergebnis-Store** sitzt seit
 //! [Issue 0053](../../../../docs/issues/0053-einlesen-store-real-und-end-to-end.md) auf diesem
-//! Fundament: [`EinlesenSqliteStore`](crate::einlesen::EinlesenSqliteStore) legt seine
-//! `einlesen`-Tabelle über die crate-interne `SqliteOutbox::with_connection` an und stagt das
+//! Fundament: [`EinlesenSqliteStore`](crate::einlesen::EinlesenSqliteStore) stagt das
 //! Zeilen-`INSERT` in **dieselbe** committende Transaktion wie Ack und `Ingested`-Publish. Dieses
 //! Modul selbst bleibt slice-blind — es liefert nur **Broker + UnitOfWork** und die crate-internen
 //! Ablage-/Verbindungs-Primitive, auf die ein Store aufsetzt.
@@ -27,7 +30,9 @@
 //! und `auswerten` (fünf). Die transitorischen Helfer daneben (`mint_id`, `SqliteUnit::stage` und das
 //! `sqlite_backed_unit!`-Makro, das den Outbox-Passthrough je Store erzeugte) sind damit ersatzlos
 //! entfallen: der Passthrough lebt **einmal** generisch auf [`SliceUnit`], Preflight und Minten in
-//! dessen `store_dto`.
+//! dessen `store_dto`. Mit dem Versionsstempel (Issue 0084) ist auch `ensure_columns` entfallen, die
+//! stille Audit-Spalten-Nachrüstung auf Alt-Dateien: eine Datei ohne passenden Stempel wird jetzt
+//! abgewiesen, statt still umgebaut — die Achse für eine Schema-Änderung ist die Version.
 
 mod slice_store;
 
@@ -38,7 +43,6 @@ use std::rc::Rc;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::config::AppConfig;
 use crate::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 use crate::{Dispatcher, MessageId};
 
@@ -62,40 +66,27 @@ struct Inner {
 }
 
 impl SqliteOutbox {
-    /// Öffnet das **datei-gestützte** Rückgrat unter dem in der [`AppConfig`] konfigurierten Pfad
-    /// (legt die Datei bei Bedarf an) und stellt die Outbox-Tabelle sicher (`IF NOT EXISTS` —
-    /// bestehende Nachrichten bleiben erhalten).
-    ///
-    /// Das ist der **produktive** Einstieg: *wohin* persistiert wird, ist **konfigurierbar**
-    /// ([`AppConfig::database_path`]), nicht im Code verdrahtet. Nur eine Datei überdauert das
-    /// Prozess-Ende, und **darauf** ruht die At-least-once-/Resume-Zusage über einen echten Absturz
-    /// hinaus — eine committete, aber noch offene Nachricht liegt beim nächsten Start weiterhin in der
-    /// Tabelle und wird erneut zugestellt. `unixepoch`-Zeitstempel und `randomblob`-IDs vergibt
-    /// SQLite selbst.
-    pub fn open(config: &AppConfig) -> rusqlite::Result<Self> {
-        let conn = Connection::open(config.database_path())?;
-        Self::from_connection(conn)
-    }
-
-    /// Öffnet ein **flüchtiges** In-Memory-Rückgrat und legt die Outbox-Tabelle an. Bewusst
-    /// **nicht dauerhaft** (die DB stirbt mit dem Prozess) — für Tests und ephemere Läufe; die
-    /// überlebens-über-Neustart-Garantie trägt allein [`open`](SqliteOutbox::open).
-    pub fn open_in_memory() -> rusqlite::Result<Self> {
-        let conn = Connection::open_in_memory()?;
-        Self::from_connection(conn)
-    }
-
-    fn from_connection(conn: Connection) -> rusqlite::Result<Self> {
-        conn.execute_batch(SCHEMA)?;
-        // Schema-Evolution: `CREATE TABLE IF NOT EXISTS` legt neue Spalten auf einer **bestehenden**
-        // DB-Datei nicht an — `ensure_columns` rüstet die Audit-Spalten nach, sonst schlüge der erste
-        // `updated_at`-schreibende Ack (s. `ACK_MESSAGE`) auf einem Alt-Bestand fehl.
-        ensure_columns(&conn, "outbox", AUDIT_COLUMNS)?;
-        Ok(Self {
+    /// Hüllt eine **bereits geöffnete** Verbindung in das Rückgrat — **ohne** ein Schema anzulegen.
+    /// Außerhalb von Tests ruft das allein der Schema-Besitzer [`schema::open`](crate::schema::open):
+    /// er hat die Datei zuvor angelegt bzw. ihre Version geprüft, erst danach entsteht hier das
+    /// Rückgrat darüber.
+    pub(crate) fn from_connection(conn: Connection) -> Self {
+        Self {
             inner: Rc::new(Inner {
                 conn: RefCell::new(conn),
             }),
-        })
+        }
+    }
+
+    /// Öffnet ein **flüchtiges** In-Memory-Rückgrat mit **nur** der Outbox-Tabelle — der **Test-Weg**
+    /// für die Rückgrat- und Store-Tests, die ihre Ergebnis-Tabellen gezielt selbst anlegen (oder
+    /// gerade nicht). Eine echte Datenbank bekommt ihr Schema ausschließlich über
+    /// [`schema::open`](crate::schema::open).
+    #[cfg(test)]
+    pub(crate) fn open_in_memory() -> rusqlite::Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(OUTBOX_TABLE.ddl)?;
+        Ok(Self::from_connection(conn))
     }
 
     /// Reiht eine Wurzel-Nachricht (Producer-Publish) in die Outbox ein und gibt ihre neue,
@@ -108,8 +99,8 @@ impl SqliteOutbox {
         )
     }
 
-    /// Reicht die geteilte Verbindung an `f` — der crate-interne Zugriff, über den ein Slice-Store
-    /// seine Ergebnis-Tabelle **anlegt** (Schema, `IF NOT EXISTS`) und aus ihr **liest**. Die
+    /// Reicht die geteilte Verbindung an `f` — der crate-interne Zugriff, über den ein Lese-Seam aus
+    /// einer Ergebnis-Tabelle **liest** (und ein Test sich gezielt Tabellen anlegt). Die
     /// Outbox-Tabelle selbst rührt er nicht an; die schreibende Ablage einer verarbeiteten Nachricht
     /// läuft ausschließlich über die [`SqliteUnit`] und ihren Commit.
     pub(crate) fn with_connection<R>(
@@ -376,7 +367,7 @@ impl From<rusqlite::Error> for SqliteCommitError {
 /// (Auftrittszeitpunkt der Nachricht) und dem Ack-Marker `processed_on_utc`: `created_at` hält die
 /// Einfüge-Zeit, `updated_at` wird beim Ack mitgezogen (s. `ACK_MESSAGE`), damit die letzte
 /// Zeilen-Änderung rekonstruierbar bleibt.
-const SCHEMA: &str = "\
+const OUTBOX_DDL: &str = "\
 CREATE TABLE IF NOT EXISTS outbox (
     id              TEXT    PRIMARY KEY,
     message_type    TEXT    NOT NULL,
@@ -404,6 +395,16 @@ VALUES (
     CAST(unixepoch('subsec') * 1000 AS INTEGER),
     CAST(unixepoch('subsec') * 1000 AS INTEGER)
 );";
+
+/// Die Outbox-Tabelle als [`TableSpec`] — damit der Schema-Besitzer ([`schema`](crate::schema)) sie
+/// in **derselben** Form anlegt wie die Ergebnis-Tabellen der Slices. Er liest davon nur `name` und
+/// `ddl`; `insert` steht allein der Vollständigkeit der `TableSpec` halber da — die Outbox schreibt
+/// über die [`SqliteUnit`], keinen Store-Preflight.
+pub(crate) const OUTBOX_TABLE: TableSpec = TableSpec {
+    name: "outbox",
+    ddl: OUTBOX_DDL,
+    insert: INSERT_MESSAGE,
+};
 
 const INSERT_MESSAGE_RETURNING: &str = "\
 INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc, created_at, updated_at)
@@ -441,39 +442,6 @@ SET processed_on_utc = CAST(unixepoch('subsec') * 1000 AS INTEGER),
     updated_at       = CAST(unixepoch('subsec') * 1000 AS INTEGER)
 WHERE id = ?1 AND processed_on_utc IS NULL;";
 
-/// Die beiden Audit-Zeitstempel, die `.rules/sql/schema-konventionen.md` auf **jeder** Tabelle
-/// verlangt. Als `ALTER TABLE ADD COLUMN`-Nachrüstung tragen sie einen **konstanten** Default
-/// (`0` = „vor der Nachrüstung eingefügt"); frische Tabellen und alle laufenden `INSERT`s setzen den
-/// echten Epoch-Millis-Wert, sodass Alt- und Neu-DB deckungsgleich sind.
-pub(crate) const AUDIT_COLUMNS: &[(&str, &str)] = &[
-    ("created_at", "INTEGER NOT NULL DEFAULT 0"),
-    ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
-];
-
-/// Rüstet auf einer **bestehenden** Tabelle fehlende Spalten nach. `CREATE TABLE IF NOT EXISTS` wirkt
-/// nur beim Erst-Anlegen — eine ältere DB-Datei bekäme neue Spalten sonst nie. SQLite kennt kein
-/// `ADD COLUMN IF NOT EXISTS`, daher der `PRAGMA table_info`-Abgleich; der nachgerüstete Default muss
-/// **konstant** sein (`ADD COLUMN` verbietet einen geklammerten/nicht-konstanten `DEFAULT`-Ausdruck).
-/// Der `table`-Name ist stets ein Code-Literal (keine Fremd-Eingabe), daher ist die `format!`-Interpolation
-/// unbedenklich.
-pub(crate) fn ensure_columns(
-    conn: &Connection,
-    table: &str,
-    columns: &[(&str, &str)],
-) -> rusqlite::Result<()> {
-    let mut statement = conn.prepare(&format!("PRAGMA table_info({table});"))?;
-    let vorhanden = statement
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<rusqlite::Result<Vec<String>>>()?;
-    drop(statement);
-    columns
-        .iter()
-        .filter(|(name, _ddl)| !vorhanden.iter().any(|v| v.as_str() == *name))
-        .try_for_each(|(name, ddl)| {
-            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {name} {ddl};"))
-        })
-}
-
 /// Mintet eine neue ID **synchron an der DB** — dasselbe Rezept, das jeder slice-spezifische Store
 /// beim Ablegen braucht: ein zufälliges 128-Bit-`randomblob`, hex-kodiert.
 pub(crate) const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
@@ -481,6 +449,7 @@ pub(crate) const MINT_ID: &str = "SELECT lower(hex(randomblob(16)));";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::AppConfig;
     use crate::pipeline_test_support::TempDbPath;
     use crate::{OutboxConsumer, TransactionError, TransactionalHandler, run_in_unit};
     use application_kernel::CommandDecoder;
@@ -595,57 +564,6 @@ mod tests {
             (id,),
             |row| row.get(0),
         )
-    }
-
-    /// Regression (Copilot-Review, PR #74): eine **bestehende** DB-Datei trägt die outbox-Tabelle
-    /// noch im Vor-Audit-Schema. `CREATE TABLE IF NOT EXISTS` allein rüstet `created_at`/`updated_at`
-    /// nicht nach — der erste `updated_at`-schreibende Ack schlüge dann fehl. Das Öffnen muss die
-    /// Spalten nachziehen, sodass eine schon offene Alt-Nachricht sauber geackt wird.
-    #[expect(
-        clippy::panic_in_result_fn,
-        reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
-    )]
-    #[test]
-    fn bestehende_outbox_ohne_audit_spalten_wird_beim_oeffnen_nachgeruestet() -> rusqlite::Result<()>
-    {
-        let conn = Connection::open_in_memory()?;
-        // Alt-Schema: outbox **ohne** created_at/updated_at, mit einer schon offenen Nachricht.
-        conn.execute_batch(
-            "CREATE TABLE outbox (
-                id               TEXT    PRIMARY KEY,
-                message_type     TEXT    NOT NULL,
-                partition_key    TEXT    NOT NULL,
-                content          TEXT    NOT NULL DEFAULT '',
-                occurred_on_utc  INTEGER NOT NULL,
-                attempt          INTEGER NOT NULL DEFAULT 0,
-                processed_on_utc INTEGER
-            );
-            INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc)
-            VALUES ('alt-1', 'Root', 'k', 0);",
-        )?;
-
-        // Öffnen rüstet die fehlenden Audit-Spalten nach.
-        let outbox = SqliteOutbox::from_connection(conn)?;
-
-        // Der erste Ack schreibt updated_at — ohne Nachrüstung ein SQLite-Fehler auf dem Alt-Bestand.
-        let acked = outbox
-            .inner
-            .conn
-            .borrow()
-            .execute(ACK_MESSAGE, ("alt-1",))?;
-        assert_eq!(acked, 1, "die nachgerüstete Alt-Zeile wird sauber geackt");
-        assert!(
-            is_processed(&outbox, "alt-1")?,
-            "processed_on_utc ist gesetzt"
-        );
-
-        let updated_at: i64 = outbox.inner.conn.borrow().query_row(
-            "SELECT updated_at FROM outbox WHERE id = ?1;",
-            ("alt-1",),
-            |row| row.get(0),
-        )?;
-        assert!(updated_at > 0, "updated_at wird beim Ack gesetzt");
-        Ok(())
     }
 
     #[expect(
@@ -824,19 +742,21 @@ mod tests {
         reason = "Test-Helfer: die assert! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
-    fn eine_offene_nachricht_ueberlebt_einen_prozess_neustart() -> rusqlite::Result<()> {
+    fn eine_offene_nachricht_ueberlebt_einen_prozess_neustart()
+    -> Result<(), Box<dyn std::error::Error>> {
         let db = TempDbPath::new("restart");
-        // Der DB-Pfad kommt aus der App-Konfiguration, nicht aus dem Code.
+        // Der DB-Pfad kommt aus der App-Konfiguration, nicht aus dem Code; geöffnet wird über den
+        // produktiven Weg, den Schema-Besitzer.
         let config = AppConfig::new(db.path());
 
         // Erster Prozess: eine Nachricht einreihen, dann Verbindung schließen (= „Prozess-Ende").
         let root = {
-            let outbox = SqliteOutbox::open(&config)?;
+            let outbox = crate::schema::open(&config)?;
             outbox.enqueue(ROOT_TYPE, "root-key")?
         };
 
         // Neustart: dieselbe Config, dieselbe Datei — die offene Nachricht liegt noch da.
-        let outbox = SqliteOutbox::open(&config)?;
+        let outbox = crate::schema::open(&config)?;
         outbox
             .inner
             .conn

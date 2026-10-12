@@ -377,7 +377,7 @@ mod tests {
     fn read_eines_unbekannten_fensters_ist_ok_none() -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         // Legt die (leere) auswertungsfenster-Tabelle an.
-        FensternSqliteStore::new(outbox.clone())?;
+        FensternSqliteStore::with_own_tables(outbox.clone())?;
         let source = AuswertungsfensterSource::new(outbox);
 
         assert!(

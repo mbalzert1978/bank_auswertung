@@ -181,6 +181,12 @@ Die getroffenen Weichen im Einzelnen:
   an und leitet **nichts** aus SQL ab; snake_case+Plural, `created_at`/`updated_at` (via
   `ensure_columns` über `TableSpec::name`), `CHECK` für enum-artige Spalten und indizierte
   FK-Spalten bleiben unverwässert.
+
+  **Nachtrag ([Issue 0084](../issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)):**
+  `ensure_columns` ist entfallen. Das Schema legt jetzt allein der Schema-Besitzer `io::schema` an
+  und stempelt die Datei mit ihrer Version; eine Alt-Datei wird abgewiesen statt still nachgerüstet.
+  Dass jede `TableSpec` `created_at`/`updated_at` trägt, bewacht seitdem der Test
+  `schema::tests::jede_tabelle_traegt_die_audit_spalten`.
 - **Name, DDL und Insert einer Tabelle stehen beisammen** (`TableSpec`), statt als drei
   parallele Listen (`tables()`/`schema()`/`inserts()`) pro `impl` von Hand konsistent gehalten
   zu werden. Anlegen, Audit-Spalten-Nachrüstung und Preflight laufen über **dieselbe** Liste,
