@@ -12,7 +12,7 @@ begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
 |---|---|---|---|---|
 | 0 Aufräumen | — | — | erledigt | ee6697d |
 | 1 Schema-Version | [0084](0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md) | #101 | erledigt | c836e74 |
-| 2 Zeilen-Schlüssel + lauf-eigene Fenster | [0088](0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md) | #105 | offen (nach 1) | — |
+| 2 Zeilen-Schlüssel + lauf-eigene Fenster | [0088](0088-zeilen-schluessel-lauf-eigene-fenster-und-vorgemerktes-ueberspringen.md) | #105 | erledigt | 51ea0c8 |
 | 3a Wiederkehr | [0005](0005-wiederkehr-erkennung.md) | #94 | erledigt | 9ed77a9 |
 | 3b Scrubbing | [0010](0010-scrubbing-regeln-fuer-obfuskiertertext.md) | #97 | erledigt | 1ef9ab8 |
 | 4a Cashflow/Pareto/Spar | [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md) | #95 | offen (nach 2 + 3a) | — |

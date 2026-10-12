@@ -1,7 +1,7 @@
 ---
 id: "0088"
 title: "Zeilen-Schlüssel, lauf-eigene Fenster und vorgemerkte Umsätze überspringen"
-status: open
+status: closed
 ---
 
 # Zeilen-Schlüssel, lauf-eigene Fenster und vorgemerkte Umsätze überspringen
