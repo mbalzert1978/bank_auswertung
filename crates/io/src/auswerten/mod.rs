@@ -32,7 +32,7 @@ use auswerten_adapter::{
     AnalysisWindowSeam, CategorizerSeam, CategoryRegistrySeam, EvaluateHistoryCommand,
     EvaluateHistoryCommandDecoder, EvaluateWindowCommand, EvaluateWindowCommandDecoder,
     EvaluationError, EvaluationStoreSeam, HistoryEvaluationHandler, HistoryEvaluationRow,
-    OccurrenceSeam, OwnAccountsConfig, WindowEvaluationHandler,
+    OccurrenceSeam, OwnAccountsConfig, SavingsThresholdConfig, WindowEvaluationHandler,
 };
 
 use crate::{
@@ -76,9 +76,10 @@ pub const CONSUMED_HISTORY_MESSAGE_TYPE: &str = auswerten_adapter::CONSUMED_HIST
 /// Abnehmer verpuffte die Response schlicht. Statt den **generischen** Vertrag aller vier Consumer
 /// um einen Rückgabewert wachsen zu lassen — den drei von ihnen nie füllten — bekommt **diese eine**
 /// Reichweite ihren direkten Abnehmer, genau so, wie der Slice-Adapter es vorzeichnet. Er bekommt
-/// die ganze [`HistoryEvaluationRow`] — die Vorkommen der Zeitachse **und** die darin erkannten
-/// wiederkehrenden Abflüsse ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)); ihr
-/// späterer Leser ist der Bericht bzw. das Pareto-Ranking (Issues 0012/0007).
+/// die ganze [`HistoryEvaluationRow`] — die Vorkommen der Zeitachse, die darin erkannten
+/// wiederkehrenden Abflüsse ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)) und
+/// den Aderlass samt Pareto-Ranking und Spar-Kandidaten (Issue 0007); ihr späterer Leser ist der
+/// Bericht (Issue 0012).
 ///
 /// **Unfehlbar, wie [`OutboxPublisher::publish`](crate::outbox::OutboxPublisher::publish):** ein
 /// fehlbarer Abnehmer bräuchte eine Abbildung
@@ -144,11 +145,12 @@ where
 /// Der [`TransactionalHandler`] der **fenster-übergreifenden** Reichweite: derselbe Commit-Rand, nur
 /// mit dem einzweckigen `HistoryEvaluationHandler` darin. Er kennt **keine Ablage** — er führt eine
 /// Query über alle Fenster des Laufs und reicht ihr Ergebnis an den [`HistoryEvaluationSink`] weiter; die
-/// Eigene-Konten-Config hält er für das Netting der Wiederkehr. Seine Arbeitseinheit umspannt darum
-/// allein den Ack.
+/// Eigene-Konten-Config hält er für das Netting der Wiederkehr und des Rankings, die Spar-Schwelle
+/// für die Spar-Kandidaten (Issue 0007). Seine Arbeitseinheit umspannt darum allein den Ack.
 pub struct HistoryEvaluationTransactionalHandler<'a, F: UnitFactory, S: HistoryEvaluationSink> {
     source: &'a dyn OccurrenceSeam,
     own_accounts: OwnAccountsConfig,
+    savings_threshold: SavingsThresholdConfig,
     sink: S,
     units: F,
 }
@@ -166,9 +168,13 @@ impl<F: UnitFactory, S: HistoryEvaluationSink> TransactionalHandler
         command: EvaluateHistoryCommand,
     ) -> Result<(), TransactionError<EvaluationError>> {
         run_in_unit(self.units.begin(ack), |_unit, _publishing| {
-            HistoryEvaluationHandler::new(self.source, self.own_accounts.clone())
-                .handle(command)
-                .map(|evaluation| self.sink.receive(evaluation))
+            HistoryEvaluationHandler::new(
+                self.source,
+                self.own_accounts.clone(),
+                self.savings_threshold,
+            )
+            .handle(command)
+            .map(|evaluation| self.sink.receive(evaluation))
         })
     }
 }
@@ -206,12 +212,14 @@ where
 pub fn history_consumer<'a, F: UnitFactory, S: HistoryEvaluationSink>(
     source: &'a dyn OccurrenceSeam,
     own_accounts: OwnAccountsConfig,
+    savings_threshold: SavingsThresholdConfig,
     sink: S,
     units: F,
 ) -> OutboxConsumer<HistoryEvaluationTransactionalHandler<'a, F, S>> {
     OutboxConsumer::new(HistoryEvaluationTransactionalHandler {
         source,
         own_accounts,
+        savings_threshold,
         sink,
         units,
     })

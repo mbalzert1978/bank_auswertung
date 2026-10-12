@@ -94,6 +94,13 @@ pub(crate) fn all_processed(deliveries: &[(OutboxMessage, Delivery)]) -> bool {
 /// Bestand; `obfuskierung`s eigene Tests importieren ihn als den Seed, dessen Wirkung sie prüfen.
 pub(crate) const SEED: u64 = 42;
 
+/// Eine **unerreichbare** Spar-Schwelle (Issue 0007) für Tests, die die Spar-Kandidaten nicht
+/// betrachten: kein Treiber erreicht sie, die Kandidaten-Liste bleibt leer.
+pub(crate) const NO_SAVINGS: auswerten_adapter::SavingsThresholdConfig =
+    auswerten_adapter::SavingsThresholdConfig {
+        annual_minor_units: u64::MAX,
+    };
+
 /// Baut den echten CSV-CAMT-v8-Reader auf die benannte `einlesen`-Fixture (Pfad relativ zum
 /// io-Crate). Ein und dieselbe Fixture-Quelle für alle drei Store-Testmodule.
 pub(crate) fn csv_source(name: &str) -> CsvCamtV8Source {

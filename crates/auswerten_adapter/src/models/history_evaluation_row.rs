@@ -1,6 +1,6 @@
 use auswerten_domain::{HistoryEvaluation, PriceIncrease, Recurrence, Rhythm};
 
-use crate::models::OccurrenceRow;
+use crate::models::{AccountCashflowRow, DriverRankRow, OccurrenceRow, SavingsCandidateRow};
 
 /// Das **Ergebnis der fenster-übergreifenden Reichweite** als Ausgangs-DTO — die `Response` des
 /// [`HistoryEvaluationHandler`](crate::HistoryEvaluationHandler) (ADR-0013, Entscheidung E,
@@ -10,9 +10,17 @@ use crate::models::OccurrenceRow;
 /// das Pareto-Ranking und die Spar-Kandidaten (Issue 0007), der HTML-Bericht (Issue 0012), der
 /// Chat-Export (Issue 0011) —, ruft diese Reichweite auf und liest dieses DTO.
 ///
-/// Zwei Sichten, verschieden weit gefasst: die [`occurrences`](Self::occurrences) sind die
-/// **ungefilterte** Zeitachse aller Buchungsarten, die [`recurrences`](Self::recurrences) die
-/// **wiederkehrenden Abflüsse** darin — genettet, nur Ausgänge.
+/// Die Sichten sind verschieden weit gefasst: die [`occurrences`](Self::occurrences) sind die
+/// **ungefilterte** Zeitachse aller Buchungsarten; alles andere ist **genettet** (keine Umbuchung
+/// zwischen eigenen Konten) — die [`recurrences`](Self::recurrences) als wiederkehrende Abflüsse,
+/// der Aderlass je Konto und Monat ([`account_cashflows`](Self::account_cashflows)), das
+/// Pareto-Ranking der Kostentreiber ([`ranking`](Self::ranking)) und die Spar-Kandidaten daraus
+/// ([`savings_candidates`](Self::savings_candidates), [Issue
+/// 0007](../../../../docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)).
+///
+/// **Für genau einen Lauf:** die Reichweite ist über den Lauf gescopt (ADR-0016) — wer den Bericht
+/// eines Laufs schreibt, nimmt die Zeile, die dessen `HistorieVollständig` ergab, und rechnet nichts
+/// nach.
 ///
 /// **Egress-Kandidat** (Bericht, Export): es trägt darum die compilerfeste „kein `Serialize`"-Sperre
 /// (siehe die Crate-Wurzel), dieselbe Linie wie die Anfrage ans Orakel.
@@ -22,6 +30,12 @@ pub struct HistoryEvaluationRow {
     pub occurrences: Vec<OccurrenceRow>,
     /// Die wiederkehrenden Abflüsse, je Buchungsart einer, nach Fingerabdruck geordnet.
     pub recurrences: Vec<RecurrenceRow>,
+    /// Der genettete Cashflow je eigenem Konto und Monat — nach Konto, darin chronologisch.
+    pub account_cashflows: Vec<AccountCashflowRow>,
+    /// Das Pareto-Ranking der Kostentreiber, der größte Abfluss zuerst.
+    pub ranking: Vec<DriverRankRow>,
+    /// Die Spar-Kandidaten, der höchste Jahresbetrag zuerst.
+    pub savings_candidates: Vec<SavingsCandidateRow>,
 }
 
 /// Ein **wiederkehrender Abfluss** als Ausgangs-DTO
@@ -82,6 +96,21 @@ impl From<&HistoryEvaluation> for HistoryEvaluationRow {
                 .iter()
                 .map(RecurrenceRow::from)
                 .collect(),
+            account_cashflows: evaluation
+                .account_cashflows()
+                .iter()
+                .map(AccountCashflowRow::from)
+                .collect(),
+            ranking: evaluation
+                .ranking()
+                .iter()
+                .map(DriverRankRow::from)
+                .collect(),
+            savings_candidates: evaluation
+                .savings_candidates()
+                .iter()
+                .map(SavingsCandidateRow::from)
+                .collect(),
         }
     }
 }
@@ -90,10 +119,7 @@ impl From<&Recurrence> for RecurrenceRow {
     fn from(recurrence: &Recurrence) -> Self {
         Self {
             fingerprint: recurrence.fingerprint().as_str().to_string(),
-            rhythm: match recurrence.rhythm() {
-                Rhythm::Monthly => RecurrenceRhythm::Monthly,
-                Rhythm::Yearly => RecurrenceRhythm::Yearly,
-            },
+            rhythm: rhythm_row(recurrence.rhythm()),
             typical_amount_minor_units: recurrence.typical_amount().minor_units(),
             annual_amount_minor_units: recurrence.annual_amount().minor_units(),
             price_increase: recurrence.price_increase().map(PriceIncreaseRow::from),
@@ -109,5 +135,13 @@ impl From<&PriceIncrease> for PriceIncreaseRow {
             before_minor_units: increase.before().minor_units(),
             after_minor_units: increase.after().minor_units(),
         }
+    }
+}
+
+/// Der Takt „innen → außen" — die eine Abbildung, die Wiederkehr und Ranking teilen.
+pub(crate) fn rhythm_row(rhythm: Rhythm) -> RecurrenceRhythm {
+    match rhythm {
+        Rhythm::Monthly => RecurrenceRhythm::Monthly,
+        Rhythm::Yearly => RecurrenceRhythm::Yearly,
     }
 }

@@ -33,7 +33,8 @@ use auswerten_adapter::{
     CategorizerUnavailable, CategoryAnswerRow, CategoryRegistrySeam, CategoryRequestRow,
     CategoryRow, CounterAccountRow, EvaluationStoreSeam, FeeRow, HistoryEvaluationRow,
     InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OccurrenceSeam, OwnAccountRow,
-    OwnAccountsConfig, RegistryUnavailable, RunHistoryRow, WindowBookingRow, WindowEvaluationRow,
+    OwnAccountsConfig, RegistryUnavailable, RunHistoryRow, SavingsThresholdConfig,
+    WindowBookingRow, WindowEvaluationRow,
 };
 use fenstern_adapter::{ObfuscatedRow, ObfuscatedWindowSeam};
 use io::Dispatcher;
@@ -480,6 +481,10 @@ pub(crate) fn dispatcher_mit<'a>(
             Box::new(io::auswerten::history_consumer(
                 &verdrahtung.join,
                 eigene_konten(),
+                // Unerreichbar: dieser Verdrahtungstest betrachtet die Spar-Kandidaten nicht.
+                SavingsThresholdConfig {
+                    annual_minor_units: u64::MAX,
+                },
                 verdrahtung.senke.clone(),
                 db,
             )),

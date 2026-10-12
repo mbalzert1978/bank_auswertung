@@ -72,8 +72,14 @@
 //! Token-Regel wie beim Cashflow, und darum prüft auch diese Reichweite den [`SeedMarker`]. Ihr
 //! Ergebnis, die [`HistoryEvaluation`], wird **zurückgegeben**, nie abgelegt.
 //!
-//! **Noch nicht hier** (je eigenes Folge-Issue): das Pareto-Ranking und die Spar-Kandidaten (Issue
-//! 0007, die auf dem Jahresbetrag der Wiederkehr aufsetzen), die gelernten Korrekturen und ein echtes
+//! **Auf beidem sitzt der Aderlass** (Issue 0007), ebenfalls in dieser Reichweite, weil nur sie den
+//! ganzen Lauf sieht: der genettete Cashflow je eigenem Konto und Monat ([`AccountCashflow`]), das
+//! **Pareto-Ranking** der Kostentreiber ([`CostDriver`] → [`RankedDriver`], mit [`Share`] und
+//! kumuliertem Anteil am genetteten Abfluss) und die **Spar-Kandidaten** ([`SavingsCandidate`]):
+//! jeder Treiber, dessen **Jahresbetrag** die als Wert hereingereichte [`SavingsThreshold`] erreicht
+//! — mit Takt und Preissteigerung, wenn er wiederkehrt. Kein LLM ist daran beteiligt.
+//!
+//! **Noch nicht hier** (je eigenes Folge-Issue): die gelernten Korrekturen und ein echtes
 //! `Kategorisierer`-Orakel.
 
 mod entities;
@@ -93,9 +99,10 @@ pub use ports::{
     AnalysisWindowSource, Categorizer, CategoryRegistry, EvaluationRepository, OccurrenceSource,
 };
 pub use value_objects::{
-    AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer, CategoryRequest,
-    CounterAccount, Counterparty, Currency, DayStamp, Direction, Fee, Fingerprint,
-    HistoryEvaluation, InternalTransfer, Month, MonthlyCashflow, NonEmptyString, Occurrence,
-    OwnAccounts, PriceIncrease, Recipient, Recurrence, Rhythm, RunHistory, RunSpan, SeedMarker,
-    WindowId, WindowedBooking,
+    AccountCashflow, AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer,
+    CategoryRequest, CostDriver, CounterAccount, Counterparty, Currency, DayStamp, Direction, Fee,
+    Fingerprint, HistoryEvaluation, InternalTransfer, Month, MonthlyCashflow, NonEmptyString,
+    Occurrence, OwnAccounts, PriceIncrease, RankedDriver, Recipient, Recurrence, Rhythm,
+    RunHistory, RunSpan, SavingsCandidate, SavingsThreshold, SeedMarker, Share, WindowId,
+    WindowedBooking,
 };

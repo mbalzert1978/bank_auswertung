@@ -114,7 +114,7 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   [Issue 0009](docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
   ([`io::auswerten::SqliteCategoryRegistry`](crates/io/src/auswerten/registry.rs)). Still **without**
   a real adapter: the `Kategorisierer` oracle (answered empty today) and the `report`;
-- [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: six mandatory
+- [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: seven mandatory
   path options in, exit code out. Binds `io` as its **only** internal and **no** external dependency
   (asserted by the `architecture` test);
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
@@ -261,8 +261,16 @@ Per slice (value objects live in the owning slice; only DTOs cross the boundary)
   The fee markers are deliberately conservative and still **HITL-unverified** against Markus' real
   statements. Calls `Kategorisierer` only for **unknown**
   fingerprints; its egress DTO carries the no-`Serialize` guard. Read/store/query each **fallible +
-  terminal**, **no** publish seam (it is the pipeline tail until `report`). Still to come on top of
-  these reaches: the Pareto analyzer and savings candidates (building block 0007).
+  terminal**, **no** publish seam (it is the pipeline tail until `report`). On top of both sits the
+  **Aderlass** ([Issue 0007](docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md), **built**),
+  on the **window-spanning** reach because only it sees the whole run (a per-window Pareto would rank one
+  ~400-day page): the netted cashflow **per own account and month** (`AccountCashflowRow`, role from the
+  own-accounts config), the **Pareto ranking** of cost drivers (`CostDriver::Kind(fingerprint) |
+  Fee(charged account) | Unattributed`, shares in basis points, cumulative ends at exactly 10 000) and
+  the **savings candidates**: every driver except the unattributed lump whose **annual amount** reaches
+  the configured threshold (`--sparen`, decision V3) — recurring → from the recurrence, otherwise the
+  per-year average over the observed span, never extrapolated upwards. All returned in the
+  `HistoryEvaluationRow`, guarded no-`Serialize`, nothing stored, no schema change.
 
 (An earlier `eigene_konten` triad was removed: the ADR-0008 pipeline moved
 `Gegenkonto::Eigen|Fremd` resolution into the **`auswerten`** slice, done **on
@@ -377,10 +385,10 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   the fee classification ([0006](docs/issues/0006-gebuehren-klassifikation.md)) are **done**, so the
   cashflow numbers are now right rather than merely computed, and what the bank itself takes is named
   separately. On top of them the
-  Pareto/savings-candidate analyzer ([0007](docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)) and then
-  the `report` ([0012](docs/issues/0012-html-bericht.md)) — after those the program says for
-  the first time **where the money goes**. Both need a decision from Markus first (what counts as a
-  realistic savings candidate; what the report should state). One **HITL** item is now open on 0006
+  Pareto/savings-candidate analyzer ([0007](docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md))
+  is **built** (candidate = annual amount over a config value, decision V3); next is the `report`
+  ([0012](docs/issues/0012-html-bericht.md)) — after it the program says for the first time **where the
+  money goes**. One **HITL** item is now open on 0006
   too: which booking texts his bank actually sets for fees.
 - **Towards a safe operation** — the schema owner + version stamp
   ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)) and the
@@ -406,11 +414,14 @@ Die **sechs Gates**, die grün sein müssen (inkl. `cargo doc` als echtes Gate),
 kanonisch über den Skill **`/cargo-six-gates`** — er führt alle sechs aus und meldet
 PASS/FAIL je Gate. Definition und Do/Don't: [.rules/rust/gates.md](.rules/rust/gates.md).
 
-A real run (issue 0083) — all six options are mandatory, the run log goes to stderr:
+A real run (issue 0083) — all seven options are mandatory, the run log goes to stderr:
 
 ```bash
-cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.toml --seed seed.toml --eigene-konten eigene-konten.toml --personen personen.toml
+cargo run -p lauf -- --db lauf.sqlite --csv <auszug>.csv   --fenster fenster.toml --seed seed.toml --eigene-konten eigene-konten.toml --personen personen.toml --sparen sparen.toml
 ```
+
+`--sparen` is the savings threshold (issue 0007; copy `sparen.example.toml`, not secret):
+`jahresbetrag_ab_cent` — from this annual amount on, a cost driver is proposed as a savings candidate.
 
 `--personen` is the local name list for the free-text scrubber (issue 0010; copy
 `personen.example.toml`, gitignored). It is **mandatory even when empty** (`namen = []`): a forgotten
@@ -503,8 +514,9 @@ each step runnable/valuable against fakes, real `io` last:
    cashflow and is only lifted out alongside it into `window_evaluation_fees`, per month and charged
    account. The **third**, the **recurrence detection** (0005), is built on the window-spanning
    reach: netted outflows per fingerprint → monthly/yearly rhythm, price increase, annual amount,
-   returned (never stored) as `RecurrenceRow`s. The Pareto analyzer (building block 0007) is still to
-   come.
+   returned (never stored) as `RecurrenceRow`s. The **fourth**, the **Aderlass** (0007), is built on the
+   same reach: cashflow per own account and month, Pareto ranking of cost drivers, savings candidates
+   over the `--sparen` threshold — returned in the `HistoryEvaluationRow`, never stored.
    `Kategorisierer` still comes in from the caller as a fake.
 6. **`Speicher` (SQLite)** — no port of its own, but the four slice stores plus
    `SqliteCategoryRegistry` — and the real **`io`** adapters

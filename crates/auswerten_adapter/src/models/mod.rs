@@ -10,8 +10,9 @@
 //! `partition_key`, Form `"{from}:{to}"`, wie `fenstern` sie setzt), die gelesene
 //! [`RunHistoryRow`] (Eingang) und die [`HistoryEvaluationRow`] als **Ausgangs**-DTO — die
 //! [`OccurrenceRow`]s der Zeitachse und die [`RecurrenceRow`]s der Wiederkehr-Erkennung (samt
-//! [`RecurrenceRhythm`]/[`PriceIncreaseRow`]), zurückgegeben, **nicht** abgelegt (kein
-//! Vorkommens-/Fold-Log).
+//! [`RecurrenceRhythm`]/[`PriceIncreaseRow`]) und der Aderlass ([`AccountCashflowRow`],
+//! [`DriverRankRow`]/[`CostDriverRow`], [`SavingsCandidateRow`]), zurückgegeben, **nicht** abgelegt
+//! (kein Vorkommens-/Fold-Log). Die Spar-Schwelle kommt als [`SavingsThresholdConfig`] herein.
 //!
 //! Das **Kategorisierer-Orakel** bringt drei mit: die [`CategoryRequestRow`] als **Egress-DTO**
 //! (hinaus — sie trägt die compilerfeste „kein `Serialize`"-Sperre), die [`CategoryAnswerRow`]
@@ -25,6 +26,7 @@
 //! Alle sprechen nur `application_kernel`-Verträge; die Outbox-Mechanik lebt in `io` (ADR-0011).
 
 mod account_role_vocabulary;
+mod aderlass_rows;
 mod analysis_window_row;
 mod category_exchange;
 mod evaluate_history_command;
@@ -36,6 +38,9 @@ mod run_history_row;
 mod window_evaluation_row;
 
 pub use account_role_vocabulary::account_role_label;
+pub use aderlass_rows::{
+    AccountCashflowRow, CostDriverRow, DriverRankRow, SavingsCandidateRow, SavingsThresholdConfig,
+};
 pub use analysis_window_row::{
     AnalysisWindowRow, BookingDirection, BookingRecipient, WindowBookingRow,
 };

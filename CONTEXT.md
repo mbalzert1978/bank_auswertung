@@ -82,6 +82,19 @@ Die Gebühr, die die Bank für eine Umbuchung berechnet. Anders als die Umbuchun
 selbst ist das echter Abfluss (eine **Gebühr**) — wegen ihr wurde das
 Mehrkontenmodell zusammengestrichen, also Hauptverdächtiger.
 
+**Kostentreiber**:
+Worunter das Pareto-Ranking die genetteten Abflüsse eines Laufs zusammenfasst: eine
+Buchungsart (über ihren **Fingerabdruck**), die **Gebühren** eines Kontos, oder — als Rest —
+alle Abflüsse ohne Gegenpartei. Gerankt nach Anteil am Abfluss, mit **Jahresbetrag**
+(wiederkehrend: aus der Wiederkehr; sonst Durchschnitt je Jahr, nie hochgerechnet).
+_Avoid_: Kostenstelle, Kategorie (die ist ein Etikett, kein Schlüssel)
+
+**Spar-Kandidat**:
+Ein **Kostentreiber**, dessen Jahresbetrag eine vom Nutzer gesetzte Schwelle erreicht — ein
+**Vorschlag** des Programms, entschieden wird vom Nutzer. Nie der Rest ohne Gegenpartei,
+nie vom LLM vorgeschlagen.
+_Avoid_: Sparpotenzial (das benennt erst der Mensch)
+
 **Konto-Rolle**:
 Die Funktion, die ein Konto im Mehrkontenmodell hat — hier: Giro (laufend),
 Haushalt, Spar, Vorlauf (für anstehende Fixkosten reserviert). Beeinflusst die
@@ -144,9 +157,11 @@ Berichts-/Bucketing-**Zeitraum**. Der Bericht bucketet _innerhalb_ eines Fenster
 Nicht verwechseln: ein Fenster deckt viele Zeiträume ab.
 
 **Reichweite: pro-Fenster vs. fenster-übergreifend** — die periodische Auswertung
-(Cashflow/Gebühren/Pareto) rechnet **innerhalb** eines Auswertungsfensters; die
+(Cashflow/Gebühren je Fenster) rechnet **innerhalb** eines Auswertungsfensters; die
 **Wiederkehr** liest **über alle** Fenster hinweg (ein jährliches Abo erscheint je Seite nur
-1×, also braucht es 2+ Vorkommen über die Seiten). Wiederkehr ist **nicht** pro-Fenster.
+1×, also braucht es 2+ Vorkommen über die Seiten). Wiederkehr ist **nicht** pro-Fenster —
+und seit Issue 0007 auch der **Aderlass** nicht (Cashflow je Konto und Monat, Pareto-Ranking,
+Spar-Kandidaten): ein Ranking je Seite rankte nur einen Ausschnitt des Laufs.
 
 ## Beispieldialog
 

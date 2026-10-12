@@ -63,7 +63,7 @@ use std::io::Write;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
-use auswerten_adapter::OwnAccountsConfig;
+use auswerten_adapter::{OwnAccountsConfig, SavingsThresholdConfig};
 use obfuskierung_adapter::ObfuscatedMessage;
 
 use crate::Dispatcher;
@@ -74,6 +74,7 @@ use crate::auswerten::{
 };
 use crate::config::{
     AppConfig, ConfigError, EigeneKontenConfig, FensterConfig, PersonenConfig, SeedConfig,
+    SparenConfig,
 };
 use crate::einlesen::{
     CONSUMED_MESSAGE_TYPE as EINLESEN_CONSUMED, CsvCamtV8Source, EinlesenSqliteStore,
@@ -111,8 +112,8 @@ const OBFUSCATED_MESSAGE_TYPE: &str = <ObfuscatedMessage as PublishCommand>::MES
 const MAX_ROUNDS: usize = 4096;
 
 /// Wo die Eingaben des Laufs liegen. Ein reiner Wert-Typ am Prozess-Rand — **öffentliche Felder**,
-/// weil er nichts weiter ist als das Bündel der sechs Pfade, die die Bin-Crate von der Kommandozeile
-/// bekommt; ein Konstruktor mit sechs gleichartigen Parametern wäre nur Zeremonie mit
+/// weil er nichts weiter ist als das Bündel der sieben Pfade, die die Bin-Crate von der Kommandozeile
+/// bekommt; ein Konstruktor mit sieben gleichartigen Parametern wäre nur Zeremonie mit
 /// Verwechslungsgefahr.
 #[derive(Debug, Clone)]
 pub struct RunPaths {
@@ -134,16 +135,20 @@ pub struct RunPaths {
     /// **Pflicht**, auch wenn sie leer ist (`namen = []`): eine
     /// vergessene Liste soll den Lauf laut stoppen, statt still weniger zu scrubben.
     pub persons_config: PathBuf,
+    /// Die Spar-Config (`jahresbetrag_ab_cent`): ab welchem Jahresbetrag ein Kostentreiber als
+    /// Spar-Kandidat vorgeschlagen wird (Issue 0007).
+    pub savings_config: PathBuf,
 }
 
-/// Was der Lauf getan hat: die Zahl der verarbeiteten Nachrichten **je Typ** und die Zahl der
-/// Vorkommen, die die fenster-übergreifende Reichweite geliefert hat. Reine Zählwerte — nichts davon
-/// ist ein Rohwert.
+/// Was der Lauf getan hat: die Zahl der verarbeiteten Nachrichten **je Typ**, die Zahl der
+/// Vorkommen, die die fenster-übergreifende Reichweite geliefert hat, und die Zahl der
+/// Spar-Kandidaten darin. Reine Zählwerte — nichts davon ist ein Rohwert.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunReport {
     processed: BTreeMap<String, usize>,
     occurrences: usize,
     incomplete: usize,
+    savings_candidates: usize,
 }
 
 impl RunReport {
@@ -168,6 +173,13 @@ impl RunReport {
         self.incomplete
     }
 
+    /// Die Zahl der Spar-Kandidaten, die die fenster-übergreifende Reichweite dieses Laufs vorschlug
+    /// (Issue 0007) — die Kandidaten selbst stehen in ihrem Ergebnis, nicht im Protokoll.
+    #[must_use]
+    pub fn savings_candidates(&self) -> usize {
+        self.savings_candidates
+    }
+
     /// Wie viele Nachrichten der Lauf insgesamt verarbeitet hat.
     #[must_use]
     pub fn total(&self) -> usize {
@@ -184,7 +196,7 @@ impl RunReport {
 /// **nie** einen Rohwert, Freitext, eine IBAN oder den Seed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunError {
-    /// Eine der vier Configs ließ sich nicht laden.
+    /// Eine der fünf Configs ließ sich nicht laden.
     Config(ConfigError),
     /// Das transaktionale Rückgrat (SQLite-Datei, Tabellen) ließ sich nicht öffnen oder anlegen. Trägt
     /// die durchgereichte io-Diagnose — Zugriffs-Mechanik, kein Zeileninhalt.
@@ -272,6 +284,7 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let own_accounts =
         EigeneKontenConfig::load(&paths.own_accounts_config)?.to_own_accounts_config(seed);
     let persons = PersonenConfig::load(&paths.persons_config)?.into_names();
+    let savings_threshold = SparenConfig::load(&paths.savings_config)?.savings_threshold();
 
     // Der **einzige** Weg, auf dem die Datei ihr Schema bekommt (Issue 0084): frisch → angelegt und
     // gestempelt, passend gestempelt → benutzt, jede andere Version → Abbruch, bevor etwas geschrieben
@@ -284,6 +297,7 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
         .window_days(window_days)
         .seed(seed)
         .own_accounts(own_accounts)
+        .savings_threshold(savings_threshold)
         .occurrences(&occurrences)
         .build()?;
 
@@ -309,10 +323,12 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     // `WindowClosed` bleibt für immer unvollständig; ihn liest der Bericht nicht (er endete mit Exit 1).
     write_line(protocol, "Lauf: Analyse")?;
     let occurrences_before = occurrences.count();
+    let candidates_before = occurrences.candidates();
     enqueue(&outbox, START_MESSAGE_TYPE, &mint_run_id(&outbox)?)?;
     dead_lettered.extend(drain(&outbox, &dispatcher, protocol, &mut report)?);
 
     report.occurrences = occurrences.count().saturating_sub(occurrences_before);
+    report.savings_candidates = occurrences.candidates().saturating_sub(candidates_before);
     finish(&outbox, protocol, report, dead_lettered)
 }
 
@@ -402,12 +418,12 @@ impl Stores {
 ///
 /// Die drei strukturellen Bündel — Rückgrat, Seams, Stores — verlangt `new`: ohne sie lässt sich kein
 /// einziger Consumer verdrahten, und `adapters` bindet ohnehin die Lebenszeit `'a`, die der fertige
-/// [`Dispatcher`] trägt. Die vier geladenen Config-Werte kommen je über eine verkettete, `self`
+/// [`Dispatcher`] trägt. Die geladenen Config-Werte und die Senke kommen je über eine verkettete, `self`
 /// konsumierende Methode dazu — dieselbe Reihenfolge, in der [`run`] sie lädt.
 ///
 /// Der Typparameter `C` ist der **Typestate**: er trägt die bereits gesetzten Config-Werte und wächst
 /// mit jedem Schritt ([`Empty`] → [`WithWindowDays`] → [`WithSeed`] → [`WithOwnAccounts`] →
-/// [`Complete`]). Jede Methode existiert nur auf ihrem Zustand, und `build` nur auf [`Complete`] —
+/// [`WithSavingsThreshold`] → [`Complete`]). Jede Methode existiert nur auf ihrem Zustand, und `build` nur auf [`Complete`] —
 /// einen unvollständigen Builder abzuschließen ist damit ein **Compile-Fehler** statt einer
 /// Laufzeitprüfung (ADR-0005: illegale Zustände unkonstruierbar, nicht „geprüft"). Deshalb trägt
 /// keines der Config-Felder ein `Option`.
@@ -439,18 +455,27 @@ struct WithOwnAccounts {
     own_accounts: OwnAccountsConfig,
 }
 
-/// Typestate: alle vier Werte stehen — allein auf diesem Zustand gibt es `build`.
+/// Typestate: dazu die Spar-Schwelle.
+struct WithSavingsThreshold {
+    window_days: NonZeroU32,
+    seed: u64,
+    own_accounts: OwnAccountsConfig,
+    savings_threshold: SavingsThresholdConfig,
+}
+
+/// Typestate: alle Werte stehen — allein auf diesem Zustand gibt es `build`.
 struct Complete<'a> {
     window_days: NonZeroU32,
     seed: u64,
     own_accounts: OwnAccountsConfig,
+    savings_threshold: SavingsThresholdConfig,
     occurrences: &'a CountingHistorySink,
 }
 
 impl<'a, C> DispatcherBuilder<'a, C> {
     /// Trägt die drei strukturellen Bündel in den nächsten Zustand, während `next` den bisherigen
     /// Config-Stand um den neuen Wert erweitert — die eine Stelle, die den Zustandsübergang vollzieht,
-    /// damit die vier Setter je eine Zeile bleiben.
+    /// damit die Setter je eine Zeile bleiben.
     fn advance<N>(self, next: impl FnOnce(C) -> N) -> DispatcherBuilder<'a, N> {
         DispatcherBuilder {
             outbox: self.outbox,
@@ -501,20 +526,43 @@ impl<'a> DispatcherBuilder<'a, WithSeed> {
 }
 
 impl<'a> DispatcherBuilder<'a, WithOwnAccounts> {
-    /// Die Senke, die die fenster-übergreifenden Vorkommen zählt.
-    fn occurrences(
+    /// Die Spar-Schwelle für die fenster-übergreifende Reichweite von `auswerten`.
+    fn savings_threshold(
         self,
-        occurrences: &'a CountingHistorySink,
-    ) -> DispatcherBuilder<'a, Complete<'a>> {
+        savings_threshold: SavingsThresholdConfig,
+    ) -> DispatcherBuilder<'a, WithSavingsThreshold> {
         self.advance(
             |WithOwnAccounts {
                  window_days,
                  seed,
                  own_accounts,
+             }| WithSavingsThreshold {
+                window_days,
+                seed,
+                own_accounts,
+                savings_threshold,
+            },
+        )
+    }
+}
+
+impl<'a> DispatcherBuilder<'a, WithSavingsThreshold> {
+    /// Die Senke, die die fenster-übergreifenden Vorkommen und Spar-Kandidaten zählt.
+    fn occurrences(
+        self,
+        occurrences: &'a CountingHistorySink,
+    ) -> DispatcherBuilder<'a, Complete<'a>> {
+        self.advance(
+            |WithSavingsThreshold {
+                 window_days,
+                 seed,
+                 own_accounts,
+                 savings_threshold,
              }| Complete {
                 window_days,
                 seed,
                 own_accounts,
+                savings_threshold,
                 occurrences,
             },
         )
@@ -523,13 +571,14 @@ impl<'a> DispatcherBuilder<'a, WithOwnAccounts> {
 
 impl<'a> DispatcherBuilder<'a, Complete<'a>> {
     /// Registriert alle sieben Consumer und schließt den Builder ab. Scheitern kann hier nur noch die
-    /// Registrierung selbst ([`RunError::DuplicateConsumer`]) — dass alle vier Config-Werte vorliegen,
+    /// Registrierung selbst ([`RunError::DuplicateConsumer`]) — dass alle Werte vorliegen,
     /// hat der Typ bereits bewiesen.
     fn build(self) -> Result<Dispatcher<'a>, RunError> {
         let Complete {
             window_days,
             seed,
             own_accounts,
+            savings_threshold,
             occurrences,
         } = self.config;
         let outbox = self.outbox;
@@ -598,6 +647,7 @@ impl<'a> DispatcherBuilder<'a, Complete<'a>> {
             Box::new(history_consumer(
                 &adapters.analysis_windows,
                 own_accounts,
+                savings_threshold,
                 occurrences.clone(),
                 stores.auswerten,
             )),
@@ -822,9 +872,10 @@ fn write_summary(
     write_line(
         protocol,
         &format!(
-            "  gesamt: {} | Vorkommen: {}",
+            "  gesamt: {} | Vorkommen: {} | Spar-Kandidaten: {}",
             report.total(),
-            report.occurrences()
+            report.occurrences(),
+            report.savings_candidates()
         ),
     )?;
     if report.incomplete > 0 {

@@ -37,6 +37,7 @@ fn lauf_pfade(db: &TempDbPath) -> RunPaths {
         seed_config: fixture("lauf/seed.toml"),
         own_accounts_config: fixture("lauf/konten.toml"),
         persons_config: fixture("lauf/namen.toml"),
+        savings_config: fixture("lauf/sparen.toml"),
     }
 }
 
@@ -336,6 +337,49 @@ fn eine_fehlende_config_beendet_den_lauf_bevor_irgendetwas_laeuft() {
     );
 }
 
+#[test]
+fn eine_fehlende_spar_config_beendet_den_lauf_bevor_irgendetwas_laeuft() {
+    // Die Spar-Schwelle ist Pflicht (Issue 0007): ohne sie gäbe es keine Kandidaten — still.
+    let db = TempDbPath::new("lauf_sparen");
+    let mut paths = lauf_pfade(&db);
+    paths.savings_config = fixture("lauf/gibt-es-nicht.toml");
+    let mut protokoll = Vec::new();
+
+    let fehler = run(&paths, &mut protokoll).expect_err("fehlende Spar-Config");
+
+    assert_eq!(
+        fehler,
+        RunError::Config(ConfigError::Unreadable(crate::config::ConfigKind::Sparen))
+    );
+    assert!(
+        protokoll.is_empty(),
+        "vor der geladenen Config läuft nichts"
+    );
+}
+
+#[test]
+fn ein_lauf_schlaegt_spar_kandidaten_vor_und_protokolliert_nur_ihre_zahl() {
+    // Die Lauf-Fixture setzt die Schwelle niedrig (10 € im Jahr): die erfundene CSV trägt Treiber
+    // darüber. Ins Protokoll geht nur ihre **Zahl** — welche es sind, steht im Ergebnis der
+    // Reichweite, das der Bericht (Issue 0012) liest, nicht im Fehlerkanal.
+    let db = TempDbPath::new("lauf_kandidaten");
+    let paths = lauf_pfade(&db);
+    let mut protokoll = Vec::new();
+
+    let report = run(&paths, &mut protokoll).expect("der Lauf gelingt");
+
+    assert!(report.savings_candidates() > 0, "{report:?}");
+    let text = String::from_utf8(protokoll).expect("das Protokoll ist Text");
+    assert!(
+        text.contains(&format!("Spar-Kandidaten: {}", report.savings_candidates())),
+        "{text}"
+    );
+    assert!(
+        !text.contains("COMPANY:"),
+        "kein Fingerabdruck im Protokoll"
+    );
+}
+
 // --- Mehrere Läufe in eine Datenbank (Issue 0088, ADR-0016) ---------------------------------
 
 /// Der Auszug des zweiten eigenen Kontos (Haushalt): erfunden, mit zwei gleichen Buchungen am
@@ -377,6 +421,7 @@ struct Zahlen {
     umbuchungen: Vec<Monatszahl>,
     gebuehren: Vec<Monatszahl>,
     vorkommen: usize,
+    spar_kandidaten: usize,
 }
 
 fn zahlen_des_juengsten_laufs(paths: &RunPaths, report: &RunReport) -> rusqlite::Result<Zahlen> {
@@ -417,6 +462,7 @@ fn zahlen_des_juengsten_laufs(paths: &RunPaths, report: &RunReport) -> rusqlite:
         umbuchungen: monatszahlen("window_evaluation_transfers", "d.role")?,
         gebuehren: monatszahlen("window_evaluation_fees", "d.account")?,
         vorkommen: report.occurrences(),
+        spar_kandidaten: report.savings_candidates(),
     })
 }
 

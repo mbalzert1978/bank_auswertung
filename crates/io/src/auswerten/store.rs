@@ -684,7 +684,8 @@ mod tests {
     use crate::obfuskierung::seed_marker;
     use crate::outbox::UnitOfWork;
     use crate::pipeline_test_support::{
-        CapturingAck, SEED, Stage, all_processed, drain, register_fresh, seed_through, stamp,
+        CapturingAck, NO_SAVINGS, SEED, Stage, all_processed, drain, register_fresh, seed_through,
+        stamp,
     };
     use crate::sqlite::SqliteOutbox;
     use crate::{Dispatcher, MessageId, UnitFactory};
@@ -907,8 +908,6 @@ mod tests {
 
         let auswerten_source = AuswertungsfensterSource::new(outbox.clone());
         let auswerten_store = AuswertenSqliteStore::with_own_tables(outbox.clone())?;
-        let registry = AllKnownRegistry;
-        let categorizer = NoopCategorizer;
         let sink = CollectingSink::default();
         let own_accounts = own_accounts_config(&outbox)?;
 
@@ -937,8 +936,8 @@ mod tests {
             AUSWERTEN_CONSUMED,
             Box::new(auswerten_consumer(
                 &auswerten_source,
-                &registry,
-                &categorizer,
+                &AllKnownRegistry,
+                &NoopCategorizer,
                 own_accounts.clone(),
                 auswerten_store.clone(),
             )),
@@ -949,6 +948,7 @@ mod tests {
             Box::new(history_consumer(
                 &auswerten_source,
                 own_accounts,
+                NO_SAVINGS,
                 sink.clone(),
                 auswerten_store,
             )),

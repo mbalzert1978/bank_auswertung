@@ -5,6 +5,12 @@
 > fenster-übergreifenden Reichweite ist der **Lauf** (die Spanne allein grenzt Läufe nicht ab). Wo
 > dieser Text „feldlos" oder „die Lauf-Spanne scopt" sagt, gilt ADR-0016.
 >
+> **Verfeinert durch [Issue 0007](../issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md):**
+> Pareto-Ranking, Spar-Kandidaten und der Cashflow je Konto rechnen in der
+> **fenster-übergreifenden** Reichweite (Rückgabewert, nichts abgelegt), nicht pro Fenster — ein
+> Fenster ist eine Pager-Seite, kein Berichtszeitraum. Wo Entscheidung E „Pareto innerhalb des
+> Fensters" sagt, gilt das Ticket.
+>
 > **Status: Akzeptiert und gebaut** (Kette 0036–0045 in `main`, gegen Fakes; das reale `io`
 > — SQLite/`rusqlite` (synchron, [ADR-0014](0014-io-persistenz-rusqlite-synchron-kein-sqlx.md)),
 > Tag-Stamp-Persistenz, Config-Loader — bleibt bewusst der letzte Bauschritt).
