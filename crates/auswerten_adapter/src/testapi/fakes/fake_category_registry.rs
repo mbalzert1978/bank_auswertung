@@ -1,7 +1,7 @@
 use crate::abstractions::{CategoryRegistrySeam, RegistryUnavailable};
 
 /// Fake des **Kategorie-Registers**: hält die Fingerabdrücke, die die Domäne bereits kennt, und
-/// spielt so die vertagte persistente Ablage
+/// spielt so die persistente io-Ablage
 /// ([Issue 0009](../../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md))
 /// für die Specs.
 ///

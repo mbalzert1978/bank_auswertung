@@ -61,12 +61,13 @@
 //! mehr bleibt. Damit läuft die Pipeline zum ersten Mal außerhalb eines Tests. Die Bin-Crate `lauf`
 //! darüber ist reine Kommandozeile.
 //!
-//! **Noch draußen (Build-Order Schritt 6):** der `Speicher` für DTOs/Kategorie-Register
-//! ([Issue 0009](../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)) und
-//! das Kategorisierer-Orakel
-//! ([Issue 0011](../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)) — beide heute mit
-//! einer bewusst leeren Antwort erfüllt ([`auswerten::EmptyCategoryRegistry`] /
-//! [`auswerten::UnansweredCategorizer`]) — sowie der `report`-Presenter.
+//! **Das Kategorie-Register ist real** ([`auswerten::SqliteCategoryRegistry`],
+//! [Issue 0009](../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)): eine
+//! SQLite-Tabelle Fingerabdruck → Kategorie, die gelernte Korrekturen über jeden Neustart trägt.
+//! **Noch draußen:** das Kategorisierer-Orakel
+//! ([Issue 0011](../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)) — heute mit einer
+//! bewusst leeren Antwort erfüllt ([`auswerten::UnansweredCategorizer`]) und nur noch für Arten
+//! gefragt, die das Register nicht kennt — sowie der `report`-Presenter.
 
 mod common;
 

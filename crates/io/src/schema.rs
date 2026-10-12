@@ -33,10 +33,18 @@
 //! abgelegt hat (Kundenreferenz, Mandatsreferenz, BIC, …). Ein Ersatzschlüssel aus dem, was da ist,
 //! träfe beim nächsten Import desselben Auszugs nie — der Bestand verdoppelte sich still, genau der
 //! Fehler, den Version 2 behebt. Lieber laut eine frische Datei verlangen.
+//!
+//! **Version 2 → 3** ([Issue 0009](../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md))
+//! ist rein **additiv**: das Kategorie-Register (`learned_categories`) kommt hinzu, keine vorhandene
+//! Tabelle ändert sich. Eine Version-2-Datei wird darum **mit** ihrem Bestand umgebaut — es geht nichts
+//! verloren, und danach trägt sie genau das Schema einer frischen Datei. Eine Version-1-Datei landet
+//! über `migrate_1_to_2` direkt auf der aktuellen Version (die Neuanlage dort legt alle heutigen
+//! Tabellen an, das Register eingeschlossen). **Die nächste Migration** hängt sich hinter diese: ihr
+//! Arm muss auch eine Version-2- und Version-1-Datei bis zu ihrer eigenen Version tragen.
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
-use crate::auswerten::AuswertenEvaluations;
+use crate::auswerten::{AuswertenEvaluations, LEARNED_CATEGORIES_TABLE};
 use crate::config::AppConfig;
 use crate::einlesen::EinlesenLines;
 use crate::fenstern::FensternWindows;
@@ -46,7 +54,7 @@ use crate::sqlite::{OUTBOX_TABLE, SqliteOutbox, StoreSpec, TableSpec};
 /// Die Schema-Version **dieses Programms** — der Wert, mit dem eine frisch angelegte Datei gestempelt
 /// wird und den eine vorgefundene Datei tragen muss. Hochzählen nur zusammen mit einer Migration in
 /// `ensure`.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Öffnet die Datenbank-Datei unter dem konfigurierten Pfad als Rückgrat — der **produktive**
 /// Öffnungspfad. Eine frische Datei bekommt Schema und Stempel, eine passend gestempelte wird
@@ -94,6 +102,7 @@ fn ensure(conn: &Connection) -> Result<(), SchemaError> {
         Found::Empty => create(&transaction)?,
         Found::Version(SCHEMA_VERSION) => {}
         Found::Version(1) => migrate_1_to_2(&transaction)?,
+        Found::Version(2) => migrate_2_to_3(&transaction)?,
         Found::Version(found) => {
             return Err(SchemaError::VersionMismatch(VersionMismatch {
                 found,
@@ -145,6 +154,14 @@ fn migrate_1_to_2(transaction: &Transaction<'_>) -> Result<(), SchemaError> {
     Ok(())
 }
 
+/// Version 2 → 3 (Issue 0009): legt das Kategorie-Register an und stempelt die Datei. **Additiv** —
+/// keine vorhandene Tabelle wird berührt, ihr Bestand bleibt, wie er ist. Die DDL ist die heutige des
+/// Registers, also trägt die Datei danach genau das Schema einer frischen.
+fn migrate_2_to_3(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(LEARNED_CATEGORIES_TABLE.ddl)?;
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)
+}
+
 /// Trägt die Tabelle mindestens eine Zeile? Der Name ist stets ein Code-Literal, nie Fremd-Eingabe.
 fn has_rows(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
     conn.query_row(
@@ -154,8 +171,8 @@ fn has_rows(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
     )
 }
 
-/// **Alle** Tabellen des Programms: die Outbox und die der vier Ergebnis-Stores, jede mit ihrer
-/// eigenen, beim Slice-Store authored DDL ([`TableSpec`]). Ein neuer Store, der hier fehlt, bekäme
+/// **Alle** Tabellen des Programms: die Outbox, die der vier Ergebnis-Stores und das Kategorie-Register
+/// (Issue 0009), jede mit ihrer eigenen, beim Store authored DDL ([`TableSpec`]). Ein neuer Store, der hier fehlt, bekäme
 /// keine Tabelle — und failte in der ersten Ablage terminal im Preflight. Die Liste muss darum
 /// dieselben Stores aufführen, die `run` verdrahtet.
 fn tables() -> impl Iterator<Item = &'static TableSpec> {
@@ -164,6 +181,7 @@ fn tables() -> impl Iterator<Item = &'static TableSpec> {
         .chain(ObfuskiertBookings::tables())
         .chain(FensternWindows::tables())
         .chain(AuswertenEvaluations::tables())
+        .chain(std::iter::once(&LEARNED_CATEGORIES_TABLE))
 }
 
 /// Warum der Schema-Besitzer eine Datei nicht geöffnet hat. Jede Variante ist **redigiert**: sie
@@ -542,15 +560,16 @@ CREATE TABLE auswertungsfenster (
     /// Eine erfundene, gültige Auftrags-IBAN — sie darf in keiner Meldung auftauchen.
     const ALT_IBAN: &str = "DE93100000000000000100";
 
-    /// Legt eine Datei an, wie Version 1 sie hinterließ: alle Tabellen, die beiden geänderten in
-    /// ihrer alten Form, Stempel 1.
+    /// Legt eine Datei an, wie Version 1 sie hinterließ: alle Tabellen jener Zeit, die beiden
+    /// geänderten in ihrer alten Form, **ohne** das Register (es kam erst mit Version 3), Stempel 1.
     fn version_1_datei(name: &str) -> Result<TempDbPath, Box<dyn std::error::Error>> {
         let db = TempDbPath::new(name);
         drop(open(&AppConfig::new(db.path()))?);
         let conn = roh(&db)?;
         conn.execute_batch(&format!(
             "DROP TABLE einlesen_lines; DROP TABLE auswertungsfenster; \
-             {V1_EINLESEN_LINES} {V1_AUSWERTUNGSFENSTER}"
+             DROP TABLE {register}; {V1_EINLESEN_LINES} {V1_AUSWERTUNGSFENSTER}",
+            register = LEARNED_CATEGORIES_TABLE.name
         ))?;
         conn.pragma_update(None, "user_version", 1)?;
         Ok(db)
@@ -569,7 +588,7 @@ CREATE TABLE auswertungsfenster (
         reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
     )]
     #[test]
-    fn eine_version_1_datei_ohne_bestand_wird_auf_version_2_migriert()
+    fn eine_version_1_datei_ohne_bestand_wird_auf_die_aktuelle_version_migriert()
     -> Result<(), Box<dyn std::error::Error>> {
         let alt = version_1_datei("schema_v1_leer")?;
         let frisch = TempDbPath::new("schema_v2_frisch");
@@ -579,7 +598,6 @@ CREATE TABLE auswertungsfenster (
 
         let conn = roh(&alt)?;
         assert_eq!(user_version(&conn)?, SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 2);
         // Danach trägt die Datei **genau** das Schema einer frisch angelegten — Spalte für Spalte,
         // Index für Index. Ein Umbau, der davon abwiche, wäre die nächste Migrations-Falle.
         assert_eq!(schema_text(&conn)?, schema_text(&roh(&frisch)?)?);
@@ -622,6 +640,43 @@ CREATE TABLE auswertungsfenster (
         let zeilen: i64 =
             conn.query_row("SELECT count(*) FROM einlesen_lines;", [], |row| row.get(0))?;
         assert_eq!(zeilen, 1);
+        Ok(())
+    }
+
+    // --- Migration 2 → 3 (Issue 0009) ---------------------------------------------------------
+
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test: die assert! sind die Spezifikation dieses Verhaltens"
+    )]
+    #[test]
+    fn eine_version_2_datei_mit_bestand_bekommt_das_register_und_behaelt_ihren_bestand()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Eine Datei, wie Version 2 sie hinterließ: alles außer dem Register — und mit Bestand.
+        let alt = TempDbPath::new("schema_v2_bestand");
+        drop(open(&AppConfig::new(alt.path()))?);
+        let conn = roh(&alt)?;
+        conn.execute_batch(&format!("DROP TABLE {};", LEARNED_CATEGORIES_TABLE.name))?;
+        conn.pragma_update(None, "user_version", 2)?;
+        conn.execute(
+            "INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc) \
+             VALUES ('alt-1', 'ReadTransactions', 'auszug.csv', 0);",
+            [],
+        )?;
+        drop(conn);
+        let frisch = TempDbPath::new("schema_v3_frisch");
+        drop(open(&AppConfig::new(frisch.path()))?);
+
+        drop(open(&AppConfig::new(alt.path()))?);
+
+        let conn = roh(&alt)?;
+        assert_eq!(user_version(&conn)?, SCHEMA_VERSION);
+        assert!(table_exists(&conn, LEARNED_CATEGORIES_TABLE.name)?);
+        // Genau das Schema einer frischen Datei — und der Bestand ist noch da.
+        assert_eq!(schema_text(&conn)?, schema_text(&roh(&frisch)?)?);
+        let nachrichten: i64 =
+            conn.query_row("SELECT count(*) FROM outbox;", [], |row| row.get(0))?;
+        assert_eq!(nachrichten, 1);
         Ok(())
     }
 }

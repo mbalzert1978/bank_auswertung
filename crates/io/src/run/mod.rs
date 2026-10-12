@@ -45,7 +45,7 @@ use obfuskierung_adapter::ObfuscatedMessage;
 use crate::Dispatcher;
 use crate::auswerten::{
     AuswertenSqliteStore, AuswertungsfensterSource, CONSUMED_HISTORY_MESSAGE_TYPE,
-    CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, EmptyCategoryRegistry, UnansweredCategorizer,
+    CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, SqliteCategoryRegistry, UnansweredCategorizer,
     consumer as auswerten_consumer, history_consumer,
 };
 use crate::config::{
@@ -291,7 +291,10 @@ struct Adapters {
     person_names: KnownPersonNames,
     obfuskiert_windows: ObfuskiertWindowSource,
     analysis_windows: AuswertungsfensterSource,
-    registry: EmptyCategoryRegistry,
+    /// Das reale Kategorie-Register (Issue 0009): nur nach dem, was es **nicht** kennt, wird das Orakel
+    /// gefragt. Es liest, schreibt im Lauf nichts — darum ein geliehener Seam hier und kein Store in
+    /// [`Stores`]; seine Tabelle legt trotzdem allein der Schema-Besitzer an.
+    registry: SqliteCategoryRegistry,
     categorizer: UnansweredCategorizer,
 }
 
@@ -303,7 +306,7 @@ impl Adapters {
             person_names: KnownPersonNames::new(outbox.clone(), persons),
             obfuskiert_windows: ObfuskiertWindowSource::new(outbox.clone()),
             analysis_windows: AuswertungsfensterSource::new(outbox.clone()),
-            registry: EmptyCategoryRegistry,
+            registry: SqliteCategoryRegistry::new(outbox.clone()),
             categorizer: UnansweredCategorizer,
         }
     }
@@ -314,7 +317,8 @@ impl Adapters {
 /// Lebenszeit und dürfen im [`DispatcherBuilder`] selbst geöffnet werden. Ihre Tabellen legen sie
 /// **nicht** an — das hat [`schema::open`] beim Öffnen des Rückgrats schon getan. Darum muss die
 /// Tabellen-Liste des Schema-Besitzers (`schema::tables`) **dieselben** Stores aufführen wie diese
-/// Struktur: ein hier ergänzter Store ohne Eintrag dort hätte keine Tabelle.
+/// Struktur: ein hier ergänzter Store ohne Eintrag dort hätte keine Tabelle. (Das Kategorie-Register
+/// steht dort ebenfalls, lebt hier aber unter den [`Adapters`]: der Lauf liest es nur.)
 struct Stores {
     einlesen: EinlesenSqliteStore,
     obfuskierung: ObfuskierungSqliteStore,
@@ -723,3 +727,6 @@ fn backbone(error: rusqlite::Error) -> RunError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod speicher_tests;

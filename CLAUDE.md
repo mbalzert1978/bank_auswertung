@@ -105,8 +105,10 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   [`sqlite/slice_store.rs`](crates/io/src/sqlite/slice_store.rs). Since
   [Issue 0083](docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)
   it also holds [`io::run`](crates/io/src/run/mod.rs) — the wiring of **all** real adapters into one
-  program. Still **without** a real adapter: `Kategorisierer`/category register (answered empty today)
-  and the `report`;
+  program. The **category register** is real too since
+  [Issue 0009](docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
+  ([`io::auswerten::SqliteCategoryRegistry`](crates/io/src/auswerten/registry.rs)). Still **without**
+  a real adapter: the `Kategorisierer` oracle (answered empty today) and the `report`;
 - [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: six mandatory
   path options in, exit code out. Binds `io` as its **only** internal and **no** external dependency
   (asserted by the `architecture` test);
@@ -301,9 +303,16 @@ an unknown role, a missing field or a duplicate — **redacted**, never quoting 
 The raw IBAN never leaves it (no getter, redacted `Debug`). Only 0002's **HITL** part is left: Markus'
 real IBANs in the gitignored `eigene-konten.toml`.
 
-**Still open (no real `io` adapter yet):** `Speicher` for DTOs/category register plus the
-`Kategorisierer` oracle — both **answered empty** today rather than faked
-(`io::auswerten::EmptyCategoryRegistry`/`UnansweredCategorizer`; issues 0009/0011), which is
+**The category register is real** ([0009](docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)):
+`io::auswerten::SqliteCategoryRegistry`, one table `learned_categories` keyed on the **fingerprint**
+(never on text), holding the learned label per kind; a correction replaces the old label and survives
+every restart. The write path for the chat import (0011) is `learn(&[CategoryAnswerRow])` (all or
+nothing, redacted rejection); the report reads labels via `categories_of`. The label is free validated
+text, as the domain's `Category` already is. It came with schema **version 3** (additive 2 → 3 arm).
+
+**Still open (no real `io` adapter yet):** the `Kategorisierer` oracle — **answered empty** today
+rather than faked (`io::auswerten::UnansweredCategorizer`, issue 0011) and asked only for fingerprints
+the register does not know, which is
 ADR-0004's litmus test in code: without the LLM the program still computes everything —, and the
 `report` presenter with its egress-DTO `Serialize` guard. Also deferred: persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
@@ -361,7 +370,7 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md)):
   now that runs happen, a file on disk and a poisoned message both need an owner.
 
-Then `Kategorisierer`/`Speicher` (0009/0011). The recurrence analyzer (0005) is built.
+Then the `Kategorisierer` chat export/import (0011) on top of the now real register (0009). The recurrence analyzer (0005) is built.
 
 ## Commands
 
@@ -483,7 +492,8 @@ each step runnable/valuable against fakes, real `io` last:
    [ADR-0015](docs/adr/0015-generischer-slice-store-ueber-storespec.md)), **every** read source
    of the chain and the `toml` loaders for window size and seed are real (issues 0050–0059,
    0074–0077) — **and the Eigene-Konten loader** (issue 0002, io side, with issue 0083).
-   **Open:** `Speicher` for DTOs + category register, and the `Kategorisierer` oracle.
+   **And the category register** (issue 0009, schema version 3). **Open:** the `Kategorisierer`
+   oracle.
 7. **The run itself** — **done for the kick-off** (issue 0083): the `lauf` bin crate + `io::run`
    enqueue the triggers and turn the broker loop against the real adapters; the pipeline now runs
    outside tests. The one schema owner + version stamp is **built** (0084). **Open in this

@@ -1,0 +1,4 @@
+# Seed-Config des Speicher-Tests (Issue 0009): ein **markanter** Wert, der in keiner Fixture sonst
+# vorkommt — so lässt sich belegen, dass er in keiner Tabelle und nirgends in der Datei landet.
+# Erfunden, kein echter Produktions-Seed.
+seed = 8675309421
