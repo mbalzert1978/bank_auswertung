@@ -55,3 +55,15 @@ pub enum CounterAccount {
     Own(AccountRole),
     Foreign,
 }
+
+impl CounterAccount {
+    /// Die Rolle, **falls** das Konto ein eigenes ist — `None` für ein fremdes. Die eine Stelle, an
+    /// der aus der Einordnung die Rolle gelesen wird (Umbuchung, Aderlass je Konto).
+    #[must_use]
+    pub fn own_role(self) -> Option<AccountRole> {
+        match self {
+            Self::Own(role) => Some(role),
+            Self::Foreign => None,
+        }
+    }
+}

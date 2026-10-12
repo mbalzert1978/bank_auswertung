@@ -25,14 +25,23 @@
 //! Fenster des Laufs ([`OccurrenceSeam`]) und **gibt** die [`HistoryEvaluationRow`] **zurück** — die
 //! [`OccurrenceRow`]s der ganzen Zeitachse und die darin erkannten **wiederkehrenden Abflüsse**
 //! ([`RecurrenceRow`], [Issue 0005](../../../docs/issues/0005-wiederkehr-erkennung.md)): je
-//! Buchungsart Takt ([`RecurrenceRhythm`]), typischer Betrag, **Jahresbetrag**, ggf. die jüngste
+//! Kostentreiber ([`CostDriverRow`]) Takt ([`RecurrenceRhythm`]), typischer Betrag, **Jahresbetrag**, ggf. die jüngste
 //! Preissteigerung ([`PriceIncreaseRow`]) und das belastete Konto. Er legt **nichts** ab. Kein
 //! Vorkommens-/Fold-Log, keine Akkumulation, keine zweite persistierte Sicht — die Aggregate sind
 //! die alleinige Wahrheit, und die Idempotenz folgt daraus statt aus Dedupe-Logik: eine Query über
 //! unveränderliche Snapshots antwortet auf erneute Zustellung identisch.
 //!
-//! **So ruft ein späterer Schritt die Wiederkehr ab** (Pareto 0007, Bericht 0012, Chat-Export 0011):
-//! [`HistoryEvaluationHandler::new`] mit dem Lese-Seam und der Eigene-Konten-Config verdrahten, die
+//! **Dieselbe Reichweite rechnet den Aderlass** ([Issue 0007](../../../docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)):
+//! den genetteten Cashflow je eigenem Konto und Monat ([`AccountCashflowRow`]), das
+//! **Pareto-Ranking** der Kostentreiber ([`DriverRankRow`] je [`CostDriverRow`] — Buchungsart,
+//! Gebühren eines Kontos oder der Sammel-Treiber ohne Gegenpartei —, mit Anteil und kumuliertem
+//! Anteil in Basispunkten und dem **Jahresbetrag**) und die **Spar-Kandidaten**
+//! ([`SavingsCandidateRow`]): jeder Treiber, dessen Jahresbetrag die [`SavingsThresholdConfig`]
+//! erreicht. Sie steht hier und nicht pro Fenster, weil nur diese Reichweite den ganzen Lauf sieht.
+//!
+//! **So ruft ein späterer Schritt die Auswertung ab** (Bericht 0012, Chat-Export 0011):
+//! [`HistoryEvaluationHandler::new`] mit dem Lese-Seam, der Eigene-Konten-Config und der
+//! Spar-Schwelle verdrahten, die
 //! Lauf-Spanne über den [`EvaluateHistoryCommandDecoder`] zum Kommando machen (`"{from}:{to}"`, wie
 //! `fenstern`s `HistorieVollständig` sie trägt) und `Handler::handle` rufen — die Antwort ist die
 //! [`HistoryEvaluationRow`]. Die Wiederkehr arbeitet auf **genetteten** Abflüssen: ein Dauerauftrag
@@ -124,12 +133,13 @@ pub use abstractions::{
 pub use handler::WindowEvaluationHandler;
 pub use history_handler::HistoryEvaluationHandler;
 pub use models::{
-    AnalysisWindowRow, BookingDirection, BookingRecipient, CONSUMED_HISTORY_MESSAGE_TYPE,
-    CONSUMED_MESSAGE_TYPE, CategoryAnswerRow, CategoryRequestRow, CategoryRow, CounterAccountRow,
-    EvaluateHistoryCommand, EvaluateHistoryCommandDecoder, EvaluateWindowCommand,
-    EvaluateWindowCommandDecoder, FeeRow, HistoryEvaluationRow, InternalTransferRow,
-    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, PriceIncreaseRow,
-    RecurrenceRhythm, RecurrenceRow, RunHistoryRow, WindowBookingRow, WindowEvaluationRow,
+    AccountCashflowRow, AnalysisWindowRow, BookingDirection, BookingRecipient,
+    CONSUMED_HISTORY_MESSAGE_TYPE, CONSUMED_MESSAGE_TYPE, CategoryAnswerRow, CategoryRequestRow,
+    CategoryRow, CostDriverRow, CounterAccountRow, DriverRankRow, EvaluateHistoryCommand,
+    EvaluateHistoryCommandDecoder, EvaluateWindowCommand, EvaluateWindowCommandDecoder, FeeRow,
+    HistoryEvaluationRow, InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow,
+    OwnAccountsConfig, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow, RunHistoryRow,
+    SavingsCandidateRow, SavingsThresholdConfig, WindowBookingRow, WindowEvaluationRow,
     account_role_label,
 };
 pub use testapi::{EvaluationTestApi, HistoryTestApi};
@@ -144,7 +154,8 @@ pub use auswerten_domain::EvaluationError;
 #[cfg(test)]
 mod datenschutz {
     use super::{
-        CategoryRequestRow, HistoryEvaluationRow, OccurrenceRow, PriceIncreaseRow, RecurrenceRow,
+        AccountCashflowRow, CategoryRequestRow, CostDriverRow, DriverRankRow, HistoryEvaluationRow,
+        OccurrenceRow, PriceIncreaseRow, RecurrenceRow, SavingsCandidateRow,
     };
     use serde::{Deserialize, Serialize};
     use static_assertions::assert_not_impl_any;
@@ -162,4 +173,12 @@ mod datenschutz {
     assert_not_impl_any!(RecurrenceRow: Serialize, Deserialize<'static>);
     assert_not_impl_any!(PriceIncreaseRow: Serialize, Deserialize<'static>);
     assert_not_impl_any!(OccurrenceRow: Serialize, Deserialize<'static>);
+
+    // Der **Aderlass** (Issue 0007) ist genau das, was der Bericht zeigt: Cashflow je Konto, Ranking
+    // und Spar-Kandidaten. Token, Fingerabdrücke, Beträge, Monate — und auch dafür keine Abkürzung
+    // nach draußen per `derive`.
+    assert_not_impl_any!(AccountCashflowRow: Serialize, Deserialize<'static>);
+    assert_not_impl_any!(CostDriverRow: Serialize, Deserialize<'static>);
+    assert_not_impl_any!(DriverRankRow: Serialize, Deserialize<'static>);
+    assert_not_impl_any!(SavingsCandidateRow: Serialize, Deserialize<'static>);
 }

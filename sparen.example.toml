@@ -1,0 +1,23 @@
+# sparen.example.toml — VORLAGE für die Spar-Schwelle (Issue 0007).
+#
+# So benutzt du sie:
+#   1. Kopiere diese Datei nach `sparen.toml` (oder einen Namen deiner Wahl).
+#   2. Setze unten den Jahresbetrag, ab dem dir ein Kostentreiber als
+#      Spar-Kandidat vorgeschlagen werden soll.
+#   3. Beim Lauf mit `--sparen sparen.toml` übergeben. Die Option ist Pflicht.
+#
+# Wozu: Das Programm rankt die Abflüsse eines Laufs nach Kostentreibern
+# (je Händler/Gläubiger, je Gebühren-Konto) und schlägt jeden Treiber vor,
+# dessen **Jahresbetrag** diese Schwelle erreicht. Es schlägt nur vor — ob
+# du sparst, entscheidest du.
+#
+# Der Jahresbetrag ist bei einem wiederkehrenden Abfluss (Abo, Dauerauftrag)
+# der aktuelle Betrag mal Abbuchungen im Jahr; bei allem anderen der
+# Durchschnitt je Jahr über den eingelesenen Zeitraum (bei weniger als einem
+# Jahr Daten die Summe — es wird nie hochgerechnet).
+#
+# Die Schwelle steht in **Cent** (der kleinsten Einheit der Kontowährung):
+# 10000 sind 100,00 € im Jahr. Sie muss eine positive Ganzzahl sein.
+# Nichts hier ist vertraulich — die Datei darf versioniert werden.
+
+jahresbetrag_ab_cent = 10000

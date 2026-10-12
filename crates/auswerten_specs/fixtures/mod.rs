@@ -16,10 +16,10 @@
 )]
 
 use auswerten_adapter::{
-    AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRequestRow, CategoryRow,
-    CounterAccountRow, EvaluationTestApi, FeeRow, HistoryTestApi, InternalTransferRow,
-    MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig, PriceIncreaseRow,
-    RecurrenceRhythm, RecurrenceRow, WindowBookingRow,
+    AccountCashflowRow, AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRequestRow,
+    CategoryRow, CostDriverRow, CounterAccountRow, DriverRankRow, EvaluationTestApi, FeeRow,
+    HistoryTestApi, InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow,
+    OwnAccountsConfig, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow, WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -409,7 +409,7 @@ pub(crate) fn wiederkehr(
     annual: u64,
 ) -> RecurrenceRow {
     RecurrenceRow {
-        fingerprint: fingerprint.to_string(),
+        driver: art(fingerprint),
         rhythm,
         typical_amount_minor_units: typical,
         annual_amount_minor_units: annual,
@@ -454,5 +454,94 @@ pub(crate) fn kategorie(fingerprint: &str, category: &str) -> CategoryRow {
     CategoryRow {
         fingerprint: fingerprint.to_string(),
         category: category.to_string(),
+    }
+}
+
+// --- Der Aderlass: Cashflow je Konto, Pareto-Ranking, Spar-Kandidaten (Issue 0007) ---
+
+/// Eine **Spar-Schwelle** als Jahresbetrag in Minor Units — nie null (eine Schwelle von 0 machte
+/// jeden Treiber zum Kandidaten und ist darum unkonstruierbar).
+///
+/// # Panics
+/// Bei `0` — die Specs reichen stets eine echte Schwelle herein.
+pub(crate) fn schwelle(minor_units: u64) -> std::num::NonZeroU64 {
+    std::num::NonZeroU64::new(minor_units).expect("eine Spar-Schwelle ist nie null")
+}
+
+/// Ein eingefrorenes Auswertungsfenster in einer **frei gewählten** Währung — für den Lauf, dessen
+/// Fenster nicht dieselbe tragen.
+pub(crate) fn fenster_in(currency: &str, bookings: &[WindowBookingRow]) -> AnalysisWindowRow {
+    AnalysisWindowRow {
+        currency: currency.to_string(),
+        ..fenster(bookings)
+    }
+}
+
+/// Die Gläubiger-ID eines **zweiten** Händlers — erfunden. Er steht neben dem wiederkehrenden
+/// `HAENDLER`, damit das Ranking zwei Arten gegeneinander ordnen kann.
+pub(crate) const ZWEITER_HAENDLER: &str = "DE11ZZZ01111111111";
+
+/// Ein Abfluss an den **zweiten** Händler — eine Firma mit eigener Gläubiger-ID, also eine eigene
+/// Buchungsart und damit ein eigener Kostentreiber.
+pub(crate) fn zweiter_haendler(booking_day: i64, minor_units: u64) -> WindowBookingRow {
+    firma(
+        booking_day,
+        minor_units,
+        ZWEITER_HAENDLER,
+        "Fitnessstudio Fiktiv",
+        None,
+    )
+}
+
+/// Ein erwarteter **Aderlass-Bucket** eines eigenen Kontos: Konto-Token, seine Rolle laut Config
+/// (`None`, wenn die Config es nicht führt), der Monat und beide vorzeichenlosen Spalten.
+pub(crate) fn konto_monat(
+    konto: &str,
+    rolle: Option<&str>,
+    (year, month): (i64, i64),
+    incoming: u64,
+    outgoing: u64,
+) -> AccountCashflowRow {
+    AccountCashflowRow {
+        account: konto.to_string(),
+        role: rolle.map(str::to_string),
+        year,
+        month,
+        incoming_minor_units: incoming,
+        outgoing_minor_units: outgoing,
+    }
+}
+
+/// Der erwartete Kostentreiber einer **Buchungsart**, über ihren Fingerabdruck.
+pub(crate) fn art(fingerprint: &str) -> CostDriverRow {
+    CostDriverRow::Kind {
+        fingerprint: fingerprint.to_string(),
+    }
+}
+
+/// Der erwartete Kostentreiber der **Gebühren eines Kontos**.
+pub(crate) fn gebuehren_von(konto: &str) -> CostDriverRow {
+    CostDriverRow::Fee {
+        account: konto.to_string(),
+    }
+}
+
+/// Ein erwarteter **Platz im Ranking** ohne Wiederkehr: Abfluss im Lauf, Zahl der Abflüsse, Anteil
+/// und kumulierter Anteil in Basispunkten (10 000 = 100 %) und der Jahresbetrag.
+pub(crate) fn platz(
+    driver: CostDriverRow,
+    (outflow, bookings): (u64, usize),
+    (share, cumulative): (u32, u32),
+    annual: u64,
+) -> DriverRankRow {
+    DriverRankRow {
+        driver,
+        outflow_minor_units: outflow,
+        bookings,
+        share_basis_points: share,
+        cumulative_share_basis_points: cumulative,
+        annual_amount_minor_units: annual,
+        rhythm: None,
+        price_increase: None,
     }
 }

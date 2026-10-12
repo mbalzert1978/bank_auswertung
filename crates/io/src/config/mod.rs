@@ -18,8 +18,10 @@
 //! ([Issue 0002](../../../docs/issues/0002-eigene-konten-config-schema-und-loader.md)) — Letztere als
 //! einzige mit einem eigenen Zwischenschritt: sie liest **IBANs** und gibt **Token** heraus. Dazu
 //! kommt [`PersonenConfig`], die lokale Namensliste des Freitext-Engpasses von `obfuskierung`
-//! ([Issue 0010](../../../docs/issues/0010-scrubbing-regeln-fuer-obfuskiertertext.md)).
-//! **Alle vier Loader teilen sich einen
+//! ([Issue 0010](../../../docs/issues/0010-scrubbing-regeln-fuer-obfuskiertertext.md)), und
+//! [`SparenConfig`], die Spar-Schwelle des `auswerten`-Slice
+//! ([Issue 0007](../../../docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md)).
+//! **Alle fünf Loader teilen sich einen
 //! einzigen** [`ConfigError`] — die redigierte, statische Fehler-Ursache jedes fehlgeschlagenen
 //! Ladens; `io` reicht den geladenen Wert dann als rohen Wert in den jeweiligen Consumer (die
 //! Domäne liest **keine** Datei). Der zugehörige [`ConfigKind`] ist **bewusst Teil der öffentlichen
@@ -32,11 +34,13 @@ mod eigene_konten;
 mod fenster;
 mod personen;
 mod seed;
+mod sparen;
 
 pub use eigene_konten::EigeneKontenConfig;
 pub use fenster::FensterConfig;
 pub use personen::PersonenConfig;
 pub use seed::SeedConfig;
+pub use sparen::SparenConfig;
 
 use std::path::{Path, PathBuf};
 
@@ -76,6 +80,8 @@ pub enum ConfigKind {
     EigeneKonten,
     /// Der Loader der lokalen Namensliste ([`PersonenConfig`]).
     Personen,
+    /// Der Loader der Spar-Schwelle ([`SparenConfig`]).
+    Sparen,
 }
 
 impl ConfigKind {
@@ -86,19 +92,20 @@ impl ConfigKind {
             Self::Fenster => "Fenster-Konfiguration",
             Self::EigeneKonten => "Eigene-Konten-Konfiguration",
             Self::Personen => "Personen-Konfiguration",
+            Self::Sparen => "Spar-Konfiguration",
         }
     }
 }
 
-/// Liest eine Config-Datei ein — der gemeinsame erste Lade-Schritt aller vier Loader
-/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`], [`PersonenConfig`]).
+/// Liest eine Config-Datei ein — der gemeinsame erste Lade-Schritt aller fünf Loader
+/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`], [`PersonenConfig`], [`SparenConfig`]).
 /// **Redigiert**: die io-Fehlermeldung wird bewusst **verworfen** (nicht als `source` gehängt) — sie
 /// könnte den Pfad tragen, und redigiert heißt kein Rohwert im Fehler-Chain.
 fn read_config_file(path: &Path, kind: ConfigKind) -> Result<String, ConfigError> {
     std::fs::read_to_string(path).map_err(|_err| ConfigError::Unreadable(kind))
 }
 
-/// Parst toml-Text als Tabelle — der gemeinsame Parse-Schritt aller vier Loader. **Redigiert**: der
+/// Parst toml-Text als Tabelle — der gemeinsame Parse-Schritt aller fünf Loader. **Redigiert**: der
 /// toml-Parsefehler wird verworfen — er kann Zeilen-/Feldinhalt (bis hin zur IBAN oder zum Seed)
 /// zitieren; redigiert heißt, nur die statische Ursache reist weiter.
 fn parse_toml_table(raw: &str, kind: ConfigKind) -> Result<toml::Table, ConfigError> {
@@ -106,7 +113,7 @@ fn parse_toml_table(raw: &str, kind: ConfigKind) -> Result<toml::Table, ConfigEr
 }
 
 /// Warum das Laden einer Config misslang — **der eine, geteilte** Fehler aller Loader
-/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`], [`PersonenConfig`]).
+/// ([`SeedConfig`], [`FensterConfig`], [`EigeneKontenConfig`], [`PersonenConfig`], [`SparenConfig`]).
 /// **Redigiert**: jede Variante trägt eine **statische** Ursache und **nie** einen Rohwert
 /// (Dateiinhalt, Pfad, gelesener Seed/Wert, Name). Die beiden geteilten
 /// Fehlerformen ([`Unreadable`](Self::Unreadable)/[`Malformed`](Self::Malformed)) tragen ihren
@@ -148,6 +155,10 @@ pub enum ConfigError {
     /// `namen` ist keine Liste aus nicht-leeren Texten. Der abgelehnte Eintrag erscheint **nicht**
     /// in der Meldung — er könnte ein Name sein.
     PersonNamesInvalid,
+    /// Der Schlüssel `jahresbetrag_ab_cent` fehlt.
+    SavingsThresholdMissing,
+    /// `jahresbetrag_ab_cent` ist keine positive Ganzzahl.
+    SavingsThresholdInvalid,
 }
 
 impl std::fmt::Display for ConfigError {
@@ -185,6 +196,12 @@ impl std::fmt::Display for ConfigError {
             Self::PersonNamesInvalid => {
                 f.write_str("Personen-Konfiguration: namen muss eine Liste nicht-leerer Texte sein")
             }
+            Self::SavingsThresholdMissing => {
+                f.write_str("Spar-Konfiguration: jahresbetrag_ab_cent fehlt")
+            }
+            Self::SavingsThresholdInvalid => f.write_str(
+                "Spar-Konfiguration: jahresbetrag_ab_cent muss eine positive Ganzzahl sein",
+            ),
         }
     }
 }

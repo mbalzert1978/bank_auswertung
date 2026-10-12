@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use application_kernel::{CommandDecoder, Handler};
 use auswerten_domain::EvaluationError;
 
@@ -5,6 +7,7 @@ use super::fakes::FakeOccurrenceSource;
 use crate::history_handler::HistoryEvaluationHandler;
 use crate::models::{
     AnalysisWindowRow, EvaluateHistoryCommandDecoder, HistoryEvaluationRow, OwnAccountsConfig,
+    SavingsThresholdConfig,
 };
 
 /// Fluent-TestApi der **fenster-übergreifenden** Reichweite (ADR-0013, Entscheidung E, Reichweite
@@ -28,6 +31,7 @@ use crate::models::{
 pub struct HistoryTestApi {
     source: FakeOccurrenceSource,
     own_accounts: OwnAccountsConfig,
+    savings_threshold: SavingsThresholdConfig,
 }
 
 impl HistoryTestApi {
@@ -46,7 +50,24 @@ impl HistoryTestApi {
         Self {
             source: FakeOccurrenceSource::default(),
             own_accounts: OwnAccountsConfig::default(),
+            savings_threshold: SavingsThresholdConfig {
+                annual_minor_units: Self::UNREACHABLE_THRESHOLD,
+            },
         }
+    }
+
+    /// Die Spar-Schwelle, solange keine arrangiert ist: **unerreichbar hoch**, sodass kein Treiber
+    /// Kandidat wird. Wer Kandidaten prüfen will, setzt die Schwelle ausdrücklich
+    /// ([`with_savings_threshold`](Self::with_savings_threshold)) — ein stiller Vorgabewert, der
+    /// Kandidaten erzeugte, machte jede Erwartung davon abhängig, ihn zu kennen.
+    pub const UNREACHABLE_THRESHOLD: NonZeroU64 = NonZeroU64::MAX;
+
+    /// Reicht die **Spar-Schwelle** als Wert herein: ab diesem Jahresbetrag (Minor Units) wird ein
+    /// Kostentreiber Spar-Kandidat.
+    #[must_use]
+    pub fn with_savings_threshold(mut self, annual_minor_units: NonZeroU64) -> Self {
+        self.savings_threshold = SavingsThresholdConfig { annual_minor_units };
+        self
     }
 
     /// Reicht die **Eigene-Konten-Config als Wert** herein. Ihr Seed-Marker muss der der arrangierten
@@ -115,7 +136,12 @@ impl HistoryTestApi {
     ) -> Result<HistoryEvaluationRow, EvaluationError> {
         let command = EvaluateHistoryCommandDecoder::decode(&format!("{from}:{to}:{run}"), "")
             .expect("Lauf-Spanne als Envelope");
-        HistoryEvaluationHandler::new(&self.source, self.own_accounts.clone()).handle(command)
+        HistoryEvaluationHandler::new(
+            &self.source,
+            self.own_accounts.clone(),
+            self.savings_threshold,
+        )
+        .handle(command)
     }
 }
 

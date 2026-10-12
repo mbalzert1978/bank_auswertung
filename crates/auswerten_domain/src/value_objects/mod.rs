@@ -23,15 +23,21 @@
 //! gelesene [`RunHistory`] und die zurückgegebene [`HistoryEvaluation`] sind **Werte**, keine
 //! Aggregate: sie haben keine Identität, werden nie abgelegt und entstehen je Lauf neu.
 //!
+//! Das **Pareto-Ranking** (Issue 0007) setzt auf beidem auf: je [`CostDriver`] ein [`RankedDriver`]
+//! mit seinem [`Share`] am genetteten Abfluss des Laufs, daraus die [`SavingsCandidate`]s über der
+//! [`SavingsThreshold`]; daneben der Aderlass je Konto und Monat als [`AccountCashflow`].
+//!
 //! Die Aggregate (`AnalysisWindow`, `WindowEvaluation`) sind über ihre Identität definiert und
 //! liegen in `entities/`.
 
+mod account_cashflow;
 mod amount;
 mod booking_kind;
 mod category;
 mod category_answer;
 mod category_request;
 mod charge_series;
+mod cost_driver;
 mod counter_account;
 mod counterparty;
 mod currency;
@@ -50,16 +56,21 @@ mod recurrence;
 mod rhythm;
 mod run_history;
 mod run_span;
+mod savings;
 mod seed_marker;
+mod share;
 mod window_id;
 mod windowed_booking;
 
+pub use account_cashflow::AccountCashflow;
 pub use amount::{Amount, Direction};
 pub use booking_kind::BookingKind;
 pub use category::Category;
 pub use category_answer::CategoryAnswer;
 pub use category_request::CategoryRequest;
 pub(crate) use charge_series::{Charge, ChargeSeries};
+pub(crate) use cost_driver::DriverGroups;
+pub use cost_driver::{CostDriver, RankedDriver};
 pub use counter_account::{AccountRole, AccountToken, CounterAccount};
 pub use counterparty::Counterparty;
 pub use currency::Currency;
@@ -79,6 +90,9 @@ pub use recurrence::Recurrence;
 pub use rhythm::Rhythm;
 pub use run_history::RunHistory;
 pub use run_span::RunSpan;
+pub(crate) use savings::candidates as savings_candidates;
+pub use savings::{SavingsCandidate, SavingsThreshold};
 pub use seed_marker::SeedMarker;
+pub use share::Share;
 pub use window_id::WindowId;
 pub use windowed_booking::WindowedBooking;

@@ -1,0 +1,4 @@
+# Spar-Config des Lauf-Tests (Issue 0007). Ab diesem **Jahresbetrag** (in Cent) wird ein
+# Kostentreiber als Spar-Kandidat vorgeschlagen. Bewusst niedrig, damit die kleine erfundene
+# Lauf-CSV überhaupt Kandidaten trägt — real liegt die Schwelle, wo der Nutzer sie haben will.
+jahresbetrag_ab_cent = 1000

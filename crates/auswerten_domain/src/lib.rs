@@ -64,16 +64,26 @@
 //! Wahrheit. Seine Idempotenz folgt daraus, nicht aus Dedupe-Logik: eine Query über unveränderliche
 //! Snapshots antwortet auf erneute Zustellung identisch.
 //!
-//! **Auf diesen Vorkommen sitzt die Wiederkehr-Erkennung** (Issue 0005): je Fingerabdruck prüft sie
-//! die Abflüsse auf einen festen [`Rhythm`] (monatlich, jährlich) bei ähnlichem Betrag und weist eine
-//! [`PriceIncrease`] ab einem Stichtag aus. Heraus kommt je Buchungsart ein [`Recurrence`] mit dem
+//! **Auf diesen Vorkommen sitzt die Wiederkehr-Erkennung** (Issue 0005): je Kostentreiber
+//! ([`CostDriver`]: Buchungsart oder Gebühren eines Kontos) prüft sie die Abflüsse auf einen festen
+//! [`Rhythm`] (monatlich, jährlich) bei ähnlichem Betrag und weist eine [`PriceIncrease`] ab einem
+//! Stichtag aus. Heraus kommt je Treiber ein [`Recurrence`] mit dem
 //! **Jahresbetrag** als Bezugsgröße für spätere Spar-Kandidaten. Sie arbeitet auf **genetteten**
 //! Abflüssen: ein Dauerauftrag aufs eigene Konto ist eine Umbuchung, kein Kosten-Treiber — dieselbe
 //! Token-Regel wie beim Cashflow, und darum prüft auch diese Reichweite den [`SeedMarker`]. Ihr
 //! Ergebnis, die [`HistoryEvaluation`], wird **zurückgegeben**, nie abgelegt.
 //!
-//! **Noch nicht hier** (je eigenes Folge-Issue): das Pareto-Ranking und die Spar-Kandidaten (Issue
-//! 0007, die auf dem Jahresbetrag der Wiederkehr aufsetzen), die gelernten Korrekturen und ein echtes
+//! **Auf beidem sitzt der Aderlass** (Issue 0007), ebenfalls in dieser Reichweite, weil nur sie den
+//! ganzen Lauf sieht: der genettete Cashflow je eigenem Konto und Monat ([`AccountCashflow`]), das
+//! **Pareto-Ranking** der Kostentreiber ([`CostDriver`] → [`RankedDriver`], mit [`Share`] und
+//! kumuliertem Anteil am genetteten Abfluss) und die **Spar-Kandidaten** ([`SavingsCandidate`]):
+//! jeder Treiber, dessen **Jahresbetrag** die als Wert hereingereichte [`SavingsThreshold`] erreicht
+//! — mit Takt und Preissteigerung, wenn er wiederkehrt. Kein LLM ist daran beteiligt. Wiederkehr und
+//! Ranking stehen auf **einer** Gruppierung der genetteten Abflüsse nach Treiber. Weil diese
+//! Reichweite über alle Fenster summiert, verlangt sie **eine** Währung für den ganzen Lauf
+//! ([`RunHistory`], sonst terminal `MixedCurrencies`).
+//!
+//! **Noch nicht hier** (je eigenes Folge-Issue): die gelernten Korrekturen und ein echtes
 //! `Kategorisierer`-Orakel.
 
 mod entities;
@@ -93,9 +103,10 @@ pub use ports::{
     AnalysisWindowSource, Categorizer, CategoryRegistry, EvaluationRepository, OccurrenceSource,
 };
 pub use value_objects::{
-    AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer, CategoryRequest,
-    CounterAccount, Counterparty, Currency, DayStamp, Direction, Fee, Fingerprint,
-    HistoryEvaluation, InternalTransfer, Month, MonthlyCashflow, NonEmptyString, Occurrence,
-    OwnAccounts, PriceIncrease, Recipient, Recurrence, Rhythm, RunHistory, RunSpan, SeedMarker,
-    WindowId, WindowedBooking,
+    AccountCashflow, AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer,
+    CategoryRequest, CostDriver, CounterAccount, Counterparty, Currency, DayStamp, Direction, Fee,
+    Fingerprint, HistoryEvaluation, InternalTransfer, Month, MonthlyCashflow, NonEmptyString,
+    Occurrence, OwnAccounts, PriceIncrease, RankedDriver, Recipient, Recurrence, Rhythm,
+    RunHistory, RunSpan, SavingsCandidate, SavingsThreshold, SeedMarker, Share, WindowId,
+    WindowedBooking,
 };

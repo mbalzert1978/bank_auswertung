@@ -10,6 +10,15 @@ status: closed
 
 > GitHub-Issue: [#94](https://github.com/mbalzert1978/bank_auswertung/issues/94)
 
+> **Verfeinert durch [Issue 0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md):**
+> - Die Wiederkehr gruppiert die genetteten Abflüsse nicht mehr je **Fingerabdruck**, sondern je
+>   **Kostentreiber** (`CostDriver`: Buchungsart über ihren Fingerabdruck, die Gebühren eines Kontos,
+>   oder der Sammel-Treiber ohne Gegenpartei, der keine Wiederkehr bekommt) — **eine** Gruppierung,
+>   die sich Wiederkehr und Pareto-Ranking teilen.
+> - `RecurrenceRow` trägt darum `driver: CostDriverRow` statt `fingerprint`.
+> - **Gebühren können wiederkehren:** eine monatliche Kontoführung ist ein wiederkehrender Abfluss
+>   mit vollem Jahresbetrag (Treiber `Fee(konto)`).
+
 > **Verortung ([ADR-0013](../adr/0013-zeitfenster-collector-paginierender-analyse-kopf.md)).**
 > Analyzer-Baustein **unter dem `auswerten`-Slice**, die **fenster-übergreifende** Reichweite. Die
 > Wiederkehr läuft als **Read-Port-Query über alle `Auswertungsfenster`-Aggregate** eines Laufs,

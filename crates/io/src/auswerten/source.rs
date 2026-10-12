@@ -134,7 +134,18 @@ impl OccurrenceSeam for AuswertungsfensterSource {
     ) -> Result<RunHistoryRow, SourceUnavailable> {
         let raw = self.raw_bookings(SELECT_RUN_BOOKINGS, &[&run, &from, &to])?;
         let seed_marker = window_seed_marker(&raw)?;
+        // Je Währung der beteiligten Fenster eine Zeile — gemischt ist eine **Domänen**-Entscheidung
+        // (terminal `MixedCurrencies`), hier wird nur geliefert, was liegt.
+        let currencies = self
+            .outbox
+            .with_connection(|conn| {
+                conn.prepare(SELECT_RUN_CURRENCIES)?
+                    .query_map(params![run, from, to], |row| row.get(0))?
+                    .collect::<rusqlite::Result<Vec<String>>>()
+            })
+            .map_err(unavailable)?;
         Ok(RunHistoryRow {
+            currencies,
             // Wie beim Einzel-Fenster: „kein Marker" wird erst hier zur leeren Zelle — und die ACL
             // verlangt ihn nur, wenn auch Buchungen da sind.
             seed_marker: seed_marker.map_or_else(String::new, SeedMarker::into_string),
@@ -316,6 +327,12 @@ const SELECT_WINDOW_BOOKINGS: &str = concat!(
       WHERE b.window_id = ?1 \
       ORDER BY b.position;"
 );
+
+/// Die **distinkten Währungen** der Fenster eines Laufs in der Spanne — derselbe Scope wie
+/// [`SELECT_RUN_BOOKINGS`]. Jedes Fenster hat genau eine (an seiner Konstruktion erzwungen); ob der
+/// **Lauf** genau eine hat, prüft erst die Domäne, die über alle Fenster summiert.
+const SELECT_RUN_CURRENCIES: &str = "SELECT DISTINCT currency FROM auswertungsfenster \
+     WHERE run_id = ?1 AND from_day >= ?2 AND to_day <= ?3 ORDER BY currency;";
 
 /// Die Buchungen **aller** Fenster eines Laufs: über die Fenster gescopt — **erst** über den Lauf
 /// (`run_id = ?1`, indiziert; ADR-0016), dann über die Spanne (`from_day`/`to_day` innerhalb

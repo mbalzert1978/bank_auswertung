@@ -33,7 +33,8 @@ use auswerten_adapter::{
     CategorizerUnavailable, CategoryAnswerRow, CategoryRegistrySeam, CategoryRequestRow,
     CategoryRow, CounterAccountRow, EvaluationStoreSeam, FeeRow, HistoryEvaluationRow,
     InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OccurrenceSeam, OwnAccountRow,
-    OwnAccountsConfig, RegistryUnavailable, RunHistoryRow, WindowBookingRow, WindowEvaluationRow,
+    OwnAccountsConfig, RegistryUnavailable, RunHistoryRow, SavingsThresholdConfig,
+    WindowBookingRow, WindowEvaluationRow,
 };
 use fenstern_adapter::{ObfuscatedRow, ObfuscatedWindowSeam};
 use io::Dispatcher;
@@ -208,6 +209,12 @@ impl OccurrenceSeam for FakeJoin<'_> {
                 String::new()
             } else {
                 SEED_MARKER.to_string()
+            },
+            // Jedes Fenster dieser Fixture ist in Euro — eine Währung je Lauf.
+            currencies: if bookings.is_empty() {
+                Vec::new()
+            } else {
+                vec!["EUR".to_string()]
             },
             bookings,
         })
@@ -480,6 +487,10 @@ pub(crate) fn dispatcher_mit<'a>(
             Box::new(io::auswerten::history_consumer(
                 &verdrahtung.join,
                 eigene_konten(),
+                // Unerreichbar: dieser Verdrahtungstest betrachtet die Spar-Kandidaten nicht.
+                SavingsThresholdConfig {
+                    annual_minor_units: std::num::NonZeroU64::MAX,
+                },
                 verdrahtung.senke.clone(),
                 db,
             )),

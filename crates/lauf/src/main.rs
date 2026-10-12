@@ -1,11 +1,11 @@
 //! **Das Programm** ([Issue 0083](../../../docs/issues/0083-lauf-anstoss-binary-reiht-den-ausloeser-ein-und-dreht-die-broker-loop.md)):
-//! die dünnste denkbare Hülle um [`io::run::run`]. Sie liest sechs Pfade von der Kommandozeile, fährt
+//! die dünnste denkbare Hülle um [`io::run::run`]. Sie liest sieben Pfade von der Kommandozeile, fährt
 //! **einen** Lauf und setzt den Exit-Code — mehr tut sie nicht.
 //!
 //! **Warum so wenig.** Die Verdrahtung der Pipeline gehört in die Infrastruktur, nicht in die
 //! Kommandozeile: sie ist derselbe Lauf, ob ihn ein Terminal, ein Test oder später ein Scheduler
 //! anstößt. Diese Crate bindet darum als einzige interne Abhängigkeit `io` — und keine externe, auch
-//! keinen Argument-Parser: sechs benannte Pflicht-Optionen zu lesen ist keine Bibliothek wert.
+//! keinen Argument-Parser: sieben benannte Pflicht-Optionen zu lesen ist keine Bibliothek wert.
 //!
 //! **Das Lauf-Protokoll geht auf den Fehlerkanal**, damit die Standardausgabe für den späteren
 //! `report` frei bleibt. Es ist redigiert (siehe [`io::run`]): Nachrichtentypen, Zählwerte und im
@@ -45,7 +45,7 @@ fn main() -> ExitCode {
 
 const USAGE: &str = "\
 Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <datei> \
---eigene-konten <datei> --personen <datei>
+--eigene-konten <datei> --personen <datei> --sparen <datei>
 
   --db              SQLite-Datei (Outbox + Ergebnis-Tabellen); wird bei Bedarf angelegt
   --csv             CSV-CAMT-v8-Kontoauszug, den `einlesen` beschafft
@@ -56,8 +56,11 @@ Aufruf: bank-auswertung --db <datei> --csv <datei> --fenster <datei> --seed <dat
                     Programm nicht selbst kennt — auch Vornamen/Kurzformen von Empfängern;
                     `namen = []`, wenn es keine gibt. Vor dem ersten Lauf füllen: spätere
                     Namen wirken nicht rückwirkend. Vorlage: personen.example.toml
+  --sparen          Spar-Config (jahresbetrag_ab_cent): ab diesem Jahresbetrag in Cent wird ein
+                    Kostentreiber als Spar-Kandidat vorgeschlagen — ein Vorschlag, entschieden
+                    wird von dir. Vorlage: sparen.example.toml
 
-Alle sechs sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
+Alle sieben sind Pflicht. Das Lauf-Protokoll geht auf den Fehlerkanal.
 
 Scheitert eine Nachricht, wird sie ausgesondert: der Lauf nennt sie am Ende und endet mit
 Exit 1, die übrigen laufen weiter. Ein späterer Lauf wird von ihr nicht aufgehalten; seine
@@ -99,8 +102,8 @@ impl std::fmt::Display for Aufruffehler {
     }
 }
 
-/// Die sechs Optionen, während sie eingesammelt werden — jede noch **offen**, bis sie gesetzt ist. Der
-/// Übergang „alle sechs da" ist genau der Punkt, an dem daraus [`RunPaths`] wird
+/// Die sieben Optionen, während sie eingesammelt werden — jede noch **offen**, bis sie gesetzt ist. Der
+/// Übergang „alle sieben da" ist genau der Punkt, an dem daraus [`RunPaths`] wird
 /// ([`vollstaendig`](Aufrufoptionen::vollstaendig)); vorher gibt es keinen Wert, der so tut, als wäre
 /// er vollständig.
 #[derive(Debug, Default)]
@@ -111,6 +114,7 @@ struct Aufrufoptionen {
     seed_config: Option<PathBuf>,
     own_accounts_config: Option<PathBuf>,
     persons_config: Option<PathBuf>,
+    savings_config: Option<PathBuf>,
 }
 
 impl Aufrufoptionen {
@@ -126,6 +130,7 @@ impl Aufrufoptionen {
             "--seed" => Some(("--seed", &mut self.seed_config)),
             "--eigene-konten" => Some(("--eigene-konten", &mut self.own_accounts_config)),
             "--personen" => Some(("--personen", &mut self.persons_config)),
+            "--sparen" => Some(("--sparen", &mut self.savings_config)),
             _ => None,
         }
     }
@@ -148,11 +153,14 @@ impl Aufrufoptionen {
             persons_config: self
                 .persons_config
                 .ok_or(Aufruffehler::OptionFehlt("--personen"))?,
+            savings_config: self
+                .savings_config
+                .ok_or(Aufruffehler::OptionFehlt("--sparen"))?,
         })
     }
 }
 
-/// Liest die sechs Pflicht-Optionen. Eine doppelt gesetzte Option gewinnt in ihrer letzten Nennung —
+/// Liest die sieben Pflicht-Optionen. Eine doppelt gesetzte Option gewinnt in ihrer letzten Nennung —
 /// die übliche Konvention, und die einzige, die ohne Sonderfall auskommt.
 fn parse(args: impl Iterator<Item = String>) -> Result<RunPaths, Aufruffehler> {
     let mut args = args;
@@ -190,6 +198,8 @@ mod tests {
             "eigene-konten.toml",
             "--personen",
             "personen.toml",
+            "--sparen",
+            "sparen.toml",
         ]
         .iter()
         .map(|argument| (*argument).to_string())
@@ -197,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn sechs_optionen_ergeben_die_lauf_pfade() {
+    fn sieben_optionen_ergeben_die_lauf_pfade() {
         let paths = parse(vollstaendige_argumente().into_iter()).expect("vollständiger Aufruf");
 
         assert_eq!(paths.database, PathBuf::from("lauf.sqlite"));
@@ -209,6 +219,7 @@ mod tests {
             PathBuf::from("eigene-konten.toml")
         );
         assert_eq!(paths.persons_config, PathBuf::from("personen.toml"));
+        assert_eq!(paths.savings_config, PathBuf::from("sparen.toml"));
     }
 
     #[test]
@@ -221,6 +232,7 @@ mod tests {
             "--seed",
             "--eigene-konten",
             "--personen",
+            "--sparen",
         ]
         .into_iter()
         .enumerate()

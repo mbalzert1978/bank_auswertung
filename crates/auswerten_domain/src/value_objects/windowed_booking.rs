@@ -1,6 +1,6 @@
 use crate::value_objects::{
-    AccountRole, AccountToken, Amount, BookingKind, CounterAccount, Counterparty, DayStamp,
-    Direction, NonEmptyString, VerifiedOwnAccounts,
+    AccountRole, AccountToken, Amount, BookingKind, Counterparty, DayStamp, Direction,
+    NonEmptyString, VerifiedOwnAccounts,
 };
 
 /// Eine **Buchung des eingefrorenen Fensters**, wie der Lese-Port
@@ -85,13 +85,8 @@ impl WindowedBooking {
         &self,
         own_accounts: &VerifiedOwnAccounts<'_>,
     ) -> Option<AccountRole> {
-        match self
-            .counter_account()
-            .map(|token| own_accounts.resolve(token))
-        {
-            Some(CounterAccount::Own(role)) => Some(role),
-            Some(CounterAccount::Foreign) | None => None,
-        }
+        self.counter_account()
+            .and_then(|token| own_accounts.resolve(token).own_role())
     }
 
     pub(crate) fn ordering_account(&self) -> &AccountToken {

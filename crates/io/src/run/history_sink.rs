@@ -6,7 +6,7 @@ use auswerten_adapter::HistoryEvaluationRow;
 use crate::auswerten::HistoryEvaluationSink;
 
 /// Der **Abnehmer** der fenster-übergreifenden Reichweite im realen Lauf: er zählt die gelieferten
-/// Vorkommen und wirft sie fort.
+/// Vorkommen und Spar-Kandidaten und wirft sie fort.
 ///
 /// **Warum zählen und nicht mehr.** Diese Reichweite *gibt ihr Ergebnis zurück, statt es abzulegen* —
 /// die Aggregate sind die alleinige Wahrheit. Die Wiederkehr-Erkennung
@@ -22,6 +22,7 @@ use crate::auswerten::HistoryEvaluationSink;
 #[derive(Clone, Debug, Default)]
 pub struct CountingHistorySink {
     count: Rc<Cell<usize>>,
+    candidates: Rc<Cell<usize>>,
 }
 
 impl CountingHistorySink {
@@ -30,11 +31,19 @@ impl CountingHistorySink {
     pub fn count(&self) -> usize {
         self.count.get()
     }
+
+    /// Die Zahl der insgesamt entgegengenommenen Spar-Kandidaten (Issue 0007).
+    #[must_use]
+    pub fn candidates(&self) -> usize {
+        self.candidates.get()
+    }
 }
 
 impl HistoryEvaluationSink for CountingHistorySink {
     fn receive(&self, evaluation: HistoryEvaluationRow) {
         self.count
             .set(self.count.get() + evaluation.occurrences.len());
+        self.candidates
+            .set(self.candidates.get() + evaluation.savings_candidates.len());
     }
 }

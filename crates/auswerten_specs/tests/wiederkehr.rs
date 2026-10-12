@@ -456,19 +456,22 @@ fn der_dto_vertrag_nimmt_buchungen_und_gibt_das_wiederkehr_ergebnis_ohne_datei_u
         ]),
     );
 
+    // Verglichen werden die beiden Sichten **dieses** Bausteins; der Aderlass (Cashflow je Konto,
+    // Ranking, Spar-Kandidaten) hat seinen eigenen DTO-Vertrag in `aderlass.rs`.
     let schluessel = fingerabdruck(HAENDLER);
     assert_eq!(
-        api.run_history(LAUF.0, LAUF.1),
-        Ok(HistoryEvaluationRow {
-            occurrences: vec![
+        api.run_history(LAUF.0, LAUF.1)
+            .map(|auswertung| (auswertung.occurrences, auswertung.recurrences)),
+        Ok((
+            vec![
                 vorkommen(&schluessel, JAN_15, 1_299, BookingDirection::Outgoing),
                 vorkommen(&schluessel, FEB_15, 1_299, BookingDirection::Outgoing),
                 vorkommen(&schluessel, MAR_15, 1_299, BookingDirection::Outgoing),
             ],
-            recurrences: vec![RecurrenceRow {
+            vec![RecurrenceRow {
                 charged_account: ZWEITES_KONTO.to_string(),
                 ..wiederkehr(&schluessel, RecurrenceRhythm::Monthly, 1_299, 15_588)
             }],
-        })
+        ))
     );
 }

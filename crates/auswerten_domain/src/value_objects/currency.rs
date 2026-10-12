@@ -7,7 +7,7 @@ use crate::value_objects::NonEmptyString;
 ///
 /// Reiner Wrapper über den nicht-leeren Kern: die Gültigkeit liegt schon im [`NonEmptyString`], hier
 /// gibt es nichts mehr abzuweisen.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Currency(NonEmptyString);
 
 impl Currency {
