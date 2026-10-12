@@ -50,6 +50,11 @@ pub struct CategoryAnswerRow {
 /// Eine **zugeordnete Kategorie** in der abgelegten Ergebnis-Zeile — was das Orakel zu den zuvor
 /// unbekannten Buchungsarten dieses Fensters beigetragen hat.
 ///
+/// **Nur ein Mitschnitt, keine Quelle:** die einzige Wahrheit für Kategorie-Etiketten ist das
+/// Kategorie-Register in io
+/// ([Issue 0009](../../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)).
+/// Der Bericht liest Etiketten allein dort, nie aus dieser Zeile.
+///
 /// **Bewusst ein eigener Typ**, nicht die [`CategoryAnswerRow`] wiederverwendet: die eine ist das
 /// DTO eines *Ports* (was hereinkam), die andere die Zelle einer *Tabelle* (was abgelegt wird).
 /// Dass sie heute dieselbe Form haben, macht sie nicht zum selben Ding — genau die Linie, die

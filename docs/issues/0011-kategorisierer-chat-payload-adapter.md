@@ -25,6 +25,15 @@ Zahlungsintermediären muss die exportierte `ObfuskierterText`-Nutzlast aus dem
 Verwendungszweck stammen, nicht aus dem (uninformativen) Empfänger-Namen des
 Intermediärs — das nutzt die Intermediär-Erkennung aus Slice 0005.
 
+> **Vorbedingung (Entscheidung des Orchestrators, 2026-10-12):** das Kategorie-Register aus
+> [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md) ist die **einzige Wahrheit** für
+> Kategorie-Etiketten. Der Import schreibt **ausschließlich** über
+> `io::auswerten::SqliteCategoryRegistry::learn(&[CategoryAnswerRow])` — alles oder nichts, und nur
+> Fingerabdrücke, die eine Auswertung schon geführt hat (`window_evaluation_fingerprints`); ein
+> erfundener Schlüssel, etwa ein Klarname aus der Chat-Antwort, wird redigiert abgewiesen
+> (`RejectCause::UnknownFingerprint`). Welche Fingerabdrücke unbekannt sind, beantwortet derselbe
+> Register-Seam (`known_among`).
+
 ## Abnahmekriterien
 
 - [ ] Export enthält ausschließlich Fingerabdrücke, die im Kategorie-Register

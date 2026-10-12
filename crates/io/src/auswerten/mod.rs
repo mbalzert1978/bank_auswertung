@@ -40,10 +40,13 @@ use crate::{
 };
 
 mod oracle;
+mod registry;
 mod source;
 mod store;
 
-pub use oracle::{EmptyCategoryRegistry, UnansweredCategorizer};
+pub use oracle::UnansweredCategorizer;
+pub(crate) use registry::LEARNED_CATEGORIES_TABLE;
+pub use registry::{LearnError, RejectCause, SqliteCategoryRegistry};
 pub use source::AuswertungsfensterSource;
 pub use store::{AuswertenEvaluations, AuswertenSqliteStore, AuswertenUnit};
 

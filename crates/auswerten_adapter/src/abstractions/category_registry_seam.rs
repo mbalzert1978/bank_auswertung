@@ -1,8 +1,8 @@
 /// Der öffentliche **Register-Seam**: beantwortet, welche der übergebenen Fingerabdrücke das
 /// **Kategorie-Register** bereits kennt (D5, [ADR-0004](../../../../docs/adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md)).
-/// **io erfüllt ihn** — die persistente Ablage samt gelernten Korrekturen baut
-/// [Issue 0009](../../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md); bis
-/// dahin trägt ihn in den Specs ein Fake.
+/// **io erfüllt ihn** — mit der persistenten SQLite-Ablage samt gelernten Korrekturen
+/// ([Issue 0009](../../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md));
+/// in den Specs trägt ihn ein Fake.
 ///
 /// **Er spricht rohe Schlüssel-Zeichenketten**, keine Domänen-Fingerabdrücke: der Seam ist die
 /// mechanische Außenseite, und das Register ist eine Tabelle mit einer Schlüsselspalte. Dass aus
