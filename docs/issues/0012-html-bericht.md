@@ -1,7 +1,7 @@
 ---
 id: "0012"
 title: "HTML-Bericht"
-status: open
+status: closed
 ---
 
 # HTML-Bericht

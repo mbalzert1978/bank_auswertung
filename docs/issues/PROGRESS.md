@@ -18,7 +18,7 @@ begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
 | 4a Cashflow/Pareto/Spar | [0007](0007-aderlass-pareto-ranking-und-spar-kandidaten.md) | #95 | erledigt | db8aa36 |
 | 4b Kategorie-Register | [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md) | #96 | erledigt | 1b70038 |
 | 4c Dead-Letter | [0085](0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md) | #102 | erledigt | e2bd671 |
-| 5a HTML-Bericht | [0012](0012-html-bericht.md) | #99 | offen (nach 4a) | — |
+| 5a HTML-Bericht | [0012](0012-html-bericht.md) | #99 | erledigt | af52ca3 |
 | 5b Chat-Export/-Import | [0011](0011-kategorisierer-chat-payload-adapter.md) | #98 | erledigt | 6dc0ff0 |
 | E2E vier Konten + Leak-Test | — | — | offen (nach 5a + 5b) | — |
 | Schritt-6-Checkliste | — | — | offen | — |
