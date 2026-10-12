@@ -20,7 +20,7 @@ begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
 | 4c Dead-Letter | [0085](0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md) | #102 | erledigt | e2bd671 |
 | 5a HTML-Bericht | [0012](0012-html-bericht.md) | #99 | erledigt | af52ca3 |
 | 5b Chat-Export/-Import | [0011](0011-kategorisierer-chat-payload-adapter.md) | #98 | erledigt | 6dc0ff0 |
-| E2E vier Konten + Leak-Test | — | — | offen (nach 5a + 5b) | — |
+| E2E vier Konten + Leak-Test | `crates/io/src/run/e2e_tests.rs` | — | erledigt | 1f8e1d7 |
 | Schritt-6-Checkliste | [2026-10-12-schritt-6-checkliste.md](../plans/2026-10-12-schritt-6-checkliste.md) | — | erledigt | (dieser Commit) |
 
 Weitere GitHub-Spiegel (Schritt 0): 0002 → #93, 0013 → #100, 0086 → #103, 0087 → #104.

@@ -403,23 +403,12 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
 - Cosmetic: the `toml` dependency carries semver build metadata, so every workspace command
   prints a warning ([0086](docs/issues/0086-toml-abhaengigkeit-ohne-semver-metadaten.md)).
 
-**Next**, two threads (weighed in
-[docs/plans/2026-07-31-1335](docs/plans/2026-07-31-1335-aufwand-und-reihenfolge-der-offenen-posten.md)):
-
-- **Towards an answer** — the `Umbuchung` netting ([0004](docs/issues/0004-umbuchung-netting.md)) and
-  the fee classification ([0006](docs/issues/0006-gebuehren-klassifikation.md)) are **done**, so the
-  cashflow numbers are now right rather than merely computed, and what the bank itself takes is named
-  separately. On top of them the
-  Pareto/savings-candidate analyzer ([0007](docs/issues/0007-aderlass-pareto-ranking-und-spar-kandidaten.md))
-  is **built** (candidate = annual amount over a config value, decision V3), and so is the `report`
-  ([0012](docs/issues/0012-html-bericht.md)) — the program now says **where the money goes**. One **HITL** item is now open on 0006
-  too: which booking texts his bank actually sets for fees.
-- **Towards a safe operation** — the schema owner + version stamp
-  ([0084](docs/issues/0084-schema-an-einem-ort-und-versionsstempel-als-migrationsachse.md)) and the
-  dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md))
-  are both **built**: a file on disk and a poisoned message each have an owner.
-
-The `Kategorisierer` chat export/import (0011) and the recurrence analyzer (0005) are built.
+**Next** — the build of the [Abschlussplan](docs/plans/2026-10-12-1343-abschlussplan.md) steps 0–5 is
+**done** (progress in [PROGRESS.md](docs/issues/PROGRESS.md)). What is left is step 6, Markus' real
+operation: real IBANs (0002), the fee markers against real statements (0006) and the review session
+(0013) — exact commands in the
+[Schritt-6-Checkliste](docs/plans/2026-10-12-schritt-6-checkliste.md). Deferred on purpose: 0086,
+0087, XML-camt/MT940, an API categorizer.
 
 ## Commands
 
