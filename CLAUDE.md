@@ -306,9 +306,12 @@ real IBANs in the gitignored `eigene-konten.toml`.
 **The category register is real** ([0009](docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)):
 `io::auswerten::SqliteCategoryRegistry`, one table `learned_categories` keyed on the **fingerprint**
 (never on text), holding the learned label per kind; a correction replaces the old label and survives
-every restart. The write path for the chat import (0011) is `learn(&[CategoryAnswerRow])` (all or
-nothing, redacted rejection); the report reads labels via `categories_of`. The label is free validated
-text, as the domain's `Category` already is. It came with schema **version 3** (additive 2 → 3 arm).
+every restart. It is the **only** source of truth for labels: the chat import (0011) writes solely via
+`learn(&[CategoryAnswerRow])` (all or nothing, redacted rejection, and only fingerprints some evaluation
+already carries — an invented key such as a plain name never reaches the file); the report (0012) reads
+solely via `categories_of`. The label is free validated text, as the domain's `Category` already is. It
+came with schema **version 3**, the first rung of the migration **ladder** in `io::schema` (each rung one
+version up, stamped once at the end).
 
 **Still open (no real `io` adapter yet):** the `Kategorisierer` oracle — **answered empty** today
 rather than faked (`io::auswerten::UnansweredCategorizer`, issue 0011) and asked only for fingerprints
@@ -427,8 +430,11 @@ Git worktrees go under `.claude/worktrees/` (local-only, gitignored).
 Hexagonal (Ports & Adapters) als modularer Monolith aus Feature-Slice-Triaden; Pipeline
 `einlesen → obfuskieren → fenstern → auswerten → report`, jeder Schritt ein Outbox-Consumer,
 `obfuskieren` die **Privacy-Grenze**, `auswerten` die Analyse (das LLM nur Orakel für
-**unbekannte** Fingerabdrücke). Zwei Rand-Ports: `Speicher` (SQLite, speichert **DTOs**, nicht
-Domänenobjekte) und die `report`-HTML-Ausgabe. Die **normativen Prinzipien** — Ports,
+**unbekannte** Fingerabdrücke). Der `Speicher` ist **kein eigener Port**, sondern die Summe der
+SQLite-Ablagen in `io`: die vier Slice-Stores (je hinter dem Seam ihres Slice, sie speichern **DTOs**,
+nicht Domänenobjekte) plus das Kategorie-Register `SqliteCategoryRegistry` (hinter dem
+`CategoryRegistrySeam`, die einzige Wahrheit für Kategorie-Etiketten). Der zweite Rand ist die
+`report`-HTML-Ausgabe. Die **normativen Prinzipien** — Ports,
 Domäne-ist-die-Analyse, Outbox-Kopplung, durchweg terminal, uniformes ID-Handoff — mit
 Do/Don't in [.rules/common/architektur.md](.rules/common/architektur.md).
 
@@ -485,7 +491,8 @@ each step runnable/valuable against fakes, real `io` last:
    returned (never stored) as `RecurrenceRow`s. The Pareto analyzer (building block 0007) is still to
    come.
    `Kategorisierer` still comes in from the caller as a fake.
-6. **`Speicher` (SQLite)** for DTOs + category register, and the real **`io`** adapters
+6. **`Speicher` (SQLite)** — no port of its own, but the four slice stores plus
+   `SqliteCategoryRegistry` — and the real **`io`** adapters
    fulfilling the seams — **largely built**: the SQLite Outbox broker/`UnitOfWork`, the
    `Calendar`/`Money`/`Currency` seams, the CSV-CAMT-v8 source, **all four** slice result stores
    (on **one** generic `SliceStore`,

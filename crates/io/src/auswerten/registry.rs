@@ -14,15 +14,29 @@
 //! - **Lesen** im Lauf über den [`CategoryRegistrySeam`]: welche dieser Fingerabdrücke kenne ich
 //!   schon? Die Domäne fragt das Orakel danach nur noch für den Rest (ADR-0004). Gelesen wird außerhalb
 //!   der committenden Transaktion, wie jede Lese-Quelle (eine reine Leihgabe der Verbindung).
-//! - **Lernen** über [`SqliteCategoryRegistry::learn`]: der Schreibweg für den Import der
-//!   Chat-Antwort ([Issue 0011](../../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md))
+//! - **Lernen** über [`SqliteCategoryRegistry::learn`]: der **einzige** Schreibweg — für den Import
+//!   der Chat-Antwort ([Issue 0011](../../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md))
 //!   und für jede Korrektur von Hand. Eine Korrektur **ersetzt** das alte Etikett desselben
 //!   Fingerabdrucks — das Register hält je Art genau eine, die zuletzt gelernte Kategorie.
+//!
+//! **Das Register ist die einzige Wahrheit für Kategorie-Etiketten.** Der Bericht
+//! ([Issue 0012](../../../../docs/issues/0012-html-bericht.md)) liest sie allein über
+//! [`SqliteCategoryRegistry::categories_of`]. Die Etiketten, die ein Fenster-Ergebnis daneben führt
+//! (`window_evaluation_categories`), sind nur der Mitschnitt dessen, was das Orakel in **jenem** Lauf
+//! beitrug — keine Quelle für den Bericht.
+//!
+//! **Nur Schlüssel, die die Domäne selbst ausgegeben hat.** Gelernt wird ein Fingerabdruck nur, wenn
+//! ihn eine Auswertung schon geführt hat (`window_evaluation_fingerprints`). Ein Fingerabdruck entsteht
+//! allein als reine Domänenfunktion — ein frei erfundener „Schlüssel" (im schlimmsten Fall ein
+//! Klarname aus einer Chat-Antwort) käme sonst dauerhaft in die Datei.
 //!
 //! **Die Kategorie ist freier, validierter Text, kein festes Vokabular.** So hält es schon die Domäne
 //! (`auswerten_domain::Category` über `NonEmptyString`): welche Schubladen es gibt, ist eine Aussage
 //! des Orakels bzw. des Menschen, nicht der Analyse. Validiert wird darum genau das, was die Domäne
 //! verlangt — getrimmt und nicht leer —, und ein `CHECK` hält dasselbe auf DB-Ebene.
+
+use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 
 use auswerten_adapter::{CategoryAnswerRow, CategoryRegistrySeam, RegistryUnavailable};
 use rusqlite::{Connection, OptionalExtension};
@@ -30,7 +44,9 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::sqlite::{SqliteOutbox, TableSpec};
 
 /// Die Tabelle des Registers — beim Schema-Besitzer ([`schema`](crate::schema)) aufgeführt, der sie
-/// anlegt (und eine Version-2-Datei um sie ergänzt).
+/// anlegt (und eine Version-2-Datei um sie ergänzt). Ihre DDL legt zugleich den Index, über den
+/// [`SqliteCategoryRegistry::learn`] prüft, ob die Domäne einen Fingerabdruck ausgegeben hat — er dient
+/// allein dem Register, darum steht er hier und nicht beim `auswerten`-Store.
 ///
 /// **Ein natürlicher Schlüssel statt einer geminteten ID:** die Identität eines Eintrags **ist** sein
 /// Fingerabdruck — eine zweite, generierte ID ließe zwei Einträge derselben Art zu, und genau das
@@ -47,7 +63,9 @@ CREATE TABLE IF NOT EXISTS learned_categories (
     category    TEXT    NOT NULL    CHECK (trim(category) <> ''),
     created_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER)),
     updated_at  INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec') * 1000 AS INTEGER))
-);";
+);
+CREATE INDEX IF NOT EXISTS window_evaluation_fingerprints_fingerprint_idx
+    ON window_evaluation_fingerprints (fingerprint);";
 
 /// Lernt ein Etikett — und **korrigiert** ein vorhandenes: derselbe Fingerabdruck bekommt das neue
 /// Etikett, `updated_at` rückt nach. Dasselbe Etikett erneut zu lernen ändert nichts (auch nicht den
@@ -60,6 +78,10 @@ SET category = excluded.category,
 WHERE category <> excluded.category;";
 
 const SELECT_CATEGORY: &str = "SELECT category FROM learned_categories WHERE fingerprint = ?1;";
+
+/// Hat eine Auswertung diesen Fingerabdruck schon geführt — hat die Domäne ihn also ausgegeben?
+const SELECT_ISSUED: &str =
+    "SELECT EXISTS (SELECT 1 FROM window_evaluation_fingerprints WHERE fingerprint = ?1);";
 
 /// Das reale Kategorie-Register auf dem SQLite-Rückgrat. `Clone` teilt dasselbe Rückgrat (`Rc` im
 /// Innern von [`SqliteOutbox`]). Legt **nichts** an — die Tabelle gehört dem Schema-Besitzer.
@@ -86,22 +108,34 @@ impl SqliteCategoryRegistry {
     /// # Errors
     ///
     /// [`LearnError::Rejected`], wenn ein Eintrag einen leeren Fingerabdruck oder ein leeres Etikett
-    /// trägt oder derselbe Fingerabdruck im Stapel zwei verschiedene Etiketten bekommt — dann wird
-    /// **nichts** gelernt. [`LearnError::Unavailable`], wenn das Register nicht beschreibbar war.
+    /// trägt, derselbe Fingerabdruck im Stapel zwei verschiedene Etiketten bekommt oder ein
+    /// Fingerabdruck nie von der Domäne ausgegeben wurde — dann wird **nichts** gelernt.
+    /// [`LearnError::Unavailable`], wenn das Register nicht beschreibbar war.
     pub fn learn(&self, answers: &[CategoryAnswerRow]) -> Result<(), LearnError> {
         let entries = validated(answers)?;
         self.outbox
             .with_connection(|conn| {
+                // Prüfen und Schreiben in **einer** Transaktion: was geprüft wurde, ist, was gilt.
+                // Ein abgewiesener Stapel lässt sie ungecommittet fallen — es wurde nichts gelernt.
                 let transaction = conn.unchecked_transaction()?;
+                if let Some(position) = first_unissued(&transaction, &entries)? {
+                    return Ok(Err(LearnError::Rejected {
+                        position,
+                        cause: RejectCause::UnknownFingerprint,
+                    }));
+                }
                 {
                     let mut statement = transaction.prepare(LEARN)?;
-                    entries.iter().try_for_each(|(fingerprint, category)| {
-                        statement.execute((fingerprint, category)).map(drop)
-                    })?;
+                    entries
+                        .iter()
+                        .try_for_each(|(fingerprint, (_, category))| {
+                            statement.execute((fingerprint, category)).map(drop)
+                        })?;
                 }
-                transaction.commit()
+                transaction.commit().map(Ok)
             })
             .map_err(|error| LearnError::Unavailable(error.to_string()))
+            .flatten()
     }
 
     /// Die gelernten Etiketten der gegebenen Fingerabdrücke, in deren Reihenfolge; ein unbekannter
@@ -155,35 +189,49 @@ fn lookup(conn: &Connection, fingerprints: &[String]) -> rusqlite::Result<Vec<Ca
         .collect()
 }
 
+/// Der geprüfte Stapel: je Fingerabdruck die Position seines **ersten** Auftretens (für die
+/// redigierte Meldung) und sein Etikett.
+type Entries = BTreeMap<String, (usize, String)>;
+
 /// Prüft den ganzen Stapel **vor** dem ersten Schreiben: getrimmt, nicht leer, und je Fingerabdruck
 /// höchstens ein Etikett. Ein Widerspruch im selben Stapel ist keine Korrektur, sondern eine unklare
 /// Eingabe — welches Etikett „gemeint" war, rät das Register nicht.
-fn validated(answers: &[CategoryAnswerRow]) -> Result<Vec<(String, String)>, LearnError> {
-    answers.iter().enumerate().try_fold(
-        Vec::<(String, String)>::new(),
-        |mut entries, (index, answer)| {
+fn validated(answers: &[CategoryAnswerRow]) -> Result<Entries, LearnError> {
+    answers
+        .iter()
+        .enumerate()
+        .try_fold(Entries::new(), |mut entries, (index, answer)| {
             let position = index + 1;
-            let fingerprint = non_empty(&answer.fingerprint).ok_or(LearnError::Rejected {
-                position,
-                cause: RejectCause::EmptyFingerprint,
-            })?;
-            let category = non_empty(&answer.category).ok_or(LearnError::Rejected {
-                position,
-                cause: RejectCause::EmptyCategory,
-            })?;
-            match entries.iter().find(|(known, _)| *known == fingerprint) {
-                Some((_, earlier)) if *earlier != category => Err(LearnError::Rejected {
-                    position,
-                    cause: RejectCause::ContradictingCategory,
-                }),
-                Some(_) => Ok(entries),
-                None => {
-                    entries.push((fingerprint, category));
+            let reject = |cause| LearnError::Rejected { position, cause };
+            let fingerprint = non_empty(&answer.fingerprint)
+                .ok_or_else(|| reject(RejectCause::EmptyFingerprint))?;
+            let category =
+                non_empty(&answer.category).ok_or_else(|| reject(RejectCause::EmptyCategory))?;
+            match entries.entry(fingerprint) {
+                Entry::Vacant(slot) => {
+                    slot.insert((position, category));
                     Ok(entries)
                 }
+                Entry::Occupied(known) if known.get().1 == category => Ok(entries),
+                Entry::Occupied(_) => Err(reject(RejectCause::ContradictingCategory)),
             }
-        },
-    )
+        })
+}
+
+/// Die früheste Position eines Fingerabdrucks, den **keine** Auswertung geführt hat — `None`, wenn die
+/// Domäne jeden des Stapels ausgegeben hat.
+fn first_unissued(conn: &Connection, entries: &Entries) -> rusqlite::Result<Option<usize>> {
+    let mut statement = conn.prepare(SELECT_ISSUED)?;
+    entries
+        .iter()
+        .filter_map(|(fingerprint, (position, _))| {
+            statement
+                .query_row([fingerprint], |row| row.get::<_, bool>(0))
+                .map(|issued| (!issued).then_some(*position))
+                .transpose()
+        })
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map(|unissued| unissued.into_iter().min())
 }
 
 fn non_empty(raw: &str) -> Option<String> {
@@ -210,6 +258,8 @@ pub enum RejectCause {
     EmptyCategory,
     /// Derselbe Fingerabdruck bekommt im Stapel ein zweites, anderes Etikett.
     ContradictingCategory,
+    /// Den Fingerabdruck hat die Domäne nie ausgegeben — keine Auswertung führt ihn.
+    UnknownFingerprint,
 }
 
 impl std::fmt::Display for LearnError {
@@ -221,6 +271,9 @@ impl std::fmt::Display for LearnError {
                     RejectCause::EmptyCategory => "leere Kategorie",
                     RejectCause::ContradictingCategory => {
                         "widersprüchliche Kategorie für denselben Fingerabdruck"
+                    }
+                    RejectCause::UnknownFingerprint => {
+                        "Fingerabdruck von keiner Auswertung ausgegeben"
                     }
                 };
                 write!(

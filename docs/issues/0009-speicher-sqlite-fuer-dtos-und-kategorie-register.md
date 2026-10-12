@@ -80,11 +80,19 @@ machen.
   `EmptyCategoryRegistry`. Der Kategorisierer bleibt `UnansweredCategorizer` (der Chat-Weg ist
   [0011](0011-kategorisierer-chat-payload-adapter.md)); die Domäne fragt ihn schon heute nur für die
   Fingerabdrücke, die das Register nicht kennt (`WindowEvaluationHandler::categorise`).
+- **Das Register ist die einzige Wahrheit für Kategorie-Etiketten** (Entscheidung des Orchestrators,
+  2026-10-12, als Vorbedingung in [0011](0011-kategorisierer-chat-payload-adapter.md) und
+  [0012](0012-html-bericht.md) eingetragen): der Chat-Import schreibt nur über `learn`, der Bericht liest
+  nur über `categories_of`. Die Etiketten-Kopie im Fenster-Ergebnis (`window_evaluation_categories`)
+  bleibt, ist aber nur der Mitschnitt des Orakels in jenem Lauf und **keine** Quelle für den Bericht.
 - **Schreibweg für 0011:** `SqliteCategoryRegistry::learn(&[CategoryAnswerRow]) -> Result<(), LearnError>`
   — dieselbe Zeilen-Form, die das Orakel antwortet. Alle oder keiner, in einer Transaktion; Werte
-  getrimmt; ein leerer Fingerabdruck, ein leeres Etikett oder zwei **verschiedene** Etiketten für
-  denselben Fingerabdruck im Stapel weisen den ganzen Stapel ab (`LearnError::Rejected { position,
-  cause }`, redigiert: nur Position und statischer Grund). Ein schon bekannter Fingerabdruck wird
+  getrimmt; ein leerer Fingerabdruck, ein leeres Etikett, zwei **verschiedene** Etiketten für denselben
+  Fingerabdruck im Stapel oder ein Fingerabdruck, den **keine Auswertung geführt** hat
+  (`window_evaluation_fingerprints`, geprüft in derselben Transaktion) weisen den ganzen Stapel ab
+  (`LearnError::Rejected { position, cause }`, redigiert: nur Position und statischer Grund). Damit
+  kann ein erfundener Schlüssel — etwa ein Klarname aus einer Chat-Antwort — nie in die Datei
+  (`ein_nie_ausgegebener_schluessel_wird_abgewiesen_und_nicht_genannt`). Ein schon bekannter Fingerabdruck wird
   **korrigiert** (Upsert; `updated_at` rückt nur bei einem neuen Etikett nach). Lesen für den Bericht
   (0012): `categories_of(&[String]) -> Vec<CategoryAnswerRow>`.
 - **Kategorie = freier, validierter Text, kein festes Vokabular.** So hält es die Domäne schon:
@@ -95,13 +103,17 @@ machen.
   beigetragen hat** — eine bewusste, schon bestehende Entscheidung der Specs: was das Register führt,
   gehört ihm, und an jedes Fenster geheftet wäre es eine Kopie. „Wird wieder angewendet" heißt also: die
   Art gilt als bekannt und geht nicht mehr ans Orakel; ihr Etikett liest der Bericht aus dem Register.
-- **Schema-Version 3** ([`crates/io/src/schema.rs`](../../crates/io/src/schema.rs)): neuer Arm
-  `Found::Version(2) => migrate_2_to_3` — rein additiv, die Version-2-Datei behält ihren Bestand und
-  trägt danach genau das Schema einer frischen (Test
-  `eine_version_2_datei_mit_bestand_bekommt_das_register_und_behaelt_ihren_bestand`). Eine
-  Version-1-Datei landet über `migrate_1_to_2` direkt auf 3. Die Tabelle steht in `schema::tables()`;
-  im Lauf lebt das Register unter den geliehenen `Adapters`, nicht unter `Stores` (es schreibt im Lauf
-  nichts).
+- **Schema-Version 3** ([`crates/io/src/schema.rs`](../../crates/io/src/schema.rs)) über eine kleine
+  **Leiter**: jede Sprosse hebt um genau eine Version (feste Zielversion), `ensure` steigt von der
+  vorgefundenen Version bis `SCHEMA_VERSION` und stempelt einmal am Ende; ein Test hält die Leiter
+  lückenlos. Erste Sprosse 2 → 3 (`add_category_register`): Register-Tabelle plus Index auf
+  `window_evaluation_fingerprints(fingerprint)` — rein additiv, die Version-2-Datei behält ihren
+  Bestand und trägt danach genau das Schema einer frischen (Test
+  `eine_version_2_datei_mit_bestand_bekommt_das_register_und_behaelt_ihren_bestand`). Version 1 ist
+  keine Sprosse, sondern ein Neubau (`rebuild_unkeyed_v1`), der direkt auf der aktuellen Version
+  landet. Eine weitere Migration (etwa die von 0085) hängt sich als nächste Sprosse an. Die Tabelle steht in `schema::tables()` unter
+  den Nicht-Store-Tabellen (neben der Outbox); im Lauf lebt das Register unter den geliehenen
+  `Adapters`, nicht unter `Stores` (es schreibt im Lauf nichts).
 - **AK 1 brauchte keinen neuen Speicher:** die realen Stores (0053–0058, 0088) persistieren schon. Der
   Test fährt zwei Läufe mit zwei Auszügen in eine Datei (jeder Lauf öffnet und schließt sie = Neustart),
   öffnet sie danach erneut und lädt den Bestand über den realen Lese-Weg (`AuswertungsfensterSource`):
@@ -118,6 +130,4 @@ machen.
   lernt einen Register-Eintrag und prüft: keine Spalte heißt `seed`, keine Zelle irgendeiner Tabelle
   enthält ihn, und die Datei enthält ihn Byte für Byte nicht. Der Seed-**Marker** in `obfuskiert` ist ein
   Hash, kein Seed.
-- **Offen für 0011:** ob `learn` nur Fingerabdrücke annehmen soll, nach denen auch gefragt wurde (heute
-  nimmt es jeden nicht-leeren an; ein nie gefragter Schlüssel trifft im Lauf schlicht nie).
 

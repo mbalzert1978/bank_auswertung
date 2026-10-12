@@ -20,13 +20,17 @@
 //! **Der Stempel ist SQLites eingebautes `PRAGMA user_version`** — ein Ganzzahl-Feld im Kopf der
 //! Datei, transaktional wie jede andere Schreibung, ohne eigene Tabelle.
 //!
-//! **Wo eine Migration ansetzt.** Die Versionen laufen über die eine Weiche `ensure`: „frisch",
-//! „passt" und je Migration **ein** weiterer Arm (`Found::Version(1) => migrate_1_to_2(…)`), dazu
-//! [`SCHEMA_VERSION`] hochgezählt — die DDL der Stores beschreibt dann das **neue** Schema, das eine
-//! frische Datei direkt bekommt. Eine Migrations-Maschinerie auf Vorrat gibt es bewusst nicht.
+//! **Wo eine Migration ansetzt: an der Leiter.** Die Versionen laufen über die eine Weiche `ensure`:
+//! „frisch", „passt", der Sonderfall Version 1 (siehe unten) und die **Leiter** (`LADDER`). Jede
+//! Sprosse hebt eine Datei um **genau eine** Version, mit fester Zielversion; `ensure` steigt von der
+//! vorgefundenen Version Sprosse für Sprosse bis [`SCHEMA_VERSION`] und stempelt **einmal** am Ende.
+//! Eine neue Migration ist eine neue Sprosse am Ende der Leiter, dazu [`SCHEMA_VERSION`] hochgezählt —
+//! die DDL der Stores beschreibt dann das **neue** Schema, das eine frische Datei direkt bekommt. Ein
+//! Test hält die Leiter lückenlos bis zur aktuellen Version.
 //!
-//! **Version 1 → 2** ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md))
-//! ist die erste echte Migration: `einlesen_lines` bekommt den Zeilen-Schlüssel (`row_key`,
+//! **Version 1** ([ADR-0016](../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md))
+//! steht **neben** der Leiter, weil sie keine Stufe ist, sondern ein Neubau (`rebuild_unkeyed_v1`): sie
+//! landet direkt auf der aktuellen Version. Die erste echte Migration war 1 → 2: `einlesen_lines` bekommt den Zeilen-Schlüssel (`row_key`,
 //! `UNIQUE`), `auswertungsfenster` den Lauf (`run_id`). Eine Version-1-Datei **ohne** Bestand wird
 //! umgebaut; eine **mit** Bestand wird abgewiesen — terminal, redigiert, unangetastet. Ihre Zeilen
 //! lassen sich nicht nachträglich schlüsseln: der Schlüssel entsteht aus Spalten, die Version 1 nie
@@ -35,12 +39,10 @@
 //! Fehler, den Version 2 behebt. Lieber laut eine frische Datei verlangen.
 //!
 //! **Version 2 → 3** ([Issue 0009](../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md))
-//! ist rein **additiv**: das Kategorie-Register (`learned_categories`) kommt hinzu, keine vorhandene
-//! Tabelle ändert sich. Eine Version-2-Datei wird darum **mit** ihrem Bestand umgebaut — es geht nichts
-//! verloren, und danach trägt sie genau das Schema einer frischen Datei. Eine Version-1-Datei landet
-//! über `migrate_1_to_2` direkt auf der aktuellen Version (die Neuanlage dort legt alle heutigen
-//! Tabellen an, das Register eingeschlossen). **Die nächste Migration** hängt sich hinter diese: ihr
-//! Arm muss auch eine Version-2- und Version-1-Datei bis zu ihrer eigenen Version tragen.
+//! ist die erste Sprosse der Leiter und rein **additiv**: das Kategorie-Register (`learned_categories`)
+//! samt seinem Index kommt hinzu, keine vorhandene Tabelle ändert sich. Eine Version-2-Datei wird darum
+//! **mit** ihrem Bestand umgebaut — es geht nichts verloren, und danach trägt sie genau das Schema einer
+//! frischen Datei.
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
@@ -101,8 +103,10 @@ fn ensure(conn: &Connection) -> Result<(), SchemaError> {
     match found(&transaction)? {
         Found::Empty => create(&transaction)?,
         Found::Version(SCHEMA_VERSION) => {}
-        Found::Version(1) => migrate_1_to_2(&transaction)?,
-        Found::Version(2) => migrate_2_to_3(&transaction)?,
+        Found::Version(1) => rebuild_unkeyed_v1(&transaction)?,
+        Found::Version(found) if LADDER.iter().any(|rung| rung.from == found) => {
+            climb(&transaction, found)?;
+        }
         Found::Version(found) => {
             return Err(SchemaError::VersionMismatch(VersionMismatch {
                 found,
@@ -130,18 +134,54 @@ fn found(conn: &Connection) -> rusqlite::Result<Found> {
 /// „frisch".
 fn create(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     tables().try_for_each(|table| transaction.execute_batch(table.ddl))?;
+    stamp(transaction)
+}
+
+/// Setzt den Stempel auf [`SCHEMA_VERSION`] — **einmal**, am Ende von Anlage, Neubau oder Aufstieg.
+fn stamp(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     transaction.pragma_update(None, "user_version", SCHEMA_VERSION)
 }
 
-/// Version 1 → 2 (ADR-0016): baut die beiden geänderten Tabellen (`einlesen_lines` +`row_key`,
+/// Eine Sprosse der Leiter: hebt eine Datei von Version `from` auf `from + 1` — nie weiter, und ohne
+/// zu stempeln (das tut `climb` einmal am Ende).
+struct Rung {
+    from: i64,
+    migrate: fn(&Transaction<'_>) -> rusqlite::Result<()>,
+}
+
+/// Die Leiter, aufsteigend und lückenlos bis `SCHEMA_VERSION - 1` (ein Test wacht darüber). Eine neue
+/// Migration hängt **eine** Sprosse ans Ende.
+const LADDER: [Rung; 1] = [Rung {
+    from: 2,
+    migrate: add_category_register,
+}];
+
+/// Steigt von der vorgefundenen Version Sprosse für Sprosse bis [`SCHEMA_VERSION`] und stempelt dann.
+fn climb(transaction: &Transaction<'_>, found: i64) -> rusqlite::Result<()> {
+    LADDER
+        .iter()
+        .filter(|rung| rung.from >= found)
+        .try_for_each(|rung| (rung.migrate)(transaction))?;
+    stamp(transaction)
+}
+
+/// Sprosse 2 → 3 (Issue 0009): legt das Kategorie-Register samt seinem Index an. **Additiv** — keine
+/// vorhandene Tabelle wird berührt, ihr Bestand bleibt, wie er ist.
+fn add_category_register(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+    transaction.execute_batch(LEARNED_CATEGORIES_TABLE.ddl)
+}
+
+/// Version 1 (ADR-0016) — **keine Sprosse, sondern ein Neubau**, der direkt auf der **aktuellen**
+/// Version landet: baut die beiden damals geänderten Tabellen (`einlesen_lines` +`row_key`,
 /// `auswertungsfenster` +`run_id`) neu — **nur**, wenn beide leer sind. Leer heißt: nichts geht
-/// verloren, und `DROP` + Neuanlage aus der heutigen DDL gibt der Datei **genau** das Schema, das
-/// eine frische Datei bekommt (kein `ALTER TABLE` mit Ersatz-Default, das davon abwiche). Die übrigen
-/// Tabellen sind unverändert; ihr `CREATE … IF NOT EXISTS` läuft ins Leere.
+/// verloren, und `DROP` + Neuanlage **aller** Tabellen aus der heutigen DDL gibt der Datei **genau**
+/// das Schema, das eine frische Datei bekommt (kein `ALTER TABLE` mit Ersatz-Default, das davon
+/// abwiche). Die übrigen Tabellen bleiben, ihr `CREATE … IF NOT EXISTS` läuft ins Leere; was seit
+/// Version 2 neu ist, entsteht dabei gleich mit.
 ///
 /// Trägt eine der beiden schon Zeilen, wird die Datei abgewiesen (siehe Modul-Doku) — innerhalb der
 /// Transaktion von `ensure`, also unangetastet.
-fn migrate_1_to_2(transaction: &Transaction<'_>) -> Result<(), SchemaError> {
+fn rebuild_unkeyed_v1(transaction: &Transaction<'_>) -> Result<(), SchemaError> {
     if has_rows(transaction, "einlesen_lines")? || has_rows(transaction, "auswertungsfenster")? {
         return Err(SchemaError::VersionMismatch(VersionMismatch {
             found: 1,
@@ -154,14 +194,6 @@ fn migrate_1_to_2(transaction: &Transaction<'_>) -> Result<(), SchemaError> {
     Ok(())
 }
 
-/// Version 2 → 3 (Issue 0009): legt das Kategorie-Register an und stempelt die Datei. **Additiv** —
-/// keine vorhandene Tabelle wird berührt, ihr Bestand bleibt, wie er ist. Die DDL ist die heutige des
-/// Registers, also trägt die Datei danach genau das Schema einer frischen.
-fn migrate_2_to_3(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
-    transaction.execute_batch(LEARNED_CATEGORIES_TABLE.ddl)?;
-    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)
-}
-
 /// Trägt die Tabelle mindestens eine Zeile? Der Name ist stets ein Code-Literal, nie Fremd-Eingabe.
 fn has_rows(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
     conn.query_row(
@@ -171,18 +203,27 @@ fn has_rows(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
     )
 }
 
-/// **Alle** Tabellen des Programms: die Outbox, die der vier Ergebnis-Stores und das Kategorie-Register
-/// (Issue 0009), jede mit ihrer eigenen, beim Store authored DDL ([`TableSpec`]). Ein neuer Store, der hier fehlt, bekäme
-/// keine Tabelle — und failte in der ersten Ablage terminal im Preflight. Die Liste muss darum
-/// dieselben Stores aufführen, die `run` verdrahtet.
+/// **Alle** Tabellen des Programms: die der vier Ergebnis-Stores und die übrigen ([`OTHER_TABLES`]),
+/// jede mit ihrer eigenen, beim Store authored DDL ([`TableSpec`]).
 fn tables() -> impl Iterator<Item = &'static TableSpec> {
-    std::iter::once(&OUTBOX_TABLE)
-        .chain(EinlesenLines::tables())
+    store_tables().chain(OTHER_TABLES)
+}
+
+/// Die Tabellen der vier Ergebnis-Stores. Ein neuer Store, der hier fehlt, bekäme keine Tabelle — und
+/// failte in der ersten Ablage terminal im Preflight. Die Liste muss darum **dieselben** Stores
+/// aufführen, die `run` in seinen `Stores` verdrahtet.
+fn store_tables() -> impl Iterator<Item = &'static TableSpec> {
+    EinlesenLines::tables()
+        .iter()
         .chain(ObfuskiertBookings::tables())
         .chain(FensternWindows::tables())
         .chain(AuswertenEvaluations::tables())
-        .chain(std::iter::once(&LEARNED_CATEGORIES_TABLE))
 }
+
+/// Die Tabellen, die zu **keinem** Ergebnis-Store gehören: die Outbox und das Kategorie-Register
+/// (Issue 0009). Das Register steht **hinter** den Stores, weil seine DDL einen Index auf
+/// `window_evaluation_fingerprints` legt.
+const OTHER_TABLES: [&TableSpec; 2] = [&OUTBOX_TABLE, &LEARNED_CATEGORIES_TABLE];
 
 /// Warum der Schema-Besitzer eine Datei nicht geöffnet hat. Jede Variante ist **redigiert**: sie
 /// trägt Versionsnummern oder eine io-Diagnose der Zugriffs-Mechanik — **nie** einen Zeilenwert und
@@ -568,8 +609,7 @@ CREATE TABLE auswertungsfenster (
         let conn = roh(&db)?;
         conn.execute_batch(&format!(
             "DROP TABLE einlesen_lines; DROP TABLE auswertungsfenster; \
-             DROP TABLE {register}; {V1_EINLESEN_LINES} {V1_AUSWERTUNGSFENSTER}",
-            register = LEARNED_CATEGORIES_TABLE.name
+             {OHNE_REGISTER} {V1_EINLESEN_LINES} {V1_AUSWERTUNGSFENSTER}"
         ))?;
         conn.pragma_update(None, "user_version", 1)?;
         Ok(db)
@@ -643,7 +683,19 @@ CREATE TABLE auswertungsfenster (
         Ok(())
     }
 
-    // --- Migration 2 → 3 (Issue 0009) ---------------------------------------------------------
+    // --- Die Leiter und Sprosse 2 → 3 (Issue 0009) -------------------------------------------
+
+    /// Nimmt einer frischen Datei, was Version 3 hinzufügte: das Register und seinen Index.
+    const OHNE_REGISTER: &str = "DROP TABLE learned_categories; \
+         DROP INDEX window_evaluation_fingerprints_fingerprint_idx;";
+
+    #[test]
+    fn die_leiter_reicht_lueckenlos_bis_zur_aktuellen_version() {
+        // Jede Sprosse hebt um genau eine Version; zusammen schließen sie an Version 2 an (Version 1
+        // ist ein Neubau neben der Leiter) und enden direkt unter der aktuellen.
+        let von: Vec<i64> = LADDER.iter().map(|rung| rung.from).collect();
+        assert_eq!(von, (2..SCHEMA_VERSION).collect::<Vec<_>>());
+    }
 
     #[expect(
         clippy::panic_in_result_fn,
@@ -656,7 +708,7 @@ CREATE TABLE auswertungsfenster (
         let alt = TempDbPath::new("schema_v2_bestand");
         drop(open(&AppConfig::new(alt.path()))?);
         let conn = roh(&alt)?;
-        conn.execute_batch(&format!("DROP TABLE {};", LEARNED_CATEGORIES_TABLE.name))?;
+        conn.execute_batch(OHNE_REGISTER)?;
         conn.pragma_update(None, "user_version", 2)?;
         conn.execute(
             "INSERT INTO outbox (id, message_type, partition_key, occurred_on_utc) \

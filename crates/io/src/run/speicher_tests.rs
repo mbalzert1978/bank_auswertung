@@ -65,18 +65,26 @@ fn alle_zellen(conn: &Connection) -> rusqlite::Result<Vec<(String, Vec<String>)>
     tabellen
         .into_iter()
         .map(|tabelle| {
-            let spalten = spalten(conn, &tabelle)?;
-            let mut zellen = Vec::new();
-            for spalte in spalten {
-                let mut statement = conn.prepare(&format!(
-                    "SELECT coalesce(CAST({spalte} AS TEXT), '') FROM {tabelle};"
-                ))?;
-                let werte = statement.query_map([], |row| row.get::<_, String>(0))?;
-                zellen.extend(werte.collect::<rusqlite::Result<Vec<_>>>()?);
-            }
+            let zellen = spalten(conn, &tabelle)?
+                .iter()
+                .map(|spalte| zellen_der_spalte(conn, &tabelle, spalte))
+                .collect::<rusqlite::Result<Vec<_>>>()?
+                .concat();
             Ok((tabelle, zellen))
         })
         .collect()
+}
+
+fn zellen_der_spalte(
+    conn: &Connection,
+    tabelle: &str,
+    spalte: &str,
+) -> rusqlite::Result<Vec<String>> {
+    let mut statement = conn.prepare(&format!(
+        "SELECT coalesce(CAST({spalte} AS TEXT), '') FROM {tabelle};"
+    ))?;
+    let werte = statement.query_map([], |row| row.get::<_, String>(0))?;
+    werte.collect()
 }
 
 fn spalten(conn: &Connection, tabelle: &str) -> rusqlite::Result<Vec<String>> {

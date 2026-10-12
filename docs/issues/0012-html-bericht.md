@@ -24,6 +24,13 @@ Lackmustest verlangt, dass das Programm auch ganz ohne LLM wertvoll bleibt —
 der Bericht muss also auch mit unkategorisierten Buchungen sinnvoll
 funktionieren.
 
+> **Vorbedingung (Entscheidung des Orchestrators, 2026-10-12):** das Kategorie-Register aus
+> [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md) ist die **einzige Wahrheit** für
+> Kategorie-Etiketten. Der Bericht liest die Kategorie je Treiber **ausschließlich** über
+> `io::auswerten::SqliteCategoryRegistry::categories_of` (fehlt ein Eintrag: „unbekannt"). Die
+> Etiketten im Fenster-Ergebnis (`window_evaluation_categories`) sind nur der Mitschnitt dessen, was
+> das Orakel in jenem Lauf beitrug — **keine** Quelle für den Bericht.
+
 ## Abnahmekriterien
 
 - [ ] HTML-Bericht rendert Umbuchungs-Übersicht, Wiederkehr-Liste (inkl.

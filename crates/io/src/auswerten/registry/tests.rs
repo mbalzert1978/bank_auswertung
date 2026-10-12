@@ -25,11 +25,26 @@ fn schluessel(fingerprints: &[&str]) -> Vec<String> {
     fingerprints.iter().map(ToString::to_string).collect()
 }
 
-/// Öffnet die Datei so, wie ein Programmstart sie öffnet.
+/// Öffnet die Datei so, wie ein Programmstart sie öffnet — und stellt sicher, dass eine (erfundene)
+/// Auswertung die drei Fingerabdrücke führt: gelernt wird nur, was die Domäne ausgegeben hat.
 fn oeffne(db: &TempDbPath) -> SqliteCategoryRegistry {
-    SqliteCategoryRegistry::new(
-        schema::open(&AppConfig::new(db.path())).expect("die Test-Datei lässt sich öffnen"),
-    )
+    let outbox =
+        schema::open(&AppConfig::new(db.path())).expect("die Test-Datei lässt sich öffnen");
+    outbox
+        .with_connection(|conn| {
+            [STROM, STREAMING, PERSON].iter().zip(0_i64..).try_for_each(
+                |(fingerprint, position)| {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO window_evaluation_fingerprints \
+                         (evaluation_id, position, fingerprint) VALUES ('auswertung-1', ?1, ?2);",
+                        (position, fingerprint),
+                    )
+                    .map(drop)
+                },
+            )
+        })
+        .expect("die Auswertung führt die Fingerabdrücke");
+    SqliteCategoryRegistry::new(outbox)
 }
 
 #[test]
@@ -206,4 +221,37 @@ fn ein_nicht_lesbares_register_ist_terminal_und_nennt_keinen_schluessel() {
     );
     let meldung = fehler.err().map(|f| f.message).unwrap_or_default();
     assert!(!meldung.contains(PERSON), "{meldung}");
+}
+
+#[test]
+fn ein_nie_ausgegebener_schluessel_wird_abgewiesen_und_nicht_genannt() {
+    // Der Ernstfall aus einer Chat-Antwort: statt eines Fingerabdrucks steht ein Klarname da. Ihn zu
+    // lernen hieße, ihn dauerhaft in die Datei zu schreiben.
+    let db = TempDbPath::new("register_klarname");
+    let register = oeffne(&db);
+    let klarname = "Lisa Beispiel";
+
+    let fehler = register.learn(&[antwort(STROM, "Energie"), antwort(klarname, "Familie")]);
+
+    assert_eq!(
+        fehler,
+        Err(LearnError::Rejected {
+            position: 2,
+            cause: RejectCause::UnknownFingerprint,
+        })
+    );
+    let meldung = fehler.err().map(|f| f.to_string()).unwrap_or_default();
+    assert!(!meldung.contains(klarname), "{meldung}");
+    let zeilen: i64 = register
+        .outbox
+        .with_connection(|conn| {
+            conn.query_row("SELECT count(*) FROM learned_categories;", [], |row| {
+                row.get(0)
+            })
+        })
+        .expect("die Zählung");
+    assert_eq!(
+        zeilen, 0,
+        "alle oder keines: auch der gültige Eintrag fehlt"
+    );
 }
