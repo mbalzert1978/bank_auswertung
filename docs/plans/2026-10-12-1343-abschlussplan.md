@@ -141,7 +141,10 @@ Summe ≈ 10–13 Sitzungen.
 ### 6 — Echter Betrieb mit Markus
 
 - `eigene-konten.example.toml` → `eigene-konten.toml`, vier echte IBANs (lokal, gitignored).
-- `personen.toml` für Namen anlegen, die nie Empfänger waren (lokal, gitignored).
+- `personen.toml` für Namen anlegen, die nie Empfänger waren (lokal, gitignored) — dazu der eigene
+  Name, Vornamen, PayPal-Freunde und Personen mit eigener Gläubiger-ID (Chat-Export, 0011).
+- **Seed:** ein starker, zufälliger Wert (nicht `42`). Heute geht kein seed-abgeleiteter Wert in den
+  Chat-Export; ein späterer Export von `PERSON_…`-Token setzt diesen Seed voraus (0011).
 - Vier Läufe, ein Konto je Lauf, in eine Datenbank.
 - Gebühren-Marker gegen die echten Auszüge prüfen (0006).
 - Review-Sitzung (0013).

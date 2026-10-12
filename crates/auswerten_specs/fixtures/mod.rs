@@ -16,10 +16,10 @@
 )]
 
 use auswerten_adapter::{
-    AccountCashflowRow, AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRequestRow,
-    CategoryRow, CostDriverRow, CounterAccountRow, DriverRankRow, EvaluationTestApi, FeeRow,
-    HistoryTestApi, InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow,
-    OwnAccountsConfig, PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow, WindowBookingRow,
+    AccountCashflowRow, AnalysisWindowRow, BookingDirection, BookingRecipient, CategoryRow,
+    CostDriverRow, CounterAccountRow, DriverRankRow, EvaluationTestApi, FeeRow, HistoryTestApi,
+    InternalTransferRow, MonthlyCashflowRow, OccurrenceRow, OwnAccountRow, OwnAccountsConfig,
+    PriceIncreaseRow, RecurrenceRhythm, RecurrenceRow, WindowBookingRow,
 };
 
 /// Der **opake Seed-Marker** des Normalfalls: Fenster und Eigene-Konten-Config sind mit **demselben**
@@ -437,15 +437,12 @@ pub(crate) fn fingerabdruck(creditor_id: &str) -> String {
     format!("COMPANY:{creditor_id}")
 }
 
-/// Eine erwartete **Anfrage ans Orakel** — das Egress-DTO: der Fingerabdruck als Schlüssel und der
-/// obfuskierte Text als das, woran das LLM die Kategorie erraten soll (CONTEXT.md „Kategorie":
-/// Empfänger + Verwendungszweck). Mehr steht nicht drin; ein struktureller Identifikator kann hier
-/// gar nicht auftauchen.
-pub(crate) fn anfrage(fingerprint: &str, text: &str) -> CategoryRequestRow {
-    CategoryRequestRow {
-        fingerprint: fingerprint.to_string(),
-        text: text.to_string(),
-    }
+/// Eine erwartete **Anfrage ans Orakel** — das Paar (Fingerabdruck, Text) des Egress-DTO: der
+/// Fingerabdruck als Schlüssel und der obfuskierte Text als das, woran das LLM die Kategorie erraten
+/// soll. Mehr steht nicht drin; ein struktureller Identifikator kann hier gar nicht auftauchen. Ein
+/// Paar statt der Zeile selbst: die `CategoryRequestRow` kann nur die Domäne bauen (Issue 0011).
+pub(crate) fn anfrage(fingerprint: &str, text: &str) -> (String, String) {
+    (fingerprint.to_string(), text.to_string())
 }
 
 /// Eine erwartete **zugeordnete Kategorie** im abgelegten Ergebnis — die Antwort des Orakels,
@@ -479,7 +476,7 @@ pub(crate) fn fenster_in(currency: &str, bookings: &[WindowBookingRow]) -> Analy
 
 /// Die Gläubiger-ID eines **zweiten** Händlers — erfunden. Er steht neben dem wiederkehrenden
 /// `HAENDLER`, damit das Ranking zwei Arten gegeneinander ordnen kann.
-pub(crate) const ZWEITER_HAENDLER: &str = "DE11ZZZ01111111111";
+pub(crate) const ZWEITER_HAENDLER: &str = "DE86ZZZ01111111111";
 
 /// Ein Abfluss an den **zweiten** Händler — eine Firma mit eigener Gläubiger-ID, also eine eigene
 /// Buchungsart und damit ein eigener Kostentreiber.

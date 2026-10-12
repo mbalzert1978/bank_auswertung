@@ -112,10 +112,13 @@ transactions and surfaces the main cost drivers and realistic savings potential.
   it also holds [`io::run`](crates/io/src/run/mod.rs) — the wiring of **all** real adapters into one
   program. The **category register** is real too since
   [Issue 0009](docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
-  ([`io::auswerten::SqliteCategoryRegistry`](crates/io/src/auswerten/registry.rs)). Still **without**
-  a real adapter: the `Kategorisierer` oracle (answered empty today) and the `report`;
+  ([`io::auswerten::SqliteCategoryRegistry`](crates/io/src/auswerten/registry.rs)). The `Kategorisierer`
+  oracle is a **chat** since [Issue 0011](docs/issues/0011-kategorisierer-chat-payload-adapter.md)
+  (export at the end of a run, import as its own command). Still **without** a real adapter: the
+  `report`;
 - [`lauf`](crates/lauf) — the **bin crate** (`bank-auswertung`), pure command line: seven mandatory
-  path options in, exit code out. Binds `io` as its **only** internal and **no** external dependency
+  path options in (plus the optional `--kategorien-export` and the `kategorien-import` subcommand,
+  issue 0011), exit code out. Binds `io` as its **only** internal and **no** external dependency
   (asserted by the `architecture` test);
 - [`architecture`](architecture/tests/dependency_direction.rs) — test-only crate
   (outside `crates/`) asserting dependency direction over `cargo_metadata`.
@@ -332,10 +335,19 @@ solely via `categories_of`. The label is free validated text, as the domain's `C
 came with schema **version 3**, the first rung of the migration **ladder** in `io::schema` (each rung one
 version up, stamped once at the end).
 
-**Still open (no real `io` adapter yet):** the `Kategorisierer` oracle — **answered empty** today
-rather than faked (`io::auswerten::UnansweredCategorizer`, issue 0011) and asked only for fingerprints
-the register does not know, which is
-ADR-0004's litmus test in code: without the LLM the program still computes everything —, and the
+**The `Kategorisierer` is a chat** ([0011](docs/issues/0011-kategorisierer-chat-payload-adapter.md)) —
+the first data leaving the machine. In the run, `io::auswerten::CollectingCategorizer` collects the
+domain's requests (unknown kinds only, from phase 2 on) and answers empty — ADR-0004's litmus test
+stays: without the LLM the program still computes everything. `--kategorien-export <file>` writes them
+at exit 0 (`0600`, built by hand from two fields, no `Serialize`); `bank-auswertung kategorien-import
+--db … --antwort … [--korrektur]` learns the answer via `learn`, matched **only** on the exact
+fingerprint, known labels kept unless `--korrektur`. What goes out is chosen by the domain: the
+counterparty is classified once (`Party`: intermediary / company / person / none); intermediary → only
+the purpose, company → only the name, **persons never** (so card payments get no chat label), and one
+**egress word rule** drops every word with a digit or `@` before splitting. The creditor ID is
+**parsed** (form + mod 97) in `obfuskieren` (an invalid one makes the counterparty a person) **and**
+again at `auswerten`'s ACL (a row from an older file with an invalid one ends the run terminally).
+**Still open:** the
 `report` presenter with its egress-DTO `Serialize` guard. Also deferred: persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
 [Issue 0008](docs/issues/0008-persistente-pseudonym-zuordnung.md) — the seed **loader** is real,
@@ -400,7 +412,7 @@ against a plaintext list by anyone holding the file, which is the whole pseudony
   dead-letter ([0085](docs/issues/0085-poison-message-versuchszaehlung-und-dead-letter-statt-endloser-neuzustellung.md))
   are both **built**: a file on disk and a poisoned message each have an owner.
 
-Then the `Kategorisierer` chat export/import (0011) on top of the now real register (0009). The recurrence analyzer (0005) is built.
+The `Kategorisierer` chat export/import (0011) and the recurrence analyzer (0005) are built.
 
 ## Commands
 
@@ -531,8 +543,8 @@ each step runnable/valuable against fakes, real `io` last:
    [ADR-0015](docs/adr/0015-generischer-slice-store-ueber-storespec.md)), **every** read source
    of the chain and the `toml` loaders for window size and seed are real (issues 0050–0059,
    0074–0077) — **and the Eigene-Konten loader** (issue 0002, io side, with issue 0083).
-   **And the category register** (issue 0009, schema version 3). **Open:** the `Kategorisierer`
-   oracle.
+   **And the category register** (issue 0009, schema version 3). **And the chat
+   export/import** of the `Kategorisierer` (issue 0011).
 7. **The run itself** — **done for the kick-off** (issue 0083): the `lauf` bin crate + `io::run`
    enqueue the triggers and turn the broker loop against the real adapters; the pipeline now runs
    outside tests. The one schema owner + version stamp is **built** (0084), and so is the

@@ -5,8 +5,10 @@ use auswerten_domain::{CategoryAnswer, CategoryRequest};
 /// gebaut wird).
 ///
 /// **Zwei Felder, beide unbedenklich per Konstruktion.** Der `fingerprint` ist ein **Derivat** —
-/// eine öffentliche Gläubiger-ID oder ein seed-basiertes Pseudonym, nie ein Rohwert und nie der
-/// Seed. Der `text` hat stromaufwärts den `ObfuskierterText`-Engpass passiert. Ein **struktureller
+/// eine geparste, öffentliche Gläubiger-ID, bei einem Durchleiter dazu der Händler-Token seines
+/// Zwecks; nach Personen fragt die Domäne nicht (Issue 0011), ein seed-abgeleiteter Wert steht hier
+/// also nie. Der `text` hat stromaufwärts den `ObfuskierterText`-Engpass passiert, danach die
+/// Egress-Wortregel der Domäne (kein Wort mit Ziffer oder `@`). Ein **struktureller
 /// Identifikator** (IBAN, Kontonummer, BIC) hat hier keinen Platz — nicht weil er herausgefiltert
 /// würde, sondern weil dieses DTO kein Feld hat, in das er passte.
 ///
@@ -15,16 +17,35 @@ use auswerten_domain::{CategoryAnswer, CategoryRequest};
 /// sobald jemand es ihm gibt. Einen rohen Identifikator in etwas einzubetten, das hinausgeht, muss
 /// ein **Compile-Fehler** sein, keine Review-Beobachtung — genau die Linie, die
 /// `obfuskierung`s `ObfuscatedBooking` an der Datenschutz-Grenze zieht.
+///
+/// **Nur die Domäne kann eine bauen** (Issue 0011, B3): die Felder sind privat, der **einzige**
+/// Konstruktor ist die Projektion `From<&CategoryRequest>` — und eine `CategoryRequest` entsteht nur in
+/// der Domäne. io kann diese Zeile also lesen, aber nicht aus eigenen Zeichenketten erfinden; was im
+/// Chat-Export steht, hat die Domäne gewählt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CategoryRequestRow {
     /// Der Schlüssel der Buchungs*art* — und die Achse, auf der die Antwort zurückfindet.
-    pub fingerprint: String,
+    fingerprint: String,
     /// Der obfuskierte Text, an dem das Orakel die Kategorie erraten soll.
-    pub text: String,
+    text: String,
+}
+
+impl CategoryRequestRow {
+    /// Der Schlüssel der Buchungs*art*.
+    #[must_use]
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+
+    /// Der Text, an dem das Orakel die Kategorie erraten soll.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
 }
 
 /// Projiziert die Domänen-Anfrage auf die Zeile — die einzige Stelle, an der sie die Adapter-Grenze
-/// nach außen überquert (die `CategorizerBridge` ruft sie).
+/// nach außen überquert (die `CategorizerBridge` ruft sie), und der einzige Konstruktor der Zeile.
 impl From<&CategoryRequest> for CategoryRequestRow {
     fn from(request: &CategoryRequest) -> Self {
         Self {

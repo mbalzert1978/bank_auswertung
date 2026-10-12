@@ -1,0 +1,10 @@
+{
+  "antworten": [
+    { "fingerabdruck": "COMPANY:DE98ZZZ09999999999", "kategorie": "Wohnen & Energie" },
+    { "fingerabdruck": "STADTWERKE BEISPIELSTADT", "kategorie": "Wohnen" },
+    { "fingerabdruck": "company:de13zzz00000000123", "kategorie": "Versicherung" },
+    { "text": "VERSICHERUNG FIKTIV AG", "kategorie": "Versicherung" },
+    { "fingerabdruck": "COMPANY:DE13ZZZ00000000123", "kategorie": "Versicherung", "begruendung": "Versicherer im Namen" },
+    { "fingerabdruck": "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PERSON-MUSIKDIENST-BEISPIEL", "kategorie": "Unterhaltung" }
+  ]
+}

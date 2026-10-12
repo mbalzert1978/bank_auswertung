@@ -71,6 +71,11 @@ pub use testapi::ObfuscationTestApi;
 /// Re-Deklarat wäre ein Satz-Duplikat über Crates.
 pub use obfuskierung_domain::ObfuscationError;
 
+/// Die **eine** Prüfregel der Gläubiger-ID, re-exportiert: nur eine gültige Gläubiger-ID macht eine
+/// Gegenpartei zur Firma (Issue 0011). io braucht dieselbe Grenze für die Namensliste des Scrubbings —
+/// ein Name hinter einer ungültigen ID wird als Person gedeutet und muss darum auch als Name gelten.
+pub use obfuskierung_domain::is_valid_creditor_id;
+
 #[cfg(test)]
 mod datenschutz {
     use super::ObfuscatedBooking;

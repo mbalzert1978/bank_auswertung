@@ -3,7 +3,7 @@
 //! **Namensliste** des Freitext-Engpasses. Sie führt zwei Quellen zusammen:
 //!
 //! 1. **Errechnet:** alle Empfänger-Namen aus dem einlesen-Bestand (`einlesen_lines.recipient_name`),
-//!    die **keine** Gläubiger-ID tragen — genau die Gegenparteien, die der Slice fail-safe als
+//!    die **keine gültige** Gläubiger-ID tragen (Issue 0011) — genau die Gegenparteien, die der Slice fail-safe als
 //!    Person deutet. Firmen **mit** Gläubiger-ID bleiben draußen: ihr Name ist das wichtigste
 //!    Kategorie-Signal und würde sonst in jedem Verwendungszweck mitgeschwärzt. Der bekannte Preis:
 //!    eine Firma **ohne** Gläubiger-ID landet auf der Liste und fällt im Freitext mit.
@@ -30,7 +30,7 @@
 //! **Keine Klartext↔Token-Zuordnung** (ADR-0010): nur Namen, kein Token, kein Seed; nichts davon
 //! wird abgelegt. **Redigiert:** ein Fehlschlag nennt die Beschaffungs-Mechanik, nie einen Namen.
 
-use obfuskierung_adapter::{KnownPersonsSeam, PersonsUnavailable};
+use obfuskierung_adapter::{KnownPersonsSeam, PersonsUnavailable, is_valid_creditor_id};
 
 use crate::sqlite::SqliteOutbox;
 
@@ -70,26 +70,45 @@ impl KnownPersonsSeam for KnownPersonNames {
             .outbox
             .with_connection(|conn| {
                 let mut statement = conn.prepare(SELECT_PERSON_NAMES)?;
-                let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-                rows.collect::<rusqlite::Result<Vec<String>>>()
+                let rows = statement.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })?;
+                rows.collect::<rusqlite::Result<Vec<(String, Option<String>)>>>()
             })
             .map_err(|err| PersonsUnavailable {
                 message: format!("Namensliste nicht lesbar: {err}"),
             })?;
-        Ok(recipients
+        // Als Person gilt, wer **keine gültige** Gläubiger-ID trägt — dieselbe Regel, mit der der
+        // Slice Firma und Person trennt. Eine IBAN oder ein Name in der Gläubiger-Spalte macht aus
+        // dem Empfänger keine Firma, also gehört sein Name auf die Liste.
+        let persons = recipients
+            .into_iter()
+            .filter(|(_, creditor_id)| {
+                !creditor_id
+                    .as_deref()
+                    .is_some_and(|id| is_valid_creditor_id(id.trim()))
+            })
+            .map(|(name, _)| name)
+            .fold(Vec::<String>::new(), |mut names, name| {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+                names
+            });
+        Ok(persons
             .into_iter()
             .chain(self.configured.iter().cloned())
             .collect())
     }
 }
 
-/// Die Empfänger-Namen, die der Slice als Person deutet: ohne Gläubiger-ID, nicht leer, je einmal.
+/// Die Empfänger-Namen samt Gläubiger-Spalte, nicht leer. Ob die Gläubiger-ID **gültig** ist, prüft
+/// die Regel des Slice in Rust — SQL kennt sie nicht.
 const SELECT_PERSON_NAMES: &str = "\
-SELECT DISTINCT recipient_name
+SELECT DISTINCT recipient_name, creditor_id
 FROM einlesen_lines
 WHERE recipient_name IS NOT NULL
-  AND trim(recipient_name) <> ''
-  AND (creditor_id IS NULL OR trim(creditor_id) = '');";
+  AND trim(recipient_name) <> '';";
 
 #[cfg(test)]
 mod tests {
@@ -123,8 +142,8 @@ mod tests {
         reason = "Test: die assert_eq! ist die Spezifikation dieses Verhaltens"
     )]
     #[test]
-    fn liefert_empfaenger_ohne_glaeubiger_id_und_die_konfigurierten_namen() -> rusqlite::Result<()>
-    {
+    fn liefert_empfaenger_ohne_gueltige_glaeubiger_id_und_die_konfigurierten_namen()
+    -> rusqlite::Result<()> {
         let outbox = SqliteOutbox::open_in_memory()?;
         EinlesenSqliteStore::with_own_tables(outbox.clone())?;
         zeile(&outbox, "1", "LISA BEISPIEL", None)?;
@@ -133,7 +152,15 @@ mod tests {
             &outbox,
             "3",
             "STROMWERK FIKTIV AG",
-            Some("DE00ZZZ00000000007"),
+            Some("DE41ZZZ00000000007"),
+        )?;
+        // Eine IBAN in der Gläubiger-Spalte ist keine Gläubiger-ID: der Slice deutet den Empfänger
+        // als Person, also gehört sein Name auf die Liste.
+        zeile(
+            &outbox,
+            "4",
+            "HANS VERMIETER",
+            Some("DE89370400440532013000"),
         )?;
         let seam = KnownPersonNames::new(outbox, vec!["Oma Fiktiv".to_string()]);
 
@@ -141,8 +168,9 @@ mod tests {
             rusqlite::Error::InvalidParameterName("Namensliste nicht lesbar".to_string())
         })?;
 
-        // Die Person je einmal, die Firma mit Gläubiger-ID nicht, der konfigurierte Name dazu.
-        assert_eq!(namen, vec!["LISA BEISPIEL", "Oma Fiktiv"]);
+        // Die Person je einmal, die Firma mit gültiger Gläubiger-ID nicht, der Empfänger hinter einer
+        // ungültigen schon, der konfigurierte Name dazu.
+        assert_eq!(namen, vec!["LISA BEISPIEL", "HANS VERMIETER", "Oma Fiktiv"]);
         Ok(())
     }
 

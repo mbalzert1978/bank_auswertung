@@ -1,42 +1,81 @@
-//! Der **Platzhalter** des Orakels: der Kategorisierer, der noch nicht angeschlossen ist.
+//! Das Orakel des Laufs: der **sammelnde Kategorisierer**
+//! ([Issue 0011](../../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md)).
 //!
-//! **Warum es ihn gibt.** Der `auswerten`-Slice verlangt den Orakel-Seam; der Orakel-Adapter
-//! (Export → Chat → Import) ist
-//! [Issue 0011](../../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md). Ohne eine
-//! Erfüllung könnte ein realer Lauf nicht laufen. Dieser Adapter ist darum ein **echter** Adapter mit
-//! einer bewusst leeren Antwort — kein Test-Fake. Sein früherer Partner, das leere Register, ist mit
-//! [Issue 0009](../../../../docs/issues/0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
-//! dem realen [`SqliteCategoryRegistry`](crate::auswerten::SqliteCategoryRegistry) gewichen: gefragt
-//! wird dieser Platzhalter seitdem nur noch für Arten, die das Register **nicht** kennt.
+//! **Warum er sammelt statt antwortet.** Das Orakel ist ein Chat: die Anfragen gehen als Datei
+//! hinaus, der Nutzer trägt sie selbst hinein, die Antwort kommt mit einem eigenen Befehl
+//! (`kategorien-import`) zurück. Während des Laufs gibt es also **keine** Antwort — der Kategorisierer
+//! merkt sich die Anfragen und antwortet leer. Die unbekannten Buchungsarten bleiben in diesem Lauf
+//! unkategorisiert, und genau das ist der Lackmustest von
+//! [ADR-0004](../../../../docs/adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md): ohne das LLM
+//! rechnet der Lauf alles, es fehlt allein das Etikett.
 //!
-//! **Und genau deshalb ist er unbedenklich:** die Domäne **ist** die Analyse, das LLM nur ein Orakel
-//! ([ADR-0004](../../../../docs/adr/0004-domaene-ist-die-analyse-llm-ist-nur-orakel.md)). Der
-//! Lackmustest dieses ADR lautet „ohne LLM bleibt das Programm wertvoll" — hier wird er eingelöst:
-//! der Lauf rechnet Cashflow, Fingerabdrücke und Eigen/Fremd vollständig, es fehlt allein das
-//! **Etikett** für unbekannte Buchungsarten. Ein Fehlschlag statt einer leeren Antwort wäre die
-//! falsche Lesart: er machte das Orakel zur Voraussetzung der Analyse.
+//! **Gefragt wird er nur nach Unbekanntem** — den Abgleich mit dem Kategorie-Register macht die Domäne
+//! vorher. Was er sammelt, ist darum genau der Inhalt des Chat-Exports.
+//!
+//! **Zwei Zustände statt Flag plus Liste.** *Ruhend* merkt er sich nichts — so lange Phase 1 eines
+//! Laufs einen liegengebliebenen **alten** Lauf zu Ende führen kann, dessen Anfragen nicht in diesen
+//! Export gehören. *Sammelnd* ist er ab Phase 2, die nur Nachrichten des eben geminteten Laufs
+//! verarbeitet ([ADR-0016](../../../../docs/adr/0016-zeilen-schluessel-und-lauf-eigene-fenster.md)).
+
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use auswerten_adapter::{
     CategorizerSeam, CategorizerUnavailable, CategoryAnswerRow, CategoryRequestRow,
 };
 
-/// Das **noch nicht angeschlossene** Orakel: es nimmt die Anfragen entgegen und antwortet mit
-/// **keinem** Etikett. Die unbekannten Buchungsarten bleiben damit schlicht unkategorisiert, statt den
-/// Lauf zu beenden (ADR-0004, siehe Modul-Doku).
-///
-/// **Kein Egress:** dieser Adapter reicht nichts hinaus — die Anfragen verlassen die Maschine
-/// nirgendwohin. Genau das ändert
-/// [Issue 0011](../../../../docs/issues/0011-kategorisierer-chat-payload-adapter.md), und **dann**
-/// wird die compilerfeste „kein `Serialize`"-Sperre der `CategoryRequestRow` scharf.
+/// Was der Kategorisierer gerade tut. Die gesammelten Anfragen gibt es nur im Zustand *sammelnd* —
+/// eine Liste neben einem Schalter, die im ruhenden Zustand trotzdem existierte, lässt dieser Typ
+/// nicht zu.
 #[derive(Debug, Default)]
-pub struct UnansweredCategorizer;
+enum Collection {
+    /// Antwortet leer und merkt sich nichts.
+    #[default]
+    Resting,
+    /// Antwortet leer und merkt sich je Fingerabdruck die **erste** Anfrage.
+    Collecting(BTreeMap<String, CategoryRequestRow>),
+}
 
-impl CategorizerSeam for UnansweredCategorizer {
-    /// Keine Antwort — die Domäne verlangt keine vollständige Abdeckung ihrer Anfragen.
+/// Der sammelnde Kategorisierer (siehe Modul-Doku). Er reicht **nichts** hinaus — die Datei schreibt
+/// erst der Export am Ende eines gelungenen Laufs, aus dem, was hier gesammelt wurde.
+#[derive(Debug, Default)]
+pub struct CollectingCategorizer {
+    state: RefCell<Collection>,
+}
+
+impl CollectingCategorizer {
+    /// Beginnt zu sammeln — der Lauf ruft es zu Beginn von Phase 2. Schon Gesammeltes verfällt.
+    pub fn start_collecting(&self) {
+        self.state.replace(Collection::Collecting(BTreeMap::new()));
+    }
+
+    /// Hört auf zu sammeln und gibt die Anfragen zurück, nach Fingerabdruck sortiert. Ruhte er,
+    /// ist die Liste leer.
+    #[must_use]
+    pub fn take(&self) -> Vec<CategoryRequestRow> {
+        match self.state.replace(Collection::Resting) {
+            Collection::Resting => Vec::new(),
+            Collection::Collecting(requests) => requests.into_values().collect(),
+        }
+    }
+}
+
+impl CategorizerSeam for CollectingCategorizer {
+    /// Merkt sich die Anfragen (beim Sammeln) und antwortet **leer** — die Domäne verlangt keine
+    /// vollständige Abdeckung ihrer Anfragen. Je Fingerabdruck gewinnt die **erste** Anfrage, wie in
+    /// der Domäne je Fenster; die Fenster eines Laufs kommen in Outbox-Reihenfolge, für dieselbe Datei
+    /// also immer gleich.
     fn ask(
         &self,
-        _requests: &[CategoryRequestRow],
+        requests: &[CategoryRequestRow],
     ) -> Result<Vec<CategoryAnswerRow>, CategorizerUnavailable> {
+        if let Collection::Collecting(collected) = &mut *self.state.borrow_mut() {
+            requests.iter().for_each(|request| {
+                collected
+                    .entry(request.fingerprint().to_string())
+                    .or_insert_with(|| request.clone());
+            });
+        }
         Ok(Vec::new())
     }
 }

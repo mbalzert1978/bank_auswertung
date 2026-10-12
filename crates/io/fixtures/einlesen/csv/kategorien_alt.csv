@@ -1,0 +1,2 @@
+"Auftragskonto";"Buchungstag";"Valutadatum";"Buchungstext";"Verwendungszweck";"Glaeubiger ID";"Mandatsreferenz";"Kundenreferenz (End-to-End)";"Sammlerreferenz";"Lastschrift Ursprungsbetrag";"Auslagenersatz Ruecklastschrift";"Beguenstigter/Zahlungspflichtiger";"Kontonummer/IBAN";"BIC (SWIFT-Code)";"Betrag";"Waehrung";"Info"
+"DE93100000000000000100";"15.01.2026";"15.01.2026";"FOLGELASTSCHRIFT";"Beitrag Januar";"DE52ZZZ00000000003";"MANDAT-NAME";"E2E-ALT-01";"";"";"";"ALTER NAME GMBH";"DE68100100100000000333";"FIKTDEFF008";"-19,00";"EUR";"Umsatz gebucht"

@@ -86,7 +86,7 @@ fn ohne_gläubiger_id_wird_der_empfänger_zur_pseudonymisierten_person() {
 fn mit_gläubiger_id_bleibt_der_firmenname_klartext_und_die_id_anker() {
     let mut zeile = gültige_zeile();
     zeile.recipient_name = Some("Stromanbieter AG".to_string());
-    zeile.creditor_id = Some("DE00ZZZ00000000123".to_string());
+    zeile.creditor_id = Some("DE13ZZZ00000000123".to_string());
     let api = api_mit_zeile(zeile);
     api.run("buchung-1").expect("gültige Zeile");
 
@@ -94,7 +94,7 @@ fn mit_gläubiger_id_bleibt_der_firmenname_klartext_und_die_id_anker() {
     let mut erwartet = erwartete_buchung(&api, "buchung-1");
     erwartet.recipient = Recipient::Company {
         name: Some(api.expected_text("Stromanbieter AG")),
-        creditor_id: "DE00ZZZ00000000123".to_string(),
+        creditor_id: "DE13ZZZ00000000123".to_string(),
     };
     api.assert_stored(erwartet);
 }
@@ -110,6 +110,70 @@ fn ohne_empfänger_und_ohne_gläubiger_id_gibt_es_keine_gegenpartei() {
     let mut erwartet = erwartete_buchung(&api, "buchung-1");
     erwartet.recipient = Recipient::Absent;
     api.assert_stored(erwartet);
+}
+
+// --- Gläubiger-ID wird geparst, nicht geglaubt (Issue 0011) ---------------------
+//
+// Die Gläubiger-ID geht unverändert in den Fingerabdruck und damit in den Chat-Export. Steht in ihrer
+// Spalte etwas, das keine Gläubiger-ID ist, gilt sie als fehlend — die Gegenpartei wird fail-safe zur
+// Person, und der Spalteninhalt erreicht die Ablage nirgends.
+
+/// Fährt eine Zeile mit Empfänger-Name und der gegebenen Gläubiger-Spalte und gibt die abgelegte
+/// Gegenpartei samt dem Pseudonym zurück, das der Name als Person bekäme.
+fn gegenpartei_mit_glaeubiger_spalte(spalte: &str) -> (Recipient, Recipient) {
+    let mut zeile = gültige_zeile();
+    zeile.recipient_name = Some("Hans Vermieter".to_string());
+    zeile.creditor_id = Some(spalte.to_string());
+    let api = api_mit_zeile(zeile);
+    api.run("buchung-1").expect("gültige Zeile");
+    let als_person = Recipient::Person {
+        pseudonym: api.expected_pseudonym("Hans Vermieter"),
+    };
+    (einzige_buchung(&api).recipient, als_person)
+}
+
+#[test]
+fn eine_iban_in_der_glaeubiger_spalte_macht_keine_firma_sondern_eine_person() {
+    let (gegenpartei, als_person) = gegenpartei_mit_glaeubiger_spalte("DE89370400440532013000");
+
+    assert_eq!(gegenpartei, als_person);
+}
+
+#[test]
+fn ein_name_in_der_glaeubiger_spalte_macht_keine_firma_sondern_eine_person() {
+    let (gegenpartei, als_person) = gegenpartei_mit_glaeubiger_spalte("Hans Vermieter");
+
+    assert_eq!(gegenpartei, als_person);
+}
+
+#[test]
+fn eine_glaeubiger_id_mit_falscher_pruefziffer_gilt_als_fehlend() {
+    // Dieselbe Form wie eine echte, nur die Prüfziffern stimmen nicht.
+    let (gegenpartei, als_person) = gegenpartei_mit_glaeubiger_spalte("DE00ZZZ00000000123");
+
+    assert_eq!(gegenpartei, als_person);
+}
+
+#[test]
+fn eine_gueltige_glaeubiger_id_bleibt_anker_einer_firma() {
+    // Die Prüfziffern rechnen ohne den Geschäftsbereich: `ABC` statt `ZZZ` ändert sie nicht.
+    let (gegenpartei, _) = gegenpartei_mit_glaeubiger_spalte("DE13ABC00000000123");
+
+    assert!(matches!(
+        gegenpartei,
+        Recipient::Company { ref creditor_id, .. } if creditor_id == "DE13ABC00000000123"
+    ));
+}
+
+#[test]
+fn ohne_namen_und_mit_ungueltiger_glaeubiger_id_gibt_es_keine_gegenpartei() {
+    let mut zeile = gültige_zeile();
+    zeile.recipient_name = None;
+    zeile.creditor_id = Some("DE89370400440532013000".to_string());
+    let api = api_mit_zeile(zeile);
+    api.run("buchung-1").expect("gültige Zeile");
+
+    assert_eq!(einzige_buchung(&api).recipient, Recipient::Absent);
 }
 
 // --- Freitext-Engpass ----------------------------------------------------------
@@ -286,7 +350,7 @@ fn der_firmenname_mit_gläubiger_id_laeuft_durch_denselben_engpass() {
     // passiert den Engpass, ein darin stehender bekannter Personen-Name fällt.
     let mut zeile = gültige_zeile();
     zeile.recipient_name = Some("Praxis Lisa Beispiel".to_string());
-    zeile.creditor_id = Some("DE00ZZZ00000000123".to_string());
+    zeile.creditor_id = Some("DE13ZZZ00000000123".to_string());
     let api = api_mit_zeile(zeile).with_known_person("Lisa Beispiel");
 
     api.run("buchung-1").expect("gültige Zeile");
@@ -294,7 +358,7 @@ fn der_firmenname_mit_gläubiger_id_laeuft_durch_denselben_engpass() {
     let mut erwartet = erwartete_buchung(&api, "buchung-1");
     erwartet.recipient = Recipient::Company {
         name: Some(api.expected_text("Praxis [PERSON]")),
-        creditor_id: "DE00ZZZ00000000123".to_string(),
+        creditor_id: "DE13ZZZ00000000123".to_string(),
     };
     api.assert_stored(erwartet);
 }

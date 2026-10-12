@@ -19,6 +19,11 @@
 # viel gewöhnlichen Text. Solche Teilnamen gehören hierher, ebenso Namen, die
 # nie Empfänger waren.
 #
+# Für den Chat-Export (`--kategorien-export`, Issue 0011) besonders wichtig: der
+# **eigene** Name, Vornamen, PayPal-Freunde (sie stehen im Verwendungszweck
+# einer PayPal-Zahlung, der hinausgeht) und Personen mit eigener Gläubiger-ID
+# (privater Vermieter, Verein) — deren Name gälte sonst als Firmenname.
+#
 # Wann eintragen: VOR dem ersten Lauf — und zwar die bekannten Empfänger-Namen
 # aller Konten samt ihrer Vornamen und Kurzformen. Ein Name, der erst mit einem
 # späteren Import bekannt wird, wirkt nicht rückwirkend auf schon obfuskierte

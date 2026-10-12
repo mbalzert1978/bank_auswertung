@@ -10,8 +10,8 @@ use crate::schema;
 
 /// Erfundene Fingerabdrücke in der Form, die die Domäne bildet (Firma über Gläubiger-ID, Person über
 /// ihr Pseudonym).
-const STROM: &str = "COMPANY:DE00ZZZ00000000007";
-const STREAMING: &str = "COMPANY:DE00ZZZ00000000042";
+const STROM: &str = "COMPANY:DE41ZZZ00000000007";
+const STREAMING: &str = "COMPANY:DE66ZZZ00000000042";
 const PERSON: &str = "PERSON:PERSON_3";
 
 fn antwort(fingerprint: &str, category: &str) -> CategoryAnswerRow {
@@ -137,7 +137,7 @@ fn ein_ungueltiger_eintrag_laesst_den_ganzen_stapel_scheitern_und_nennt_keinen_w
         fehler,
         Err(LearnError::Rejected {
             position: 2,
-            cause: RejectCause::EmptyCategory,
+            cause: RejectCause::InvalidCategory,
         })
     );
     assert_eq!(
@@ -254,4 +254,22 @@ fn ein_nie_ausgegebener_schluessel_wird_abgewiesen_und_nicht_genannt() {
         zeilen, 0,
         "alle oder keines: auch der gültige Eintrag fehlt"
     );
+}
+
+#[test]
+fn die_kategorie_regel_gilt_am_einzigen_schreibweg_fuer_jede_quelle() {
+    // Nicht nur der Chat-Import: auch eine Korrektur von Hand über `learn` kann kein mehrzeiliges,
+    // überlanges oder mit Steuerzeichen versehenes Etikett ablegen.
+    let db = TempDbPath::new("register_regel");
+    let register = oeffne(&db);
+    for ungueltig in ["Zeile\nzwei", "a\u{202E}b", &"x".repeat(61)] {
+        assert_eq!(
+            register.learn(&[antwort(STROM, ungueltig)]),
+            Err(LearnError::Rejected {
+                position: 1,
+                cause: RejectCause::InvalidCategory,
+            })
+        );
+    }
+    assert_eq!(register.learn(&[antwort(STROM, &"ä".repeat(60))]), Ok(()));
 }

@@ -256,7 +256,7 @@ impl CategorizerSeam for FakeOrakel {
         Ok(requests
             .iter()
             .map(|request| CategoryAnswerRow {
-                fingerprint: request.fingerprint.clone(),
+                fingerprint: request.fingerprint().to_string(),
                 category: self.kategorie.to_string(),
             })
             .collect())

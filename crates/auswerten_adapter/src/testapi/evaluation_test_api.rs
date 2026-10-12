@@ -6,8 +6,7 @@ use super::fakes::{
 };
 use crate::handler::WindowEvaluationHandler;
 use crate::models::{
-    AnalysisWindowRow, CategoryRequestRow, EvaluateWindowCommandDecoder, OwnAccountsConfig,
-    WindowEvaluationRow,
+    AnalysisWindowRow, EvaluateWindowCommandDecoder, OwnAccountsConfig, WindowEvaluationRow,
 };
 
 /// Fluent-TestApi des auswerten-Slice ([ADR-0002](../../../../docs/adr/0002-dto-grenze-und-anti-corruption-layer.md),
@@ -178,8 +177,22 @@ impl EvaluationTestApi {
     /// Der Vergleich ist bewusst **die ganze Liste** statt einer Enthaltensein-Prüfung: nur so
     /// belegt er zugleich, dass **nichts darüber hinaus** hinausging — und das ist bei dem einen
     /// DTO, das die Maschine verlässt, die interessantere Hälfte der Zusage.
-    pub fn assert_asked(&self, expected: Vec<CategoryRequestRow>) {
-        assert_eq!(self.categorizer.asked(), expected);
+    ///
+    /// Erwartet je Anfrage das Paar **(Fingerabdruck, Text)** — die beiden Felder der
+    /// [`CategoryRequestRow`](crate::CategoryRequestRow), die nur die Domäne bauen kann (Issue 0011).
+    pub fn assert_asked(&self, expected: Vec<(String, String)>) {
+        let asked = self
+            .categorizer
+            .asked()
+            .iter()
+            .map(|request| {
+                (
+                    request.fingerprint().to_string(),
+                    request.text().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(asked, expected);
     }
 
     /// Prüft, dass das Orakel **gar nicht** behelligt wurde — kein Egress, kein Chat.

@@ -65,7 +65,7 @@ impl CategorizerSeam for FakeCategorizer {
             .filter_map(|request| {
                 self.vocabulary
                     .iter()
-                    .find(|(fingerprint, _)| *fingerprint == request.fingerprint)
+                    .find(|(fingerprint, _)| *fingerprint == request.fingerprint())
                     .map(|(fingerprint, category)| CategoryAnswerRow {
                         fingerprint: fingerprint.clone(),
                         category: category.clone(),

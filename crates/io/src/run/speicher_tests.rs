@@ -32,6 +32,7 @@ fn pfade(db: &TempDbPath, csv: &str) -> RunPaths {
         own_accounts_config: fixture("lauf/konten.toml"),
         persons_config: fixture("lauf/namen.toml"),
         savings_config: fixture("lauf/sparen.toml"),
+        category_export: None,
     }
 }
 
@@ -150,9 +151,11 @@ impl CategorizerSeam for MitschreibendesOrakel {
         &self,
         requests: &[CategoryRequestRow],
     ) -> Result<Vec<CategoryAnswerRow>, CategorizerUnavailable> {
-        self.gefragt
-            .borrow_mut()
-            .extend(requests.iter().map(|request| request.fingerprint.clone()));
+        self.gefragt.borrow_mut().extend(
+            requests
+                .iter()
+                .map(|request| request.fingerprint().to_string()),
+        );
         Ok(Vec::new())
     }
 }

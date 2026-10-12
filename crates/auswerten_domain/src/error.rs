@@ -59,6 +59,11 @@ pub enum EvaluationError {
     /// Das **Orakel** war nicht erreichbar oder hat nicht verwertbar geantwortet. Trägt die
     /// io-Diagnose der Zugriffs-Mechanik — **nie** den angefragten Text und nie die Antwort selbst.
     CategorizerUnavailable { reason: String },
+    /// Eine Firmen-Zeile des gelesenen Fensters trägt **keine gültige Gläubiger-ID** (Issue 0011).
+    /// `obfuskieren` lässt so eine Zeile heute nicht mehr entstehen — sie stammt aus einer Datei
+    /// eines älteren Programmstands. Terminal, weil sie sonst als `COMPANY:<Rohwert>` in Fingerabdruck
+    /// und Chat-Export ginge. Trägt **nichts**: der Spalteninhalt kann eine IBAN oder ein Name sein.
+    InvalidCreditorId,
 }
 
 impl fmt::Display for EvaluationError {
@@ -95,6 +100,11 @@ impl fmt::Display for EvaluationError {
             EvaluationError::CategorizerUnavailable { reason } => {
                 write!(f, "could not ask the categorizer: {reason}")
             }
+            EvaluationError::InvalidCreditorId => write!(
+                f,
+                "a company in the analysis window carries no valid creditor ID — Datei aus älterem \
+                 Stand, frische --db verwenden"
+            ),
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::value_objects::NonEmptyString;
+use crate::value_objects::{CreditorId, NonEmptyString};
 
 /// Die **Gegenpartei** einer Buchung, so wie sie stromabwärts der Obfuskierungs-Grenze ankommt —
 /// der Summentyp, an dem `obfuskieren` die **Fail-safe-Deutung** Firma vs. Privatperson bereits
@@ -20,25 +20,10 @@ pub enum Recipient {
     /// Sichere Firma (Gläubiger-ID vorhanden): Name im Klartext (falls geführt) + Anker.
     Company {
         name: Option<NonEmptyString>,
-        creditor_id: NonEmptyString,
+        creditor_id: CreditorId,
     },
     /// Fail-safe Privatperson: **nur** das seed-basierte Pseudonym.
     Person { pseudonym: NonEmptyString },
     /// Keine Gegenpartei — z. B. eine Entgeltzeile.
     Absent,
-}
-
-impl Recipient {
-    /// Das **Kategorie-Signal** der Gegenpartei: der Klartext-Firmenname, sonst nichts.
-    ///
-    /// Er ist es, weil er eine **Firma** benennt — `obfuskieren` pseudonymisiert ihn genau darum
-    /// nicht (CONTEXT.md „Empfänger": das wichtigste Signal für die Kategorie). Das Pseudonym einer
-    /// Privatperson ist **keines**: `PERSON_7` sagt über die Art der Buchung nichts aus, und es
-    /// hinauszureichen wäre Egress ohne jeden Gegenwert.
-    pub(crate) fn category_signal(&self) -> Option<&NonEmptyString> {
-        match self {
-            Recipient::Company { name, .. } => name.as_ref(),
-            Recipient::Person { .. } | Recipient::Absent => None,
-        }
-    }
 }

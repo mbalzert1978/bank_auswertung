@@ -155,6 +155,34 @@ impl SqliteCategoryRegistry {
                 message: error.to_string(),
             })
     }
+
+    /// Die Teilmenge der Kandidaten, die eine Auswertung **ausgegeben** hat
+    /// (`window_evaluation_fingerprints`), in deren Reihenfolge — dieselbe Frage, die [`learn`](Self::learn)
+    /// als letztes Netz stellt, hier vorab, damit der Chat-Import (Issue 0011) einen fremden Schlüssel
+    /// **einzeln** verwerfen kann, statt die ganze Datei abzuweisen. Verglichen wird **exakt**.
+    ///
+    /// # Errors
+    ///
+    /// [`RegistryUnavailable`], wenn die Auswertungen nicht lesbar waren (io-Diagnose, nie ein
+    /// Schlüssel).
+    pub fn issued_among(&self, candidates: &[String]) -> Result<Vec<String>, RegistryUnavailable> {
+        self.outbox
+            .with_connection(|conn| {
+                let mut statement = conn.prepare(SELECT_ISSUED)?;
+                candidates
+                    .iter()
+                    .filter_map(|candidate| {
+                        statement
+                            .query_row([candidate], |row| row.get::<_, bool>(0))
+                            .map(|issued| issued.then(|| candidate.clone()))
+                            .transpose()
+                    })
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .map_err(|error| RegistryUnavailable {
+                message: error.to_string(),
+            })
+    }
 }
 
 impl CategoryRegistrySeam for SqliteCategoryRegistry {
@@ -205,8 +233,9 @@ fn validated(answers: &[CategoryAnswerRow]) -> Result<Entries, LearnError> {
             let reject = |cause| LearnError::Rejected { position, cause };
             let fingerprint = non_empty(&answer.fingerprint)
                 .ok_or_else(|| reject(RejectCause::EmptyFingerprint))?;
-            let category =
-                non_empty(&answer.category).ok_or_else(|| reject(RejectCause::EmptyCategory))?;
+            let category = CategoryLabel::parse(&answer.category)
+                .ok_or_else(|| reject(RejectCause::InvalidCategory))?
+                .0;
             match entries.entry(fingerprint) {
                 Entry::Vacant(slot) => {
                     slot.insert((position, category));
@@ -234,6 +263,46 @@ fn first_unissued(conn: &Connection, entries: &Entries) -> rusqlite::Result<Opti
         .map(|unissued| unissued.into_iter().min())
 }
 
+/// Die längste zulässige Kategorie in Zeichen.
+const MAX_CATEGORY_CHARS: usize = 60;
+
+/// Ein **Kategorie-Etikett**, wie es ins Register darf — die Regel sitzt hier, am **einzigen**
+/// Schreibweg ([`SqliteCategoryRegistry::learn`]), und gilt damit für jede Quelle: den Chat-Import
+/// (Issue 0011) wie jede Korrektur von Hand. Getrimmt 1–60 Zeichen, einzeilig, ohne Steuerzeichen
+/// (auch ohne Zeilen-/Absatztrenner und Bidi-Steuerzeichen, die eine Anzeige verdrehen könnten).
+///
+/// Mehr prüft sie **nicht**: HTML-sicher macht das Etikett erst der Bericht, der es escaped (Issue
+/// 0012). Ein DDL-`CHECK` mit derselben Regel gibt es bewusst nicht — er bräuchte eine Neuanlage der
+/// Tabelle per Migrations-Sprosse, und der eine Schreibweg trägt die Regel schon.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CategoryLabel(String);
+
+impl CategoryLabel {
+    /// Parst ein Etikett; `None`, wenn es die Regeln oben verletzt.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        let trimmed = raw.trim();
+        let length = trimmed.chars().count();
+        ((1..=MAX_CATEGORY_CHARS).contains(&length) && !trimmed.chars().any(forbidden))
+            .then(|| Self(trimmed.to_string()))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Steuerzeichen, Zeilen-/Absatztrenner und Bidi-Steuerzeichen.
+fn forbidden(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{2028}' | '\u{2029}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+        )
+}
+
 fn non_empty(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -254,8 +323,9 @@ pub enum LearnError {
 pub enum RejectCause {
     /// Der Fingerabdruck ist leer.
     EmptyFingerprint,
-    /// Das Etikett ist leer — eine leere Kategorie ist keine Kategorie.
-    EmptyCategory,
+    /// Das Etikett verletzt die Regeln des [`CategoryLabel`] (leer, zu lang, mehrzeilig, mit
+    /// Steuerzeichen).
+    InvalidCategory,
     /// Derselbe Fingerabdruck bekommt im Stapel ein zweites, anderes Etikett.
     ContradictingCategory,
     /// Den Fingerabdruck hat die Domäne nie ausgegeben — keine Auswertung führt ihn.
@@ -268,7 +338,7 @@ impl std::fmt::Display for LearnError {
             Self::Rejected { position, cause } => {
                 let reason = match cause {
                     RejectCause::EmptyFingerprint => "leerer Fingerabdruck",
-                    RejectCause::EmptyCategory => "leere Kategorie",
+                    RejectCause::InvalidCategory => "ungültige Kategorie",
                     RejectCause::ContradictingCategory => {
                         "widersprüchliche Kategorie für denselben Fingerabdruck"
                     }

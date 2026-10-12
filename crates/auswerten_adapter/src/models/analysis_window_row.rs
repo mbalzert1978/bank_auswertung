@@ -1,5 +1,5 @@
 use auswerten_domain::{
-    AccountToken, Amount, AnalysisWindow, Counterparty, Currency, DayStamp, Direction,
+    AccountToken, Amount, AnalysisWindow, Counterparty, CreditorId, Currency, DayStamp, Direction,
     EvaluationError, NonEmptyString, Recipient, SeedMarker, WindowedBooking,
 };
 
@@ -77,13 +77,13 @@ pub enum BookingDirection {
 impl AnalysisWindowRow {
     /// Deutet die rohe Zeile in das Domänen-Aggregat [`AnalysisWindow`] (ACL, „außen → innen").
     /// **Hier erzwingt der Adapter die Präsenz** der Pflichtfelder: fehlt/ist die Währung leer, wird
-    /// das zu `Err(MissingMandatoryField)` mit **nur** dem Feldnamen — den die
+    /// das zu `Err(RowDefect::MissingMandatoryField)` mit **nur** dem Feldnamen — den die
     /// [`SourceBridge`](crate::adapter::SourceBridge) auf den terminalen
     /// `EvaluationError::MissingMandatoryField` mappt (redigiert, statischer Feldname).
     ///
     /// Buchungstag, Betrag und Richtung brauchen **keine** Präsenz-Prüfung: sie sind schon im Typ
     /// vollständig (ADR-0005 — illegale Zustände unkonstruierbar, nicht „geprüft").
-    pub(crate) fn to_window(&self) -> Result<AnalysisWindow, MissingMandatoryField> {
+    pub(crate) fn to_window(&self) -> Result<AnalysisWindow, RowDefect> {
         let currency = Currency::from(mandatory(&self.currency, "currency")?);
         let seed_marker = SeedMarker::from(mandatory(&self.seed_marker, "seed_marker")?);
         Ok(AnalysisWindow::rehydrate(
@@ -101,7 +101,7 @@ impl WindowBookingRow {
     /// Deutet die rohe Buchungs-Zeile in die Domänen-Sicht. Buchungstag, Betrag und Richtung sind
     /// schon im Typ vollständig; **fehlbar** ist die Zeile über ihre Gegenpartei und über das
     /// belastete Konto, deren Schlüssel-Zellen der Adapter hier auf Präsenz prüft (ACL).
-    pub(crate) fn to_booking(&self) -> Result<WindowedBooking, MissingMandatoryField> {
+    pub(crate) fn to_booking(&self) -> Result<WindowedBooking, RowDefect> {
         Ok(WindowedBooking::hydrate(
             DayStamp::new(self.booking_day),
             Amount::from_minor_units(self.amount_minor_units),
@@ -140,11 +140,15 @@ impl BookingRecipient {
     /// **ohne** Pseudonym hätte keinen Schlüssel, über den ihr Fingerabdruck stabil bliebe, und
     /// stillschweigend auf einen leeren Schlüssel auszuweichen verklumpte alle solchen Buchungen zu
     /// einer Art. Der Firmen**name** ist dagegen echt optional (er ist Signal, nicht Schlüssel).
-    fn to_recipient(&self) -> Result<Recipient, MissingMandatoryField> {
+    fn to_recipient(&self) -> Result<Recipient, RowDefect> {
         match self {
+            // **Parse, don't validate — auch an der Persistenzgrenze** (Issue 0011): die Gläubiger-ID
+            // geht in Fingerabdruck und Chat-Export. `obfuskieren` parst sie schon; eine Zeile aus
+            // einer Datei älteren Stands hat diese Prüfung aber nie gesehen. Ungültig ist terminal.
             BookingRecipient::Company { name, creditor_id } => Ok(Recipient::Company {
                 name: name.as_deref().and_then(NonEmptyString::new),
-                creditor_id: mandatory(creditor_id, "creditor_id")?,
+                creditor_id: CreditorId::parse(mandatory(creditor_id, "creditor_id")?)
+                    .ok_or(RowDefect::InvalidCreditorId)?,
             }),
             BookingRecipient::Person { pseudonym } => Ok(Recipient::Person {
                 pseudonym: mandatory(pseudonym, "pseudonym")?,
@@ -154,38 +158,39 @@ impl BookingRecipient {
     }
 }
 
-/// Ein Pflichtfeld fehlt (leer/nicht vorhanden) im gelesenen Fenster — **terminaler** Ausgang der
-/// „außen → innen"-Abbildung. **Redaktions-Invariante:** trägt **nur** den statischen Feldnamen, nie
-/// den Rohwert — auch `Debug` spiegelt so keinen Inhalt.
+/// Warum eine gelesene Fenster-Zeile nicht in die Domäne passt — **terminaler** Ausgang der
+/// „außen → innen"-Abbildung. **Redaktions-Invariante:** keine Variante trägt einen Rohwert, auch
+/// `Debug` spiegelt so keinen Inhalt.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MissingMandatoryField {
-    field: &'static str,
+pub(crate) enum RowDefect {
+    /// Ein Pflichtfeld fehlt oder ist leer — nur der statische Feldname.
+    MissingMandatoryField(&'static str),
+    /// Eine Firmen-Zeile trägt keine gültige Gläubiger-ID (Issue 0011) — eine Datei aus älterem
+    /// Programmstand; der Inhalt bleibt draußen (er kann eine IBAN oder ein Name sein).
+    InvalidCreditorId,
 }
 
-impl MissingMandatoryField {
+impl RowDefect {
     /// Benennt das fehlende Pflichtfeld — **nur** über seinen statischen Namen.
-    pub(crate) const fn named(field: &'static str) -> Self {
-        Self { field }
-    }
-
-    /// Der (statische, unsensible) Name des fehlenden Pflichtfelds — für den redigierten terminalen
-    /// Fehlergrund.
-    pub(crate) fn field(&self) -> &'static str {
-        self.field
+    pub(crate) const fn missing(field: &'static str) -> Self {
+        Self::MissingMandatoryField(field)
     }
 }
 
-/// Die Präsenz-Verletzung wird zum terminalen Domänen-Fehler — **nur** mit dem statischen Feldnamen.
-impl From<MissingMandatoryField> for EvaluationError {
-    fn from(missing: MissingMandatoryField) -> Self {
-        EvaluationError::MissingMandatoryField {
-            field: missing.field(),
+/// Der Zeilen-Mangel wird zum terminalen Domänen-Fehler — redigiert.
+impl From<RowDefect> for EvaluationError {
+    fn from(defect: RowDefect) -> Self {
+        match defect {
+            RowDefect::MissingMandatoryField(field) => {
+                EvaluationError::MissingMandatoryField { field }
+            }
+            RowDefect::InvalidCreditorId => EvaluationError::InvalidCreditorId,
         }
     }
 }
 
 /// Erzwingt ein Pflichtfeld: reicht die Zelle als `NonEmptyString` an die Domänengrenze, oder —
-/// fehlt/leer sie — den redigierten [`MissingMandatoryField`] mit nur dem Feldnamen.
-fn mandatory(raw: &str, field: &'static str) -> Result<NonEmptyString, MissingMandatoryField> {
-    NonEmptyString::new(raw).ok_or(MissingMandatoryField::named(field))
+/// fehlt/leer sie — den redigierten [`RowDefect::MissingMandatoryField`] mit nur dem Feldnamen.
+fn mandatory(raw: &str, field: &'static str) -> Result<NonEmptyString, RowDefect> {
+    NonEmptyString::new(raw).ok_or(RowDefect::missing(field))
 }

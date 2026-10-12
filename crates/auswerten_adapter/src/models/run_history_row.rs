@@ -1,7 +1,7 @@
 use auswerten_domain::{Currency, EvaluationError, NonEmptyString, RunHistory, SeedMarker};
 
 use crate::models::WindowBookingRow;
-use crate::models::analysis_window_row::MissingMandatoryField;
+use crate::models::analysis_window_row::RowDefect;
 
 /// Die **Historie eines Laufs**, wie der fenster-übergreifende Lese-Seam
 /// ([`OccurrenceSeam`](crate::OccurrenceSeam)) sie für eine Lauf-Spanne liefert: die Buchungen
@@ -37,8 +37,7 @@ impl RunHistoryRow {
             return Ok(RunHistory::empty());
         }
         let seed_marker = SeedMarker::from(
-            NonEmptyString::new(&self.seed_marker)
-                .ok_or(MissingMandatoryField::named("seed_marker"))?,
+            NonEmptyString::new(&self.seed_marker).ok_or(RowDefect::missing("seed_marker"))?,
         );
         let currencies = self
             .currencies
@@ -46,7 +45,7 @@ impl RunHistoryRow {
             .map(|currency| {
                 NonEmptyString::new(currency)
                     .map(Currency::from)
-                    .ok_or(MissingMandatoryField::named("currency"))
+                    .ok_or(RowDefect::missing("currency"))
             })
             .collect::<Result<Vec<_>, _>>()?;
         RunHistory::rehydrate(
