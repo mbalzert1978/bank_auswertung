@@ -41,6 +41,11 @@ fn ohne_anfragen_entsteht_eine_gueltige_datei_mit_leerer_liste() {
     assert_eq!(inhalt.get("anfragen"), Some(&json!([])));
     // Nur die drei festen Schlüssel — nichts sonst steht oben.
     assert_eq!(inhalt.as_object().map(Map::len), Some(3));
+    // … und in der Reihenfolge des Tickets: erst Format und Anleitung, dann die Anfragen.
+    let text = render(&[]);
+    let stelle = |schluessel: &str| text.find(schluessel);
+    assert!(stelle("\"format\"") < stelle("\"anleitung\""));
+    assert!(stelle("\"anleitung\"") < stelle("\"anfragen\""));
 }
 
 #[cfg(unix)]
@@ -72,16 +77,20 @@ fn eine_alte_datei_wird_ersetzt_und_keine_nachbar_datei_bleibt_liegen() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn scheitert_das_schreiben_bleibt_die_alte_datei_unberuehrt() {
+    use std::os::unix::fs::PermissionsExt;
     let ordner = Ordner::neu("scheitern");
     let ziel = ordner.0.join("anfrage.json");
     fs::write(&ziel, "alt").expect("eine alte Datei");
-    // Die Nachbar-Datei ist ein Ordner: sie lässt sich weder entfernen noch neu anlegen.
-    fs::create_dir(ordner.0.join("anfrage.json.neu")).expect("ein Hindernis");
+    // Ein schreibgeschützter Ordner: die Nachbar-Datei lässt sich nicht anlegen.
+    fs::set_permissions(&ordner.0, fs::Permissions::from_mode(0o500)).expect("schreibgeschützt");
 
-    let fehler = write(&ziel, &[]).expect_err("das Schreiben scheitert");
+    let fehler = write(&ziel, &[]);
+    fs::set_permissions(&ordner.0, fs::Permissions::from_mode(0o700)).expect("wieder beschreibbar");
 
+    let fehler = fehler.expect_err("das Schreiben scheitert");
     assert_eq!(fs::read_to_string(&ziel).expect("lesbar"), "alt");
     // Redigiert: kein Pfad in der Meldung.
     assert!(!fehler.to_string().contains("anfrage"));

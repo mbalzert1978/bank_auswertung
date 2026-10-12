@@ -1,4 +1,4 @@
-use crate::value_objects::NonEmptyString;
+use crate::value_objects::{CreditorId, NonEmptyString};
 
 /// Die **Gegenpartei** einer Buchung, so wie sie stromabwärts der Obfuskierungs-Grenze ankommt —
 /// der Summentyp, an dem `obfuskieren` die **Fail-safe-Deutung** Firma vs. Privatperson bereits
@@ -20,7 +20,7 @@ pub enum Recipient {
     /// Sichere Firma (Gläubiger-ID vorhanden): Name im Klartext (falls geführt) + Anker.
     Company {
         name: Option<NonEmptyString>,
-        creditor_id: NonEmptyString,
+        creditor_id: CreditorId,
     },
     /// Fail-safe Privatperson: **nur** das seed-basierte Pseudonym.
     Person { pseudonym: NonEmptyString },

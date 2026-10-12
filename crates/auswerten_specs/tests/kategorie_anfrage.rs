@@ -7,7 +7,7 @@
 //! Person **nichts**. Auf jeden Text und auf den Händler-Token im Fingerabdruck läuft **dieselbe**
 //! Egress-Wortregel: jedes Wort mit Ziffer oder `@` fällt, **bevor** zerlegt wird.
 
-use auswerten_adapter::WindowBookingRow;
+use auswerten_adapter::{EvaluationError, WindowBookingRow};
 
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
@@ -157,4 +157,27 @@ fn eine_person_wird_nie_angefragt_auch_nicht_mit_zweck() {
     // beides bleibt auf der Maschine. Preis: Personen (und Kartenzahlungen) bekommen per Chat kein
     // Etikett.
     api.assert_nothing_asked();
+}
+
+#[test]
+fn eine_firmen_zeile_ohne_gueltige_glaeubiger_id_beendet_den_lauf_terminal_und_redigiert() {
+    // So eine Zeile entsteht heute nicht mehr — `obfuskieren` parst die Gläubiger-ID. Sie kann aber
+    // aus einer Datei älteren Stands stammen; dann ginge sie als `COMPANY:<Rohwert>` hinaus.
+    for spalte in [
+        "DE89370400440532013000",
+        "Hans Vermieter",
+        "DE00ZZZ00000000123",
+    ] {
+        let api = api().with_window(
+            FENSTER,
+            fenster(&[firma(JAN_15, 75_000, spalte, "Hans Vermieter", None)]),
+        );
+
+        let fehler = api.run(FENSTER);
+
+        assert_eq!(fehler, Err(EvaluationError::InvalidCreditorId));
+        assert!(!format!("{fehler:?}").contains(spalte));
+        api.assert_nothing_stored();
+        api.assert_nothing_asked();
+    }
 }

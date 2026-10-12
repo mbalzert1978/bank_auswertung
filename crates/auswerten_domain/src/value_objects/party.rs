@@ -1,4 +1,4 @@
-use crate::value_objects::{NonEmptyString, Recipient};
+use crate::value_objects::{CreditorId, NonEmptyString, Recipient};
 
 /// Die **Gläubiger-IDs** bekannter Durchleiter — das **verlässliche** Erkennungssignal, denn die
 /// Gläubiger-ID ist an einer Firma **Pflichtfeld** (der Adapter erzwingt ihre Präsenz), während der
@@ -54,12 +54,12 @@ pub(crate) enum Party<'a> {
     /// Eine Firma, die Zahlungen nur **durchleitet** (PayPal, Klarna, Amazon): der eigentliche
     /// Händler steht im Verwendungszweck, nicht im Namen.
     Intermediary {
-        creditor_id: &'a NonEmptyString,
+        creditor_id: &'a CreditorId,
         purpose: Option<&'a NonEmptyString>,
     },
     /// Eine gewöhnliche Firma — die Gläubiger-ID **ist** der Händler, ihr Name das Kategorie-Signal.
     Company {
-        creditor_id: &'a NonEmptyString,
+        creditor_id: &'a CreditorId,
         name: Option<&'a NonEmptyString>,
     },
     /// Eine fail-safe Privatperson: nur ihr seed-basiertes Pseudonym.
@@ -104,7 +104,7 @@ pub(crate) fn words(raw: &str) -> impl Iterator<Item = &str> {
 /// **optionalen** Namen, der als Auffangsignal dient, solange die ID oben fehlt. Die Reihenfolge ist
 /// der Punkt: das verlässliche Signal muss zuerst greifen, sonst hinge die Händler-Trennung an der
 /// Anwesenheit eines Feldes, das fehlen darf.
-fn is_intermediary(name: Option<&NonEmptyString>, creditor_id: &NonEmptyString) -> bool {
+fn is_intermediary(name: Option<&NonEmptyString>, creditor_id: &CreditorId) -> bool {
     let normalised_id = words(creditor_id.as_str())
         .map(str::to_uppercase)
         .collect::<String>();

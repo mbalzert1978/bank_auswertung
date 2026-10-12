@@ -861,15 +861,15 @@ fn zwei_arten_mit_demselben_text_bekommen_je_ihre_eigene_antwort() {
     // bekommen trotzdem je ihr eigenes Etikett. Liefe die Zuordnung über den Text, wäre sie hier
     // mehrdeutig; über den Schlüssel ist sie es nicht, und ein Rückweg vom Etikett auf den Freitext
     // existiert gar nicht erst.
-    let eine = fingerabdruck("DE11ZZZ00000000001");
-    let andere = fingerabdruck("DE22ZZZ00000000002");
+    let eine = fingerabdruck("DE09ZZZ00000000001");
+    let andere = fingerabdruck("DE79ZZZ00000000002");
     let api = api()
         .with_oracle(&[(&eine, "Lebensmittel"), (&andere, "Mobilität")])
         .with_window(
             FENSTER,
             fenster(&[
-                firma(JAN_15, 1_000, "DE11ZZZ00000000001", "Kolibri", None),
-                firma(JAN_31, 2_000, "DE22ZZZ00000000002", "Kolibri", None),
+                firma(JAN_15, 1_000, "DE09ZZZ00000000001", "Kolibri", None),
+                firma(JAN_31, 2_000, "DE79ZZZ00000000002", "Kolibri", None),
             ]),
         );
 

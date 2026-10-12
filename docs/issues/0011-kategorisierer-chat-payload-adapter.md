@@ -172,7 +172,7 @@ Nicht im Export: Lauf-ID, Datum, Betrag, Richtung, Konto-Token (`KONTO_…`), Pe
 
 | Wert | Herkunft | Schranke | Warum keine IBAN/BIC/kein Klarname/kein Seed |
 | --- | --- | --- | --- |
-| `COMPANY:<id>` | Spalte Gläubiger-ID | `CreditorId` wird in `obfuskieren` **geparst** (B2): Form der SEPA-Gläubiger-ID + Mod-97; eine ungültige gilt als **fehlend** → Person | eine IBAN, ein Name oder anderer Unsinn in der Spalte ist keine gültige Gläubiger-ID und erreicht den Fingerabdruck nicht; die gültige benennt den **Einzieher**, nicht den Kontoinhaber (bewusste Ausnahme, CONTEXT.md) |
+| `COMPANY:<id>` | Spalte Gläubiger-ID | `CreditorId` wird **zweimal geparst** (B2): in `obfuskieren` beim Ablegen (ungültig gilt als **fehlend** → Person) **und** in der ACL von `auswerten` an der Persistenzgrenze (ungültig → Lauf endet **terminal**, `EvaluationError::InvalidCreditorId`, Hinweis „Datei aus älterem Stand, frische --db verwenden“; kein Exit 0, also kein Export) — denn jeder Lauf liest die ganze `obfuskiert`-Historie, auch Zeilen einer älteren Datei. Form der SEPA-Gläubiger-ID + Mod-97 | eine IBAN, ein Name oder anderer Unsinn in der Spalte ist keine gültige Gläubiger-ID und erreicht den Fingerabdruck nicht; die gültige benennt den **Einzieher**, nicht den Kontoinhaber (bewusste Ausnahme, CONTEXT.md) |
 | `MERCHANT:<token>` | Verwendungszweck nach `ObfuskierterText`, dann die **Egress-Wortregel** (§ 4), dann Wörter großgeschrieben | `ObfuskierterText` + Egress-Wortregel | eine IBAN ist im Text schon ersetzt; eine nicht erkannte trüge Ziffern, eine E-Mail ein `@` — beide fallen **als ganzes Wort**, bevor zerlegt wird (B1). Ein **unbekannter** Name bleibt stehen (§ 9) |
 | `text` | gescrubbter Firmenname bzw. gescrubbter Zweck eines Durchleiters (§ 4), danach dieselbe Egress-Wortregel | `ObfuskierterText` + Egress-Wortregel | wie oben; die Regel nimmt dazu Kunden-, Vertrags-, Rechnungs-, Telefonnummern und Datumsangaben mit |
 | `format`, `anleitung` | Konstanten im Code | — | enthalten keine Daten |
@@ -232,8 +232,11 @@ ebenfalls der erste (Reihenfolge der Outbox, für dieselbe Datei gleich).
    `serde_json`.
 2. Ein Eintrag ist kein Objekt, oder `fingerabdruck`/`kategorie` fehlt oder ist kein Text → Eintrag
    **verworfen**. Weitere Felder (`text`, `begruendung` …) werden **nie gelesen**, nur gezählt.
-3. `kategorie` muss ein gültiges **`Kategorie`-Value-Object** sein (W3): getrimmt 1–60 Zeichen,
-   einzeilig, keine Steuerzeichen — sonst Eintrag verworfen.
+3. `kategorie` muss ein gültiges **`CategoryLabel`** sein (W3): getrimmt 1–60 Zeichen, einzeilig,
+   keine Steuerzeichen — sonst Eintrag verworfen. Die Regel sitzt am **einzigen Schreibweg** des
+   Registers (`learn` → `validated`), gilt also für jede Quelle; der Import nutzt denselben Typ, um
+   einzeln zu verwerfen. Ein DDL-`CHECK` gibt es bewusst nicht — er bräuchte eine Neuanlage der
+   Tabelle per Migrations-Sprosse.
 4. **Widerspruch** (W6): über alle formal gültigen Einträge — **vor** den Filtern unten — prüft der
    Import, ob ein Fingerabdruck zwei verschiedene Kategorien bekommt. Dann ist die **ganze Datei**
    abgewiesen, mit beiden Positionen aus der Datei.
@@ -271,6 +274,10 @@ In `crates/io` gegen echtes SQLite, über `io::run::run` mit eigener Fixture-CSV
 - **Protokoll:** stderr des Imports trägt weder Fingerabdruck noch Etikett.
 - **Exit 1** → keine Export-Datei; alte Datei bleibt.
 
+Nach dem Code-Review: eine Alt-Zeile mit ungültiger Gläubiger-ID direkt in `obfuskiert` → der Lauf
+scheitert terminal, kein Export (`run::kategorien_tests::eine_alt_zeile_…`); beide Kopien der Regel
+urteilen gleich (`…::beide_slices_urteilen_gleich_ueber_eine_glaeubiger_id`).
+
 In `obfuskierung_specs`: Spalte 5 mit IBAN bzw. Namen → Person. In `auswerten_specs`: die Einordnung
 aus § 4 und die Egress-Wortregel. In `crates/lauf`: Option und Unterbefehl.
 
@@ -303,11 +310,16 @@ Entschieden (Orchestrator, 2026-10-12):
 
 ## Wie es gebaut wurde
 
-Auf `0011-chat-export`: zwei Commits für den Entwurf, drei für den Bau, einer für die Doku.
+Auf `0011-chat-export`: zwei Commits für den Entwurf, drei für den Bau, Doku, dazu die Nacharbeit aus dem Code-Review.
 
 - **Gläubiger-ID geparst** (`obfuskierung_domain`, `value_objects/creditor_id.rs`): Form der
   SEPA-Gläubiger-ID plus Mod-97 ohne Geschäftsbereich, ohne Fremd-Crate. Eine ungültige gilt als
-  fehlend, die Gegenpartei wird fail-safe Person. Dieselbe Regel (`is_valid_creditor_id`, über den
+  fehlend, die Gegenpartei wird fail-safe Person. **Code-Review, Blocker B1:** dieselbe Regel steht
+  auch in `auswerten_domain` (`CreditorId`, jetzt der Typ in `Recipient::Company`); die ACL
+  (`AnalysisWindowRow` → Domäne, `RowDefect::InvalidCreditorId`) parst jede Firmen-Zeile, und eine
+  ungültige — eine Zeile aus einer Datei älteren Stands — beendet den Lauf terminal und redigiert.
+  Die Domänen sind blind füreinander, darum zwei Kopien; ein io-Test über eine Fall-Tabelle hält
+  fest, dass beide gleich urteilen. Dieselbe Regel (`is_valid_creditor_id`, über den
   Adapter re-exportiert) entscheidet in io, welche Empfänger-Namen auf die Namensliste des Scrubbings
   kommen. Die erfundenen Gläubiger-IDs der io-Fixtures und `obfuskierung_specs` tragen jetzt gültige
   Prüfziffern; die echten Durchleiter-IDs sind gültig und werden weiter erkannt.
@@ -321,7 +333,8 @@ Auf `0011-chat-export`: zwei Commits für den Entwurf, drei für den Bau, einer 
   Spec-Fixture vergleicht jetzt Paare (Fingerabdruck, Text).
 - **io:** `CollectingCategorizer` (Zustand ruhend/sammelnd) ersetzt `UnansweredCategorizer`;
   `auswerten::chat_export` (nur Ziel + Zeilen, JSON von Hand, `0600`, Nachbar-Datei + Umbenennen);
-  `auswerten::chat_import` (1 MiB, `Kategorie`-Value-Object, Widerspruch vor den Filtern,
+  `auswerten::chat_import` (1 MiB, `CategoryLabel` aus dem Register, Widerspruch vor den Filtern,
+  Ergebnis je Eintrag als Summentyp `EntryOutcome` und ein `fold`,
   `issued_among` neu am Register, `known_among` ohne `--korrektur`, dann `learn`); `run::kategorien`
   verdrahtet beides; `serde_json` neu in `crates/io`, kein `serde`-Derive.
 - **lauf:** optionale `--kategorien-export`, Unterbefehl `kategorien-import --db --antwort

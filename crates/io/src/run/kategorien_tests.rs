@@ -418,3 +418,65 @@ fn etiketten(registry: &SqliteCategoryRegistry) -> Vec<(String, String)> {
         .map(|answer| (answer.fingerprint, answer.category))
         .collect()
 }
+
+#[test]
+fn eine_alt_zeile_ohne_gueltige_glaeubiger_id_beendet_den_lauf_ohne_export() {
+    let db = TempDbPath::new("kategorien_alt_zeile");
+    let export = TempDatei::neu("alt_zeile");
+    let paths = pfade(&db, "einlesen/csv/kategorien.csv", &export);
+    lauf(&RunPaths {
+        category_export: None,
+        ..paths.clone()
+    });
+    // Eine Zeile, wie sie ein älterer Programmstand ablegen konnte: in der Gläubiger-Spalte einer
+    // Firma steht eine IBAN. `obfuskieren` lässt so etwas heute nicht mehr entstehen.
+    rusqlite::Connection::open(&paths.database)
+        .and_then(|conn| {
+            conn.execute(
+                "UPDATE obfuskiert SET recipient_creditor_id = 'DE89370400440532013000' \
+                 WHERE recipient_creditor_id = 'DE98ZZZ09999999999';",
+                [],
+            )
+        })
+        .expect("die Alt-Zeile");
+
+    let fehler = run(&paths, &mut Vec::new()).expect_err("der Lauf scheitert terminal");
+
+    let meldung = fehler.to_string();
+    assert!(meldung.contains("frische --db"), "Hinweis fehlt: {meldung}");
+    assert!(!meldung.contains("DE89370400440532013000"));
+    assert!(
+        !export.0.exists(),
+        "kein Export nach einem gescheiterten Lauf"
+    );
+}
+
+#[test]
+fn beide_slices_urteilen_gleich_ueber_eine_glaeubiger_id() {
+    // Die Domänen sind blind füreinander; die Regel steht darum zweimal. Diese Tabelle hält fest, dass
+    // beide Kopien gleich urteilen.
+    for (kandidat, gueltig) in [
+        ("DE98ZZZ09999999999", true),
+        ("LU96ZZZ0000000000000000058", true),
+        ("DE94ZZZ00000561653", true),
+        ("DE13ABC00000000123", true),
+        ("DE00ZZZ00000000123", false),
+        ("DE89370400440532013000", false),
+        ("Hans Vermieter", false),
+        ("de98zzz09999999999", false),
+        ("DE98 ZZZ 09999999999", false),
+        ("DE98ZZZ", false),
+        ("", false),
+    ] {
+        assert_eq!(
+            obfuskierung_adapter::is_valid_creditor_id(kandidat),
+            gueltig,
+            "obfuskieren: {kandidat}"
+        );
+        assert_eq!(
+            auswerten_adapter::is_valid_creditor_id(kandidat),
+            gueltig,
+            "auswerten: {kandidat}"
+        );
+    }
+}

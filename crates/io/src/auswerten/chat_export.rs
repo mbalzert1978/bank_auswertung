@@ -87,21 +87,20 @@ pub fn render(requests: &[CategoryRequestRow]) -> String {
     format!("{document:#}\n")
 }
 
-/// Die Nachbar-Datei: derselbe Ordner, ein eigener Name — eine Umbenennung im selben Ordner ist
-/// atomar.
+/// Die Nachbar-Datei: derselbe Ordner (eine Umbenennung im selben Ordner ist atomar), ein
+/// **eindeutiger** Name aus Prozess-ID und Zeit — so trifft weder das Anlegen noch das Aufräumen je
+/// eine fremde Datei.
 fn staging_path(target: &Path) -> Option<PathBuf> {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
     let mut name = target.file_name()?.to_os_string();
-    name.push(".neu");
+    name.push(format!(".{}-{nanos}.neu", std::process::id()));
     Some(target.with_file_name(name))
 }
 
-/// Legt die Nachbar-Datei **neu** an, mit `0600`. Eine von einem abgebrochenen Export liegengebliebene
-/// wird vorher entfernt, nicht übernommen — sie trüge womöglich weitere Rechte.
+/// Legt die Nachbar-Datei **neu** an, mit `0600` — `create_new` übernimmt nie eine vorhandene.
 fn create_private(path: &Path) -> std::io::Result<File> {
-    match fs::remove_file(path) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
-        Ok(()) | Err(_) => {}
-    }
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

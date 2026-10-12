@@ -13,8 +13,8 @@
 //! Wert aus der Datei):
 //!
 //! 1. Datei zu groß, kein JSON, oder oben keine `antworten`-Liste → die **ganze Datei** abgewiesen.
-//! 2. Ein Eintrag ohne `fingerabdruck`/`kategorie` als Text, oder mit ungültiger [`Kategorie`] →
-//!    **verworfen**.
+//! 2. Ein Eintrag ohne `fingerabdruck`/`kategorie` als Text, oder mit ungültigem [`CategoryLabel`]
+//!    (dieselbe Regel, die das Register an seinem einzigen Schreibweg prüft) → **verworfen**.
 //! 3. **Widerspruch** über alle formal gültigen Einträge, **vor** den Filtern: bekommt ein
 //!    Fingerabdruck zwei verschiedene Kategorien, ist die ganze Datei abgewiesen — welche gemeint
 //!    war, rät das Programm nicht.
@@ -32,14 +32,11 @@ use std::path::Path;
 use auswerten_adapter::{CategoryAnswerRow, CategoryRegistrySeam};
 use serde_json::{Map, Value};
 
-use crate::auswerten::SqliteCategoryRegistry;
+use crate::auswerten::{CategoryLabel, SqliteCategoryRegistry};
 
 /// Die größte Antwort-Datei, die gelesen wird. Eine Antwort trägt je Buchungsart eine kurze Zeile —
 /// ein MiB fasst Tausende davon; was größer ist, ist keine Antwort auf diesen Export.
 pub const MAX_ANSWER_BYTES: u64 = 1 << 20;
-
-/// Die längste zulässige Kategorie in Zeichen.
-const MAX_CATEGORY_CHARS: usize = 60;
 
 /// Ob der Import ein schon bekanntes Etikett ersetzen darf.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,39 +45,6 @@ pub enum ImportMode {
     LearnUnknown,
     /// Auch bekannte Etiketten ersetzen — der bewusste Weg für eine Korrektur.
     Correct,
-}
-
-/// Eine **Kategorie aus einer Chat-Antwort** — das Value Object am Rand: getrimmt 1–60 Zeichen,
-/// einzeilig, ohne Steuerzeichen (auch ohne Zeilen-/Absatztrenner und Bidi-Steuerzeichen, die eine
-/// Anzeige verdrehen könnten). Mehr prüft es **nicht**: HTML-sicher macht das Etikett erst der
-/// Bericht, der es escaped (Issue 0012).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Kategorie(String);
-
-impl Kategorie {
-    /// Parst ein Etikett; `None`, wenn es die Regeln oben verletzt.
-    #[must_use]
-    pub fn parse(raw: &str) -> Option<Self> {
-        let trimmed = raw.trim();
-        let length = trimmed.chars().count();
-        ((1..=MAX_CATEGORY_CHARS).contains(&length) && !trimmed.chars().any(forbidden))
-            .then(|| Self(trimmed.to_string()))
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Steuerzeichen, Zeilen-/Absatztrenner und Bidi-Steuerzeichen.
-fn forbidden(c: char) -> bool {
-    c.is_control()
-        || matches!(
-            c,
-            '\u{2028}' | '\u{2029}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}'
-                | '\u{2066}'..='\u{2069}'
-        )
 }
 
 /// Warum ein einzelner Eintrag verworfen wurde — ein fester Grund, nie ein Wert.
@@ -92,7 +56,7 @@ pub enum DiscardCause {
     MissingFingerprint,
     /// `kategorie` fehlt oder ist kein Text.
     MissingCategory,
-    /// `kategorie` verletzt die Regeln der [`Kategorie`].
+    /// `kategorie` verletzt die Regeln des [`CategoryLabel`].
     InvalidCategory,
     /// Den Fingerabdruck hat keine Auswertung ausgegeben.
     NotIssued,
@@ -174,7 +138,35 @@ impl std::error::Error for ImportError {}
 struct Candidate {
     position: usize,
     fingerprint: String,
-    category: Kategorie,
+    category: CategoryLabel,
+}
+
+/// Was aus **einem** formal gültigen Eintrag wird — der Summentyp, auf den jeder Kandidat rein
+/// abgebildet wird; erst der `fold` danach sammelt Bericht und Lern-Liste.
+enum EntryOutcome {
+    /// Wird gelernt.
+    Learn(CategoryAnswerRow),
+    /// Trägt schon ein Etikett und bleibt (ohne Korrektur-Schalter).
+    KeptKnown(usize),
+    /// Wird verworfen.
+    Discarded(usize, DiscardCause),
+}
+
+impl Candidate {
+    /// Bildet den Kandidaten auf sein Ergebnis ab — ohne Nebenwirkung.
+    fn outcome(self, issued: &[String], known: &[String]) -> EntryOutcome {
+        match (
+            issued.contains(&self.fingerprint),
+            known.contains(&self.fingerprint),
+        ) {
+            (false, _) => EntryOutcome::Discarded(self.position, DiscardCause::NotIssued),
+            (true, true) => EntryOutcome::KeptKnown(self.position),
+            (true, false) => EntryOutcome::Learn(CategoryAnswerRow {
+                fingerprint: self.fingerprint,
+                category: self.category.as_str().to_string(),
+            }),
+        }
+    }
 }
 
 /// Liest die Antwort-Datei und übernimmt sie ins Register (siehe Modul-Doku).
@@ -189,26 +181,33 @@ pub fn import(
 ) -> Result<ImportReport, ImportError> {
     let document = parse(&read_bounded(answers)?)?;
     let entries = answer_list(&document)?;
-    let mut report = ImportReport {
-        ignored_fields: document
-            .as_object()
-            .map_or(0, |top| top.len().saturating_sub(1)),
-        ..ImportReport::default()
-    };
-    let candidates = entries
+    let top_level_extras = document
+        .as_object()
+        .map_or(0, |top| top.len().saturating_sub(1));
+    let checked = entries
         .iter()
         .enumerate()
-        .filter_map(|(index, entry)| match candidate(index + 1, entry) {
-            Ok((candidate, ignored)) => {
-                report.ignored_fields += ignored;
-                Some(candidate)
-            }
-            Err(discard) => {
-                report.discarded.push(discard);
-                None
-            }
-        })
+        .map(|(index, entry)| candidate(index + 1, entry))
         .collect::<Vec<_>>();
+    let (candidates, formal) = checked.into_iter().fold(
+        (
+            Vec::new(),
+            ImportReport {
+                ignored_fields: top_level_extras,
+                ..ImportReport::default()
+            },
+        ),
+        |(mut candidates, mut report), checked| {
+            match checked {
+                Ok((candidate, ignored)) => {
+                    report.ignored_fields += ignored;
+                    candidates.push(candidate);
+                }
+                Err(discard) => report.discarded.push(discard),
+            }
+            (candidates, report)
+        },
+    );
     let unique = without_contradiction(candidates)?;
     let fingerprints = unique
         .iter()
@@ -219,26 +218,22 @@ pub fn import(
         ImportMode::LearnUnknown => registry.known_among(&fingerprints).map_err(unavailable)?,
         ImportMode::Correct => Vec::new(),
     };
-    let learnable = unique
+    let (learnable, mut report) = unique
         .into_iter()
-        .filter(|candidate| {
-            if !issued.contains(&candidate.fingerprint) {
-                report
-                    .discarded
-                    .push((candidate.position, DiscardCause::NotIssued));
-                false
-            } else if known.contains(&candidate.fingerprint) {
-                report.kept_known.push(candidate.position);
-                false
-            } else {
-                true
-            }
-        })
-        .map(|candidate| CategoryAnswerRow {
-            fingerprint: candidate.fingerprint,
-            category: candidate.category.0,
-        })
-        .collect::<Vec<_>>();
+        .map(|candidate| candidate.outcome(&issued, &known))
+        .fold(
+            (Vec::new(), formal),
+            |(mut learnable, mut report), outcome| {
+                match outcome {
+                    EntryOutcome::Learn(row) => learnable.push(row),
+                    EntryOutcome::KeptKnown(position) => report.kept_known.push(position),
+                    EntryOutcome::Discarded(position, cause) => {
+                        report.discarded.push((position, cause))
+                    }
+                }
+                (learnable, report)
+            },
+        );
     registry
         .learn(&learnable)
         .map_err(|error| ImportError::Registry(error.to_string()))?;
@@ -296,7 +291,8 @@ fn candidate(position: usize, entry: &Value) -> Result<(Candidate, usize), (usiz
         .get("kategorie")
         .and_then(Value::as_str)
         .ok_or((position, DiscardCause::MissingCategory))?;
-    let category = Kategorie::parse(category).ok_or((position, DiscardCause::InvalidCategory))?;
+    let category =
+        CategoryLabel::parse(category).ok_or((position, DiscardCause::InvalidCategory))?;
     let ignored = object
         .keys()
         .filter(|key| !matches!(key.as_str(), "fingerabdruck" | "kategorie"))

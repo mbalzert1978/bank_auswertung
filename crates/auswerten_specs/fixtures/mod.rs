@@ -476,7 +476,7 @@ pub(crate) fn fenster_in(currency: &str, bookings: &[WindowBookingRow]) -> Analy
 
 /// Die Gläubiger-ID eines **zweiten** Händlers — erfunden. Er steht neben dem wiederkehrenden
 /// `HAENDLER`, damit das Ranking zwei Arten gegeneinander ordnen kann.
-pub(crate) const ZWEITER_HAENDLER: &str = "DE11ZZZ01111111111";
+pub(crate) const ZWEITER_HAENDLER: &str = "DE86ZZZ01111111111";
 
 /// Ein Abfluss an den **zweiten** Händler — eine Firma mit eigener Gläubiger-ID, also eine eigene
 /// Buchungsart und damit ein eigener Kostentreiber.

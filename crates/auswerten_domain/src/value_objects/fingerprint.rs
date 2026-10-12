@@ -1,5 +1,5 @@
 use crate::value_objects::party::{Party, egress_words, words};
-use crate::value_objects::{Counterparty, NonEmptyString};
+use crate::value_objects::{Counterparty, CreditorId, NonEmptyString};
 
 /// Der **Fingerabdruck** — der stabile Schlüssel, der eine *Art* von Buchung identifiziert, nicht
 /// die einzelne Buchung. Er ist **Domänenwissen** (ADR-0004, ADR-0013 Entscheidung F): entfernt man
@@ -34,7 +34,7 @@ impl Fingerprint {
     ///   wäre ein Sammelbecken, das alle Entgeltzeilen zu einer Art verklumpte.
     #[must_use]
     pub(crate) fn of(counterparty: &Counterparty) -> Option<Self> {
-        let company = |creditor_id: &NonEmptyString| format!("COMPANY:{}", creditor_id.as_str());
+        let company = |creditor_id: &CreditorId| format!("COMPANY:{}", creditor_id.as_str());
         match counterparty.party() {
             Party::Intermediary {
                 creditor_id,

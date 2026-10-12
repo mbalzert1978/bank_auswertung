@@ -151,6 +151,11 @@ pub use testapi::{EvaluationTestApi, HistoryTestApi};
 /// Eigentümer des Meldungssatzes, ein Re-Deklarat wäre ein Satz-Duplikat über Crates.
 pub use auswerten_domain::EvaluationError;
 
+/// Die Prüfregel der Gläubiger-ID dieses Slice (Issue 0011), re-exportiert: `obfuskieren` führt
+/// dieselbe Regel, und weil die Domänen blind füreinander sind, hält ein io-Test über eine
+/// Fall-Tabelle fest, dass beide gleich urteilen.
+pub use auswerten_domain::is_valid_creditor_id;
+
 #[cfg(test)]
 mod datenschutz {
     use super::{
@@ -164,6 +169,10 @@ mod datenschutz {
     // Maschine. Sie darf **nie** serialisieren: einen strukturellen Identifikator in etwas
     // einzubetten, das hinausgeht, muss ein **Compile-Fehler** sein, keine Review-Beobachtung.
     // Dieselbe Linie, die `obfuskierung` an der Datenschutz-Grenze auf `ObfuscatedBooking` zieht.
+    //
+    // Der Guard steht in einem `#[cfg(test)]`-Modul: er greift über das **Test-Gate** (`cargo test`),
+    // nicht schon beim `cargo build`. Seit dem Chat-Export (Issue 0011) ist das die Leitplanke vor dem
+    // einen echten Abfluss — die sechs Gates laufen vor jedem Commit.
     assert_not_impl_any!(CategoryRequestRow: Serialize, Deserialize<'static>);
 
     // Das **Wiederkehr-Ergebnis** ist das, was der Bericht (Issue 0012) und der Chat-Export (Issue

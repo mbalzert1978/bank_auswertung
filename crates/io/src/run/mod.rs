@@ -267,7 +267,8 @@ impl std::fmt::Display for RunError {
             Self::Import(error) => write!(f, "Kategorien-Import abgewiesen: {error}"),
             Self::NothingLearned { discarded } => write!(
                 f,
-                "Kategorien-Import: nichts gelernt, {discarded} Eintrag/Einträge verworfen — passt                  die Antwort zum letzten Export?"
+                "Kategorien-Import: nichts gelernt, {discarded} Eintrag/Einträge verworfen — passt \
+                 die Antwort zum letzten Export?"
             ),
             Self::Protocol(diagnosis) => write!(f, "Lauf-Protokoll nicht schreibbar: {diagnosis}"),
         }

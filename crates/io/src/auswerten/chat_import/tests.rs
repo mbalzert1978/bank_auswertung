@@ -199,8 +199,8 @@ fn eine_ungueltige_kategorie_verwirft_den_eintrag() {
 
 #[test]
 fn die_kategorie_ist_einzeilig_ohne_steuerzeichen_und_hoechstens_sechzig_zeichen_lang() {
-    assert!(Kategorie::parse("Spiel & Spaß").is_some());
-    assert!(Kategorie::parse(&"ä".repeat(60)).is_some());
+    assert!(CategoryLabel::parse("Spiel & Spaß").is_some());
+    assert!(CategoryLabel::parse(&"ä".repeat(60)).is_some());
     for ungueltig in [
         "",
         "  ",
@@ -210,7 +210,7 @@ fn die_kategorie_ist_einzeilig_ohne_steuerzeichen_und_hoechstens_sechzig_zeichen
         "a\u{7}b",
         &"ä".repeat(61),
     ] {
-        assert_eq!(Kategorie::parse(ungueltig), None);
+        assert_eq!(CategoryLabel::parse(ungueltig), None);
     }
 }
 

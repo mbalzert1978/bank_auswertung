@@ -26,8 +26,6 @@ impl AnalysisWindowSource for SourceBridge<'_> {
             )?
             .ok_or_else(|| EvaluationError::WindowNotFound(window.clone()))?
             .to_window()
-            .map_err(|missing| EvaluationError::MissingMandatoryField {
-                field: missing.field(),
-            })
+            .map_err(EvaluationError::from)
     }
 }

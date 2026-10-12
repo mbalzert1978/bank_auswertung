@@ -48,7 +48,7 @@ mod store;
 
 pub use oracle::CollectingCategorizer;
 pub(crate) use registry::LEARNED_CATEGORIES_TABLE;
-pub use registry::{LearnError, RejectCause, SqliteCategoryRegistry};
+pub use registry::{CategoryLabel, LearnError, RejectCause, SqliteCategoryRegistry};
 pub use source::AuswertungsfensterSource;
 pub use store::{AuswertenEvaluations, AuswertenSqliteStore, AuswertenUnit};
 

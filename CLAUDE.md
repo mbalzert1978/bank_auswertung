@@ -345,7 +345,8 @@ fingerprint, known labels kept unless `--korrektur`. What goes out is chosen by 
 counterparty is classified once (`Party`: intermediary / company / person / none); intermediary → only
 the purpose, company → only the name, **persons never** (so card payments get no chat label), and one
 **egress word rule** drops every word with a digit or `@` before splitting. The creditor ID is
-**parsed** (form + mod 97) in `obfuskieren`; an invalid one makes the counterparty a person.
+**parsed** (form + mod 97) in `obfuskieren` (an invalid one makes the counterparty a person) **and**
+again at `auswerten`'s ACL (a row from an older file with an invalid one ends the run terminally).
 **Still open:** the
 `report` presenter with its egress-DTO `Serialize` guard. Also deferred: persistent seed management
 ([ADR-0010](docs/adr/0010-seed-basierte-pseudonym-stabilitaet.md),
