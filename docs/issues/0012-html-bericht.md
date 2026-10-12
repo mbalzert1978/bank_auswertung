@@ -46,6 +46,9 @@ funktionieren.
       SQLite-Speicher oder Kategorisierer-Adapter im Testlauf.
 - [ ] Ist `RunReport::incomplete() > 0`, nennt der Bericht sichtbar, wie viele Buchungen der
       Analyse fehlen ([ADR-0017](../adr/0017-dead-letter-als-status-spalte-der-outbox.md)).
+- [ ] Jedes Kategorie-Etikett wird im HTML **escaped**: es stammt aus einer Chat-Antwort
+      ([0011](0011-kategorisierer-chat-payload-adapter.md)) und ist nur auf Länge, Einzeiligkeit und
+      Steuerzeichen geprüft, nicht auf HTML.
 
 ## Blockiert durch
 

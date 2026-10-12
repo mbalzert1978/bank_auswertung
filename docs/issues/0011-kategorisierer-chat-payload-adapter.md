@@ -62,8 +62,9 @@ Intermediärs — das nutzt die Intermediär-Erkennung aus Slice 0005.
 
 ## Entwurf (Datenschutz-Review vor dem Bau)
 
-> Stand 2026-10-12, **noch nicht gebaut**. Erster Datenabfluss nach außen — darum zuerst dieser
-> Entwurf, dann das Review, dann der Bau. Drei Stellen brauchen eine Entscheidung (§ 9).
+> Stand 2026-10-12. Erster Datenabfluss nach außen — darum zuerst der Entwurf, dann das Review, dann
+> der Bau. Das Review (BLOCK, drei Blocker) und die Entscheidungen des Orchestrators sind
+> **eingearbeitet**; § 9 hält fest, was entschieden wurde.
 
 ### 1. Aufruf
 
@@ -78,30 +79,32 @@ bank-auswertung --db lauf.sqlite --csv giro.csv --fenster fenster.toml --seed se
 - `--kategorien-export` ist **optional**; ohne sie läuft alles wie heute.
 - Die Datei entsteht **nur bei Exit 0**, am Ende des Laufs, und enthält genau die Anfragen **dieses**
   Laufs — dieselbe Regel, die ADR-0016 (C) für den Bericht festlegt: kein nachträgliches Suchen per
-  `max(run_id)`, kein Export eines halben Laufs. Bei Exit 1 entsteht keine Datei; eine alte bleibt
-  unberührt.
-- Geschrieben wird in eine Nachbar-Datei und dann umbenannt — eine halb geschriebene Anfrage gibt es
-  nicht. Eine vorhandene Datei wird ersetzt.
-- Warum kein eigener Befehl `export`: den Text der Anfrage bildet die **Domäne** beim Auswerten
-  (`AnalysisWindow::category_requests`). Ein späterer Befehl müsste ihn aus der Datenbank neu bilden
-  — das kann io nicht (Fingerabdruck und Text sind Domänenwissen), oder es bräuchte eine neue Tabelle
-  samt Schema-Migration (Konflikt mit 0085). Ein Lauf mit derselben CSV ist seit ADR-0016 harmlos;
-  wer die Option vergessen hat, wiederholt einfach den Lauf.
+  `max(run_id)`, kein Export eines halben Laufs. Bei Exit 1 entsteht keine Datei.
+- Geschrieben wird in eine **neue** Nachbar-Datei mit Rechten `0600`, dann umbenannt. Scheitert das
+  Schreiben, wird die Nachbar-Datei gelöscht und eine **alte** Export-Datei bleibt unberührt.
+- Warum kein eigener Befehl `export`: den Text der Anfrage bildet die **Domäne** beim Auswerten. Ein
+  späterer Befehl müsste ihn aus der Datenbank neu bilden — das kann io nicht (Fingerabdruck und Text
+  sind Domänenwissen), oder es bräuchte eine neue Tabelle samt Schema-Migration. Ein Lauf mit
+  derselben CSV ist seit ADR-0016 harmlos; wer die Option vergessen hat, wiederholt den Lauf.
 
 **Import = eigener Befehl**, er braucht nur die Datenbank:
 
 ```bash
 bank-auswertung kategorien-import --db lauf.sqlite --antwort kategorien-antwort.json
+bank-auswertung kategorien-import --db lauf.sqlite --antwort korrektur.json --korrektur
 ```
 
-- Exit `0` = gelesen (auch wenn Einträge verworfen wurden), `1` = abgewiesen (Datei unlesbar,
-  Format kaputt, Widerspruch, Register nicht beschreibbar, falsche Schema-Version), `2` = falsch
-  aufgerufen.
-- Protokoll auf stderr, nur Zählwerte und Positionen: `Kategorien-Import: 12 gelernt, 2 verworfen
-  (Eintrag 4: kein ausgegebener Fingerabdruck; Eintrag 9: leere Kategorie)`. Nie ein Fingerabdruck,
-  nie ein Etikett, nie ein Feldname aus der Datei.
-- Danach: der nächste Lauf fragt nach den gelernten Arten nicht mehr, und der Bericht (0012) liest
-  ihr Etikett über `SqliteCategoryRegistry::categories_of`.
+- Ohne `--korrektur` lernt der Import nur Fingerabdrücke, die **noch unbekannt** sind; ein bekanntes
+  Etikett bleibt (W2). Mit `--korrektur` ersetzt er auch bekannte Etiketten — der bewusste Weg für
+  eine Korrektur.
+- Exit `0` = gelesen; `1` = abgewiesen (Datei unlesbar oder zu groß, Format kaputt, Widerspruch,
+  Register nicht beschreibbar, falsche Schema-Version) **oder** nichts gelernt, aber etwas verworfen;
+  `2` = falsch aufgerufen.
+- Protokoll auf stderr, nur Zählwerte und Positionen: `Kategorien-Import: 12 gelernt, 3 schon
+  bekannt, 2 verworfen (Eintrag 4: Fingerabdruck nie ausgegeben; Eintrag 9: Kategorie ungültig), 1
+  Zusatzfeld übergangen`. Nie ein Fingerabdruck, nie ein Etikett, nie ein Feldname aus der Datei.
+- Danach fragt der nächste Lauf nach den gelernten Arten nicht mehr, und der Bericht (0012) liest ihr
+  Etikett über `SqliteCategoryRegistry::categories_of`.
 
 ### 2. Format
 
@@ -117,7 +120,7 @@ bank-auswertung kategorien-import --db lauf.sqlite --antwort kategorien-antwort.
       "text": "Stadtwerke Beispielstadt"
     },
     {
-      "fingerabdruck": "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-MUSIKDIENST-BEISPIEL",
+      "fingerabdruck": "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:MUSIKDIENST-BEISPIEL",
       "text": "Musikdienst Beispiel"
     }
   ]
@@ -132,19 +135,19 @@ PayPal-Lastschrift mit Zweck `PP.4711.PP Musikdienst Beispiel`.
 | `format` | feste Zeichenkette, Versionsziffer für spätere Änderungen |
 | `anleitung` | fester Text im Programm, enthält keine Daten |
 | `anfragen[]` | je unbekannter Buchungs**art** genau ein Eintrag mit genau zwei Feldern |
-| `anfragen[].fingerabdruck` | `CategoryRequestRow::fingerprint` |
-| `anfragen[].text` | `CategoryRequestRow::text` |
+| `anfragen[].fingerabdruck` | `CategoryRequestRow::fingerprint()` |
+| `anfragen[].text` | `CategoryRequestRow::text()` |
 
-Nicht im Export: Lauf-ID, Datum, Betrag, Richtung, Konto-Token (`KONTO_…`), Seed-Marker, Zahl der
-Buchungen.
+Nicht im Export: Lauf-ID, Datum, Betrag, Richtung, Konto-Token (`KONTO_…`), Personen-Token
+(`PERSON_…`), Seed-Marker, Zahl der Buchungen.
 
-**Import** (`kategorien-antwort.json`) — genau die Form, die die Anleitung verlangt:
+**Import** (`kategorien-antwort.json`) — die Form, die die Anleitung verlangt:
 
 ```json
 {
   "antworten": [
     { "fingerabdruck": "COMPANY:DE98ZZZ09999999999", "kategorie": "Wohnen & Energie" },
-    { "fingerabdruck": "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:PP-PP-MUSIKDIENST-BEISPIEL", "kategorie": "Unterhaltung" }
+    { "fingerabdruck": "COMPANY:LU96ZZZ0000000000000000058|MERCHANT:MUSIKDIENST-BEISPIEL", "kategorie": "Unterhaltung" }
   ]
 }
 ```
@@ -153,144 +156,138 @@ Buchungen.
 | --- | --- |
 | `antworten[]` | Liste; die Position (ab 1) ist das Einzige, was eine Meldung über einen Eintrag sagt |
 | `antworten[].fingerabdruck` | Zuordnungsachse — **exakter** Vergleich |
-| `antworten[].kategorie` | das Etikett, getrimmt, nicht leer (wie `learn` es verlangt) |
+| `antworten[].kategorie` | das Etikett: einzeilig, ohne Steuerzeichen, getrimmt 1–60 Zeichen (W3) |
+| jedes weitere Feld | wird **nie gelesen**, nur gezählt |
 
 ### 3. Herkunft jedes exportierten Werts
 
 | Wert | Herkunft | Schranke | Warum keine IBAN/BIC/kein Klarname/kein Seed |
 | --- | --- | --- | --- |
-| `COMPANY:<id>` | Spalte Gläubiger-ID, unverändert durch `obfuskieren` | bewusste Ausnahme: öffentliche Firmenkennung (CONTEXT.md, ADR-0010) | die Gläubiger-ID benennt den **Einzieher**, nicht den Kontoinhaber; IBAN/BIC stehen in eigenen Spalten, die `obfuskieren` tokenisiert bzw. verwirft |
-| `MERCHANT:<token>` | Verwendungszweck nach `ObfuskierterText` (IBAN → `[IBAN]`, BIC → `[BIC]`, bekannte Namen → `[PERSON]`), dann `merchant_token`: großgeschrieben, **ohne jedes Wort mit Ziffer** | `ObfuskierterText` + Ziffern-Filter | eine IBAN ist im Text schon ersetzt; eine nicht erkannte trüge Ziffern und fällt am Filter. Ein **unbekannter** Name bleibt stehen (Grenze, § 8) |
-| `PERSON:PERSON_<hex>` | SipHash-1-3 über (Seed, Name), 128 Bit | Pseudonym (ADR-0010) | kein Byte des Namens reist mit; der Seed bleibt lokal. Nur so stark wie der Seed — siehe § 9, Frage 1 |
-| `text` | gescrubbter Firmenname bzw. gescrubbter Verwendungszweck (Wahl siehe § 4), danach in der **Domäne** jedes Wort mit Ziffer oder `@` entfernt | `ObfuskierterText` + Wort-Filter | wie oben; der Wort-Filter nimmt zusätzlich Kunden-, Vertrags-, Rechnungs-, Telefonnummern, Datumsangaben, Reste einer verfremdeten IBAN und E-Mail-Adressen mit — alles, was für die Kategorie nichts sagt, aber eine Person verraten kann |
+| `COMPANY:<id>` | Spalte Gläubiger-ID | `CreditorId` wird in `obfuskieren` **geparst** (B2): Form der SEPA-Gläubiger-ID + Mod-97; eine ungültige gilt als **fehlend** → Person | eine IBAN, ein Name oder anderer Unsinn in der Spalte ist keine gültige Gläubiger-ID und erreicht den Fingerabdruck nicht; die gültige benennt den **Einzieher**, nicht den Kontoinhaber (bewusste Ausnahme, CONTEXT.md) |
+| `MERCHANT:<token>` | Verwendungszweck nach `ObfuskierterText`, dann die **Egress-Wortregel** (§ 4), dann Wörter großgeschrieben | `ObfuskierterText` + Egress-Wortregel | eine IBAN ist im Text schon ersetzt; eine nicht erkannte trüge Ziffern, eine E-Mail ein `@` — beide fallen **als ganzes Wort**, bevor zerlegt wird (B1). Ein **unbekannter** Name bleibt stehen (§ 9) |
+| `text` | gescrubbter Firmenname bzw. gescrubbter Zweck eines Durchleiters (§ 4), danach dieselbe Egress-Wortregel | `ObfuskierterText` + Egress-Wortregel | wie oben; die Regel nimmt dazu Kunden-, Vertrags-, Rechnungs-, Telefonnummern und Datumsangaben mit |
 | `format`, `anleitung` | Konstanten im Code | — | enthalten keine Daten |
 
-Der Seed erscheint in keinem Feld; aus ihm abgeleitet ist allein das Pseudonym in `PERSON:…`.
+Personen gehen **nicht** hinaus (§ 9, Entscheidung a). Damit verlässt **kein** vom Seed abgeleiteter
+Wert die Maschine — weder ein `PERSON_…`- noch ein `KONTO_…`-Token, noch der Seed-Marker.
 
-### 4. Welcher Text — Durchleiter, Firma, Person
+### 4. Gegenpartei einmal einordnen, Text und Fingerabdruck daraus
 
-Heute (`Counterparty::category_text`) ist der Text **Name + Zweck** für jede Gegenpartei. Das ändert
-sich in der Domäne (`auswerten_domain`, Regel neben dem Fingerabdruck, dieselbe `is_intermediary`):
+Die Domäne ordnet die Gegenpartei **einmal** ein, als Summentyp (W4):
 
-| Gegenpartei | Text | Fehlt das Feld |
-| --- | --- | --- |
-| **Durchleiter** (PayPal, Amazon-Firmierungen, Klarna — erkannt wie beim Fingerabdruck, zuerst über die Gläubiger-ID) | **nur** der Verwendungszweck — der Name „PayPal Europe …" sagt nichts über die Kategorie (AK 2, CONTEXT.md „Zahlungsintermediär") | kein Zweck → **keine** Anfrage |
-| **Firma** (mit Gläubiger-ID) | **nur** der Firmenname | kein Name → der Zweck |
-| **Person** (ohne Gläubiger-ID) | siehe § 9, Frage 1 | — |
-| keine Gegenpartei (Entgelt) | keine Anfrage (kein Fingerabdruck), wie heute | — |
+| Art | erkannt an | Fingerabdruck | Anfrage-Text |
+| --- | --- | --- | --- |
+| **Durchleiter** | Firma, deren Gläubiger-ID (zuerst) oder Name einen Durchleiter nennt | `COMPANY:<id>` + `\|MERCHANT:<token>`, wenn der Zweck einen Token ergibt | **nur** der Zweck (AK 2); ohne verwertbaren Zweck **keine** Anfrage |
+| **Firma** | Gläubiger-ID vorhanden | `COMPANY:<id>` | **nur** der Name; ohne Namen **keine** Anfrage (kein Rückfall auf den Zweck) |
+| **Person** | Name ohne Gläubiger-ID | `PERSON:<pseudonym>` | **keine** Anfrage |
+| **Keine** | weder noch (Entgelt) | keiner | keine Anfrage |
 
-Neu ist zweierlei, beides **Datenminimierung**: bei einer gewöhnlichen Firma fällt der Zweck weg
-(dort stehen Kundennummer, Vertragsnummer, oft der Name des Kontoinhabers; die Firma ist das
-Kategorie-Signal), und aus jedem Text fällt jedes Wort mit Ziffer oder `@`. Bleibt danach nichts
-übrig, gibt es keine Anfrage. Pro Art gewinnt wie heute der **erste** Text des Fensters; über die
-Fenster des Laufs hinweg ebenfalls der erste (Reihenfolge der Outbox, also für dieselbe Datei
-gleich).
+Fingerabdruck und Anfrage-Text sind zwei vollständige `match`-Funktionen auf diesem Summentyp.
+
+**Die Egress-Wortregel gibt es genau einmal** (B1): zerlegt an Leerraum, fällt jedes Wort, das eine
+Ziffer oder ein `@` trägt — **bevor** der Händler-Token weiter an Satzzeichen zerlegt. So wird aus
+`PP.4711.PP max.mustermann@web.de Musikdienst` der Token `MUSIKDIENST`, nicht
+`PP-PP-MAX-MUSTERMANN-WEB-DE-MUSIKDIENST`. Sie gilt für den Händler-Token **und** den Anfrage-Text.
+Bleibt nichts übrig, gibt es keinen Token bzw. keine Anfrage. Das ändert bestehende Fingerabdrücke
+von Durchleitern; das Register ist noch leer, die Änderung kostet also nichts.
+
+Pro Art gewinnt wie heute der **erste** Text des Fensters; über die Fenster des Laufs hinweg
+ebenfalls der erste (Reihenfolge der Outbox, für dieselbe Datei gleich).
 
 ### 5. Was „unbekannt" heißt und welcher Lauf
 
 1. Je Fenster bildet die Domäne die Anfragen (eine je Fingerabdruck) und fragt das Register
-   (`known_among`, Issue 0009). Nur der Rest geht an den `Categorizer`-Port — so ist es schon gebaut.
-2. In io erfüllt den Port statt `UnansweredCategorizer` ein **sammelnder Kategorisierer**: er merkt
-   sich die Anfragen im Speicher und antwortet leer (der Lauf rechnet weiter wie heute, ADR-0004).
-3. Er sammelt **erst ab Phase 2** des Laufs. Phase 1 kann einen liegengebliebenen alten Lauf zu
-   Ende führen; dessen Anfragen gehören nicht in diesen Export. Phase 2 verarbeitet nur Nachrichten
-   des eben geminteten Laufs.
-4. Am Ende (Exit 0) fragt io das Register ein zweites Mal (`known_among`) und lässt Bekanntes weg —
-   eine doppelte Sicherung, falls sich das Register während des Laufs geändert hätte.
-
-Damit stehen im Export genau die Fingerabdrücke dieses Laufs, die das Register nicht kennt (AK 1).
+   (`known_among`, Issue 0009). Nur der Rest geht an den `Categorizer`-Port.
+2. In io erfüllt den Port statt `UnansweredCategorizer` ein **sammelnder Kategorisierer** — ein
+   Zustand mit zwei Fällen: *ruhend* (antwortet leer, merkt sich nichts) und *sammelnd* (merkt sich
+   die Anfragen, antwortet leer). Der Lauf rechnet weiter wie heute (ADR-0004).
+3. Er sammelt **erst ab Phase 2** des Laufs. Phase 1 kann einen liegengebliebenen alten Lauf zu Ende
+   führen; dessen Anfragen gehören nicht in diesen Export.
+4. Am Ende (Exit 0) fragt io das Register ein zweites Mal (`known_among`) und lässt Bekanntes weg.
 
 ### 6. Wie der Compiler den Leak verhindert
 
-- Der einzige Weg in die Datei ist der Orakel-Seam: der sammelnde Kategorisierer bekommt
-  ausschließlich `&[CategoryRequestRow]`, und der Export-Schreiber nimmt ausschließlich, was er
-  gesammelt hat. Eine `CategoryRequestRow` entsteht im Adapter nur aus einer `CategoryRequest`, und
-  die kann nur die Domäne bauen (`pub(crate) new`).
-- `CategoryRequestRow` trägt schon den Guard `assert_not_impl_any!(CategoryRequestRow: Serialize,
-  Deserialize<'static>)` (`crates/auswerten_adapter/src/lib.rs`). Er bleibt.
-- Im ganzen Export- und Import-Pfad leitet **kein** Typ `Serialize` oder `Deserialize` ab. Das JSON
-  baut io von Hand als `serde_json::Value` aus genau den zwei benannten Feldern
-  (`"fingerabdruck": row.fingerprint`, `"text": row.text`). Bekommt die Zeile später ein drittes
-  Feld, landet es **nicht** automatisch im Export.
-- Neue Abhängigkeit: `serde_json` in `crates/io` (heute ist dort weder `serde` noch `serde_json`).
-  Kein `serde`-Derive.
-- Ein Test prüft zusätzlich, dass jeder Eintrag genau diese zwei Schlüssel hat.
+- `CategoryRequestRow` bekommt **private** Felder mit Lese-Methoden; ihr **einziger** Konstruktor
+  ist `From<&CategoryRequest>`, und eine `CategoryRequest` kann nur die Domäne bauen
+  (`pub(crate) new`). io kann also keine Anfrage-Zeile aus eigenen Zeichenketten erfinden (B3).
+- Der Guard `assert_not_impl_any!(CategoryRequestRow: Serialize, Deserialize<'static>)` bleibt.
+- Der **Export-Schreiber** ist ein eigenes schmales io-Modul. Seine Signatur nimmt nur das Ziel und
+  `&[CategoryRequestRow]` — keine Config, keine Datenbank, keinen Seed. Das JSON baut er von Hand als
+  `serde_json::Value` aus genau den zwei benannten Feldern. Kein Typ im Export- und Import-Pfad leitet
+  `Serialize`/`Deserialize` ab; neu ist nur `serde_json` in `crates/io`.
 
 ### 7. Import: Zuordnung nur über den Fingerabdruck
 
-Der Import liest die Datei als `serde_json::Value` und prüft von Hand, Eintrag für Eintrag:
+1. Datei größer als 1 MiB, kein gültiges JSON, oder oben kein Objekt mit `antworten`-Liste →
+   **ganze Datei abgewiesen**. Meldung: statische Ursache plus Zeile/Spalte, nie der Fehlertext von
+   `serde_json`.
+2. Ein Eintrag ist kein Objekt, oder `fingerabdruck`/`kategorie` fehlt oder ist kein Text → Eintrag
+   **verworfen**. Weitere Felder (`text`, `begruendung` …) werden **nie gelesen**, nur gezählt.
+3. `kategorie` muss ein gültiges **`Kategorie`-Value-Object** sein (W3): getrimmt 1–60 Zeichen,
+   einzeilig, keine Steuerzeichen — sonst Eintrag verworfen.
+4. **Widerspruch** (W6): über alle formal gültigen Einträge — **vor** den Filtern unten — prüft der
+   Import, ob ein Fingerabdruck zwei verschiedene Kategorien bekommt. Dann ist die **ganze Datei**
+   abgewiesen, mit beiden Positionen aus der Datei.
+5. `fingerabdruck` (getrimmt) ist nicht **exakt** gleich einem Fingerabdruck, den eine Auswertung
+   ausgegeben hat (`window_evaluation_fingerprints`, neue Lese-Methode `issued_among`) → verworfen.
+   Kein Vergleich ohne Groß/klein, kein Präfix, keine Ähnlichkeit, keine Suche über Text.
+6. Ohne `--korrektur`: ein Fingerabdruck, den das Register schon kennt, wird **übergangen** (gezählt,
+   nicht überschrieben).
+7. Der Rest geht in **einem** Aufruf an `SqliteCategoryRegistry::learn` — alles oder nichts;
+   `learn`s eigene Prüfungen bleiben das letzte Netz.
 
-1. Kein gültiges JSON, oder oben kein Objekt mit `antworten`-Liste → **ganze Datei abgewiesen**,
-   nichts gelernt. Meldung: statische Ursache plus Zeile/Spalte (`serde_json::Error::line/column`),
-   nie der Fehlertext von `serde_json`.
-2. Ein Eintrag ist kein Objekt, hat nicht **genau** die Felder `fingerabdruck` und `kategorie` (beide
-   Text), oder trägt ein weiteres Feld (`text`, `verwendungszweck`, `begruendung` …) → **Eintrag
-   verworfen**. Ein Feld außer diesen beiden wird nie gelesen — auch nicht zur Zuordnung.
-3. `kategorie` leer → Eintrag verworfen (eine leere Kategorie ist keine Antwort, wie in der
-   `CategorizerBridge`).
-4. `fingerabdruck` (getrimmt) ist nicht **exakt** gleich einem Fingerabdruck, den eine Auswertung
-   ausgegeben hat (`window_evaluation_fingerprints`) → Eintrag verworfen. Kein Vergleich ohne
-   Groß/klein, kein Präfix, keine Ähnlichkeit, keine Suche über Text. Dafür bekommt
-   `SqliteCategoryRegistry` eine Lese-Methode `issued_among(&[String])`.
-5. Der Rest geht in **einem** Aufruf an `SqliteCategoryRegistry::learn` — alles oder nichts.
-   Derselbe Fingerabdruck mit zwei verschiedenen Etiketten → **ganze Datei abgewiesen**, mit der
-   Position aus der Datei (das Register rät nicht, welches gemeint war). `learn`s eigene Prüfung auf
-   `UnknownFingerprint` bleibt das letzte Netz.
+### 8. Tests (alle Daten erfunden)
 
-Ein schon bekannter Fingerabdruck darf im Import stehen: dann ist es eine **Korrektur**, `learn`
-ersetzt das Etikett. Der Lauf schreibt das Register nie; eine Korrektur bleibt also in jedem
-weiteren Lauf erhalten.
+In `crates/io` gegen echtes SQLite, über `io::run::run` mit eigener Fixture-CSV:
 
-### 8. Geplante Tests (alle Daten erfunden)
+- **Leak-Test**, geprüft auf den rohen **und** normalisierten Bytes der Export-Datei (groß, ohne
+  Trenner — so fällt auch `MAX-MUSTERMANN` auf): erfundene IBANs (Gegenkonto, im Zweck kompakt und
+  gruppiert), eine BIC (Spalte und im Zweck), ein Name aus `--personen` und eine E-Mail im Zweck eines
+  **Durchleiters**, ein Empfänger ohne Gläubiger-ID, Spalte 5 mit einer IBAN bzw. einem Namen, eine
+  Kundennummer. Nicht im Export: keiner dieser Werte, kein `KONTO_…`/`PERSON_…`-Token und nicht der
+  Seed-Marker aus `obfuskiert` — jeweils auch als bloße 32 Hex-Zeichen —, nicht der Seed. Jeder
+  Eintrag hat genau `fingerabdruck` und `text`.
+- **Ehrliche Gegenprobe:** eine ausländische BIC ohne Hinweis bleibt stehen (bekannte Lücke aus 0010).
+- **Textwahl:** Durchleiter → Zweck, nicht „PayPal …"; Durchleiter ohne Zweck → keine Anfrage; Firma
+  ohne Namen → keine Anfrage; Person → keine Anfrage.
+- **Nur dieser Lauf, nur Unbekanntes:** ein liegengebliebener alter Lauf steht nicht im Export; ein
+  bekannter Fingerabdruck auch nicht.
+- **Round-Trip:** Lauf mit Export → kanonische Fixture-Antwort → Import → `categories_of` → zweiter
+  Lauf: die gelernten Arten stehen nicht mehr im Export.
+- **Kein Überschreiben / Korrektur:** ohne `--korrektur` bleibt ein bekanntes Etikett; mit
+  `--korrektur` wird es ersetzt und bleibt nach einem weiteren Lauf.
+- **Keine Text-Zuordnung:** falscher Fingerabdruck + passender `text` → verworfen; Fingerabdruck in
+  anderer Groß-/Kleinschreibung → verworfen; richtiger Fingerabdruck + `begruendung` → gelernt.
+- **Widerspruch, kaputtes JSON, zu große Datei, ungültige Kategorie** → wie in § 7.
+- **Protokoll:** stderr des Imports trägt weder Fingerabdruck noch Etikett.
+- **Exit 1** → keine Export-Datei; alte Datei bleibt.
 
-In `crates/io` gegen echtes SQLite, über `io::run::run` mit einer eigenen Fixture-CSV:
+In `obfuskierung_specs`: Spalte 5 mit IBAN bzw. Namen → Person. In `auswerten_specs`: die Einordnung
+aus § 4 und die Egress-Wortregel. In `crates/lauf`: Option und Unterbefehl.
 
-- **Leak-Test.** Die CSV trägt erfundene IBANs (Gegenkonto **und** im Verwendungszweck, kompakt und in
-  Vierergruppen), eine erfundene BIC (Spalte **und** im Zweck, mit und ohne `BIC:`), einen Empfänger
-  ohne Gläubiger-ID mit Klarnamen, denselben Namen im Zweck einer Firma, einen Namen aus
-  `--personen`, eine Kundennummer, eine E-Mail-Adresse. Der Seed ist ein auffälliger Wert. Geprüft
-  wird auf den **rohen Bytes** der Export-Datei: keine IBAN (kompakt, gruppiert, klein), keine BIC,
-  kein Name (beliebige Schreibweise), keine der Nummern, keine E-Mail, kein `KONTO_`, nicht der Seed
-  (dezimal und hex). Dazu: jeder Eintrag hat genau `fingerabdruck` und `text`.
-- **Durchleiter.** Eine PayPal-Zeile: der Text ist der Zweck, nicht „PayPal …".
-- **Nur Unbekanntes.** Ein Fingerabdruck, den das Register schon kennt, steht nicht im Export.
-- **Round-Trip.** Lauf mit Export → kanonische Fixture-Antwort (`crates/io/fixtures/kategorien/`) →
-  `kategorien-import` → `categories_of` liefert die Etiketten → zweiter Lauf: die gelernten Arten
-  stehen nicht mehr im Export.
-- **Korrektur bleibt.** Import Etikett A, Import Etikett B für denselben Fingerabdruck, dann ein Lauf
-  → B.
-- **Keine Text-Zuordnung.** Antworten mit (a) dem Firmennamen bzw. dem Text der Anfrage als
-  `fingerabdruck`, (b) einem Fingerabdruck in anderer Groß-/Kleinschreibung, (c) `text` +
-  `kategorie` ohne `fingerabdruck`, (d) einem Zusatzfeld → alle verworfen, nichts davon gelernt;
-  die korrekten Einträge daneben werden gelernt. Die Meldung nennt keinen der Werte.
-- **Widerspruch und kaputtes JSON** → nichts gelernt, Meldung redigiert.
-- **Exit 1** → keine Export-Datei.
+### 9. Entscheidungen und bewusste Grenzen
 
-In `auswerten_specs` über die `EvaluationTestApi`: die Textwahl aus § 4 (Durchleiter, Firma mit und
-ohne Name, Wort-Filter, Person nach § 9). In `crates/lauf`: die neue Option und der Unterbefehl.
+Entschieden (Orchestrator, 2026-10-12):
 
-### 9. Offene Entscheidungen für das Review
+- **(a) Personen werden nicht exportiert.** Preis: Kartenzahlungs-Händler tragen keine Gläubiger-ID
+  und gelten darum fail-safe als Person — **alle Kartenzahlungen** fehlen im Chat, ebenso
+  Überweisungen an Personen (Miete an einen privaten Vermieter, Taschengeld).
+- **(b) Firma nur mit Namen**, ohne Namen keine Anfrage.
+- **(c) Zusatzfelder** einer Antwort werden nie gelesen, nur gezählt.
 
-1. **Personen exportieren?** Empfehlung: **nein**. Eine Person (keine Gläubiger-ID) bekommt keine
-   Anfrage. Grund: ihr Fingerabdruck ist `PERSON:PERSON_<hex>`, und das Pseudonym ist nur so stark wie
-   der Seed. Der Seed ist ein frei gewählter `u64` ohne Mindestanforderung (`config/seed.rs`,
-   `0` ist gültig). Bei einem schwachen Seed (`seed = 42`) kann der Chat-Anbieter mit einer Namensliste
-   und den kleinen Seeds durchprobieren und den Namen zurückgewinnen. Dazu ist der Zweck einer
-   Überweisung an eine Person der Text mit dem höchsten Risiko (Vornamen, Teilnamen — die
-   bekannte Lücke aus 0010). Ohne Personen verlässt **kein** vom Seed abgeleiteter Wert die Maschine.
-   Preis: Überweisungen an Personen (Miete an einen privaten Vermieter, Taschengeld) bekommen per Chat
-   kein Etikett. Alternative: Personen mit Zweck (nach Wort-Filter) exportieren und eine
-   Seed-Mindeststärke als eigenes Ticket fordern.
-2. **Firma: nur der Name?** Empfehlung: ja (§ 4). Alternative: Name + gefilterter Zweck wie heute.
-3. **Zusatzfeld im Import:** Empfehlung: Eintrag verwerfen (§ 7, Punkt 2). Alternative: Zusatzfelder
-   still übergehen — LLMs hängen gern eine `begruendung` an.
+**Bewusste Grenzen** (ehrlich benannt, keine Anonymisierung):
 
-**Bleibt als Grenze, auch nach dem Bau** (ehrlich benannt, keine Anonymisierung):
-
-- Eine **natürliche Person mit Gläubiger-ID** (privater Vermieter, Verein, Einzelunternehmer) gilt als
-  Firma; ihr Name geht als `text` hinaus. Abhilfe: ihren Namen vor dem ersten Lauf in
-  `personen.toml` eintragen — dann wird er auch im Firmennamen zu `[PERSON]`.
-- Ein Name, der weder Empfänger ohne Gläubiger-ID war noch in `personen.toml` steht, bleibt im Text
-  und im Händler-Token stehen.
+- Ein **starker, zufälliger Seed** ist Voraussetzung für jeden späteren Export seed-abgeleiteter Werte
+  (heute ist der Seed ein frei gewählter `u64`, `0` ist gültig). Gehört in die Checkliste von
+  Schritt 6.
+- Eine **natürliche Person mit gültiger Gläubiger-ID** (privater Vermieter, Verein,
+  Einzelunternehmer) gilt als Firma; ihr Name geht als `text` hinaus. Abhilfe: den Namen vor dem
+  ersten Lauf in `personen.toml` eintragen — dann wird er auch im Firmennamen zu `[PERSON]`.
+- Ein **unbekannter Name** — weder Empfänger ohne Gläubiger-ID noch in `personen.toml` — bleibt im
+  Text **und im Händler-Token** stehen (etwa ein PayPal-Freund im Zweck). Abhilfe: PayPal-Freunde,
+  Vornamen und den **eigenen** Namen in `personen.toml` eintragen; das sagt auch der Hilfetext.
+- Der Chat-Anbieter sieht das **Gläubiger-Profil** des Haushalts: welche Firmen einziehen (Versicherer,
+  Vermieter, Vereine, Streaming). Das ist der Preis der Kategorisierung per Chat.
+- Eine ausländische BIC ohne Ziffer und ohne `BIC`-Hinweis bleibt im Text stehen (Lücke aus 0010).
 - Die Export-Datei ist lesbar. Der Nutzer trägt sie selbst in den Chat — **vorher ansehen** ist die
   letzte Schranke, und der Hilfetext sagt das.
