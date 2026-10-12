@@ -361,6 +361,8 @@ pub(crate) const MAR_15: i64 = 19_797;
 pub(crate) const APR_15: i64 = 19_828;
 /// 2024-05-15
 pub(crate) const MAI_15: i64 = 19_858;
+/// 2024-06-15
+pub(crate) const JUN_15: i64 = 19_889;
 
 // Ein **jährlicher** Takt am Monatsanfang — die Lage, die nur die Sicht über **alle** Fenster belegt.
 /// 2023-03-01

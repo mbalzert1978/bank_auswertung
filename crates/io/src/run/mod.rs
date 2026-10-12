@@ -66,10 +66,10 @@ use crate::schema::{self, SchemaError, VersionMismatch};
 use crate::sqlite::SqliteOutbox;
 
 mod ack_sink;
-mod occurrence_sink;
+mod history_sink;
 
 pub use ack_sink::AckSink;
-pub use occurrence_sink::CountingOccurrenceSink;
+pub use history_sink::CountingHistorySink;
 
 use application_kernel::PublishCommand;
 
@@ -236,7 +236,7 @@ pub fn run(paths: &RunPaths, protocol: &mut dyn Write) -> Result<RunReport, RunE
     let outbox = schema::open(&AppConfig::new(&paths.database))?;
     let adapters = Adapters::new(&outbox, paths);
     let stores = Stores::new(&outbox);
-    let occurrences = CountingOccurrenceSink::default();
+    let occurrences = CountingHistorySink::default();
     let dispatcher = DispatcherBuilder::new(&outbox, &adapters, stores)
         .window_days(window_days)
         .seed(seed)
@@ -363,7 +363,7 @@ struct Complete<'a> {
     window_days: NonZeroU32,
     seed: u64,
     own_accounts: OwnAccountsConfig,
-    occurrences: &'a CountingOccurrenceSink,
+    occurrences: &'a CountingHistorySink,
 }
 
 impl<'a, C> DispatcherBuilder<'a, C> {
@@ -423,7 +423,7 @@ impl<'a> DispatcherBuilder<'a, WithOwnAccounts> {
     /// Die Senke, die die fenster-übergreifenden Vorkommen zählt.
     fn occurrences(
         self,
-        occurrences: &'a CountingOccurrenceSink,
+        occurrences: &'a CountingHistorySink,
     ) -> DispatcherBuilder<'a, Complete<'a>> {
         self.advance(
             |WithOwnAccounts {

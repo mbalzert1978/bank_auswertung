@@ -8,9 +8,9 @@ use crate::value_objects::{Amount, DayStamp};
 /// der ein Mensch entscheidet, ob ihm der Dienst das noch wert ist — eine nackte Differenz ließe die
 /// Frage offen, worauf sie sich bezieht.
 ///
-/// **Vorzeichenlos und nur aufwärts:** `after` ist per Konstruktion größer als `before` — die
-/// Erkennung bildet eine Preissteigerung nur aus einer Stufe nach oben. Eine Senkung bricht die
-/// Reihe ab (siehe `Recurrence`), statt hier als negative Steigerung aufzutauchen.
+/// **Nur aufwärts, per Konstruktion:** der einzige Konstruktor gibt `None`, wenn `after` nicht
+/// größer als `before` ist. Eine „Preissteigerung", die in Wahrheit eine Senkung ist, lässt sich
+/// damit nicht bauen — nicht geprüft, sondern unkonstruierbar (ADR-0005).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PriceIncrease {
     since: DayStamp,
@@ -19,13 +19,14 @@ pub struct PriceIncrease {
 }
 
 impl PriceIncrease {
+    /// Die Steigerung ab `since` von `before` auf `after` — oder `None`, wenn es keine ist.
     #[must_use]
-    pub(crate) const fn of(since: DayStamp, before: Amount, after: Amount) -> Self {
-        Self {
+    pub(crate) fn of(since: DayStamp, before: Amount, after: Amount) -> Option<Self> {
+        (after > before).then_some(Self {
             since,
             before,
             after,
-        }
+        })
     }
 
     /// Der **Stichtag**: die erste Abbuchung zum neuen Betrag.

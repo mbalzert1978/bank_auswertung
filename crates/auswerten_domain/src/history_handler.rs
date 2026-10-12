@@ -1,8 +1,7 @@
-use crate::entities::HistoryEvaluation;
 use crate::error::EvaluationError;
 use crate::models::EvaluateHistory;
 use crate::ports::OccurrenceSource;
-use crate::value_objects::OwnAccounts;
+use crate::value_objects::{HistoryEvaluation, OwnAccounts};
 
 /// Orchestriert die **fenster-übergreifende** Reichweite (ADR-0013, Entscheidung E, Reichweite 2) —
 /// der **zweite einzweckige Handler** des Slice, Geschwister des
@@ -49,16 +48,16 @@ impl<'a> HistoryEvaluationHandler<'a> {
     /// und Wiederkehr bilden. `Ok(auswertung)` = die Sicht über die ganze Zeitachse;
     /// `Err(EvaluationError)` = terminaler Fehler (der Adapter reicht ihn an io).
     pub fn handle(&self, command: EvaluateHistory) -> Result<HistoryEvaluation, EvaluationError> {
-        let history = self.source.history_in(command.span())?;
         // Eine **leere** Historie trägt keinen Marker — und braucht keinen: ohne Buchung gibt es kein
-        // Token, das sich falsch einordnen ließe. Trägt sie einen, muss er der der Config sein, sonst
-        // liefe jede Umbuchung lautlos als „fremd" durch und erschiene als wiederkehrender Abfluss.
-        if history
-            .seed_marker()
-            .is_some_and(|marker| marker != self.own_accounts.marker())
-        {
-            return Err(EvaluationError::SeedMismatch);
+        // Token, das sich falsch einordnen ließe. Trägt sie einen, muss die Config für ihn
+        // nachgewiesen sein, sonst liefe jede Umbuchung lautlos als „fremd" durch und erschiene als
+        // wiederkehrender Abfluss.
+        match self.source.history_in(command.span())?.recorded() {
+            None => Ok(HistoryEvaluation::empty()),
+            Some((marker, bookings)) => Ok(HistoryEvaluation::of(
+                bookings,
+                self.own_accounts.verified_for(marker)?,
+            )),
         }
-        Ok(HistoryEvaluation::of(&history, self.own_accounts))
     }
 }

@@ -1,4 +1,6 @@
-use crate::value_objects::{AccountToken, Amount, DayStamp, Fingerprint, PriceIncrease, Rhythm};
+use crate::value_objects::{
+    AccountToken, Amount, Charge, ChargeSeries, DayStamp, Fingerprint, PriceIncrease, Rhythm,
+};
 
 /// Wie weit ein Betrag vom **Bezugsbetrag** seiner Preisstufe abweichen darf und noch als „ähnlich"
 /// gilt — in Prozent des Bezugsbetrags, beide Richtungen.
@@ -35,26 +37,6 @@ pub struct Recurrence {
     charged_account: AccountToken,
 }
 
-/// Eine **Abbuchung** einer Buchungsart — das, was die Erkennung von einer Buchung braucht. Die
-/// Feldreihenfolge ist die Sortier-Ordnung: erst der Tag (die Zeitachse), dann die Zahl, dann das
-/// Konto — total, damit die Reihe eingabe-unabhängig geordnet ist.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Charge {
-    day: DayStamp,
-    amount: Amount,
-    account: AccountToken,
-}
-
-impl Charge {
-    pub(crate) fn new(day: DayStamp, amount: Amount, account: AccountToken) -> Self {
-        Self {
-            day,
-            amount,
-            account,
-        }
-    }
-}
-
 /// Eine **Preisstufe**: aufeinanderfolgende Abbuchungen, die ihrem ersten Betrag ähnlich sind.
 struct PriceLevel {
     since: DayStamp,
@@ -65,9 +47,9 @@ struct PriceLevel {
 impl PriceLevel {
     fn starting(charge: &Charge) -> Self {
         Self {
-            since: charge.day,
-            reference: charge.amount,
-            amounts: vec![charge.amount],
+            since: charge.day(),
+            reference: charge.amount(),
+            amounts: vec![charge.amount()],
         }
     }
 
@@ -92,21 +74,29 @@ impl Recurrence {
     /// Zwei Prüfungen, beide müssen tragen:
     /// 1. **der Takt** — jeder Abstand zwischen zwei Abbuchungen fällt in dasselbe Band, und es sind
     ///    genug Abbuchungen (siehe [`Rhythm`]);
-    /// 2. **der Betrag** — die Abbuchungen zerfallen chronologisch in Preisstufen, und jede neue Stufe
-    ///    liegt **über** der vorigen. Innerhalb einer Stufe ist jeder Betrag dem ersten ähnlich (±5 %).
-    ///    Ein Betrag **darunter** bricht die Reihe: was mal mehr, mal weniger kostet, ist kein
-    ///    gleichbleibender Abfluss, sondern ein schwankender — und den als Abo auszuweisen wäre eine
-    ///    Aussage, die die Daten nicht tragen.
+    /// 2. **der Betrag** — die Abbuchungen zerfallen chronologisch in Preisstufen. Innerhalb einer
+    ///    Stufe ist jeder Betrag dem ersten ähnlich (±5 %); ein Betrag darüber beginnt eine neue
+    ///    Stufe, einer darunter bricht die Reihe. Zusätzlich muss der **typische** Betrag jeder Stufe
+    ///    über dem der vorigen liegen — sonst gälte eine Folge wie 100 / 105 / 105 / 106 / 101 / 101
+    ///    als „Steigerung", obwohl der Preis gesunken ist (der Schwellwert vergleicht den ersten
+    ///    Betrag einer Stufe, ausgewiesen wird aber der typische). Was mal mehr, mal weniger kostet,
+    ///    ist kein gleichbleibender Abfluss — und den als Abo auszuweisen wäre eine Aussage, die die
+    ///    Daten nicht tragen.
     ///
     /// Gibt es **mehr als eine** Stufe, ist die **jüngste** Stufung die ausgewiesene Preissteigerung:
     /// sie erklärt den heutigen Betrag.
-    pub(crate) fn detect(fingerprint: Fingerprint, charges: &[Charge]) -> Option<Self> {
-        let mut charges = charges.to_vec();
-        charges.sort();
-        let rhythm = Rhythm::of(&charges.iter().map(|charge| charge.day).collect::<Vec<_>>())?;
-        let levels = price_levels(&charges)?;
-        let (current, previous) = match levels.as_slice() {
-            [.., previous, current] => (current, Some(previous)),
+    pub(crate) fn detect(fingerprint: Fingerprint, series: &ChargeSeries) -> Option<Self> {
+        let rhythm = Rhythm::of(series)?;
+        let levels = price_levels(series)?;
+        let (current, price_increase) = match levels.as_slice() {
+            [.., previous, current] => (
+                current,
+                Some(PriceIncrease::of(
+                    current.since,
+                    previous.typical(),
+                    current.typical(),
+                )?),
+            ),
             [current] => (current, None),
             [] => return None,
         };
@@ -114,12 +104,10 @@ impl Recurrence {
             fingerprint,
             rhythm,
             typical_amount: current.typical(),
-            price_increase: previous.map(|previous| {
-                PriceIncrease::of(current.since, previous.typical(), current.typical())
-            }),
+            price_increase,
             // Das Konto der **jüngsten** Abbuchung: dort wird heute abgebucht, und dort müsste eine
             // Kündigung ansetzen. Zog das Abo einmal um, steht hier das neue Konto.
-            charged_account: charges.last()?.account.clone(),
+            charged_account: series.latest_account().clone(),
         })
     }
 
@@ -158,23 +146,30 @@ impl Recurrence {
     }
 }
 
-/// Zerlegt die chronologischen Abbuchungen in **Preisstufen** — oder `None`, sobald ein Betrag unter
-/// die laufende Stufe fällt (die Reihe ist dann kein gleichbleibender Abfluss).
-fn price_levels(charges: &[Charge]) -> Option<Vec<PriceLevel>> {
-    let (first, rest) = charges.split_first()?;
-    rest.iter()
-        .try_fold(vec![PriceLevel::starting(first)], |mut levels, charge| {
+/// Zerlegt die Abbuchungs-Reihe in **Preisstufen** — oder `None`, sobald die Reihe kein
+/// gleichbleibender Abfluss ist: ein Betrag fällt unter die laufende Stufe, oder der **typische**
+/// Betrag einer Stufe liegt nicht über dem der vorigen.
+fn price_levels(series: &ChargeSeries) -> Option<Vec<PriceLevel>> {
+    let levels = series.iter().skip(1).try_fold(
+        vec![PriceLevel::starting(series.first())],
+        |mut levels, charge| {
             let current = levels.last_mut()?;
             match (
-                is_similar(charge.amount, current.reference),
-                charge.amount > current.reference,
+                is_similar(charge.amount(), current.reference),
+                charge.amount() > current.reference,
             ) {
-                (true, _) => current.amounts.push(charge.amount),
+                (true, _) => current.amounts.push(charge.amount()),
                 (false, true) => levels.push(PriceLevel::starting(charge)),
                 (false, false) => return None,
             }
             Some(levels)
-        })
+        },
+    )?;
+    levels
+        .iter()
+        .zip(levels.iter().skip(1))
+        .all(|(earlier, later)| later.typical() > earlier.typical())
+        .then_some(levels)
 }
 
 /// Liegt `amount` innerhalb der Toleranz um `reference`? Gerechnet in `u128`, damit weder die

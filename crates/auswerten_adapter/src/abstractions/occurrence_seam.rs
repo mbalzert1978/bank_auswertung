@@ -3,7 +3,7 @@ use crate::models::RunHistoryRow;
 
 /// Der öffentliche **Lese-Seam** der fenster-übergreifenden Reichweite: liefert die
 /// [`RunHistoryRow`] — die Buchungen **aller** Auswertungsfenster **eines** Laufs samt dem
-/// Seed-Marker ihrer Tokenisierung — — gescopt über die **Lauf-Spanne** `[from … to]`
+/// Seed-Marker ihrer Tokenisierung —, gescopt über die **Lauf-Spanne** `[from … to]`
 /// (beide Grenzen einschließlich), die `fenstern` im `HistorieVollständig`-Signal mitträgt
 /// (ADR-0013, Entscheidung E). **io erfüllt ihn** — roh-typisiert, ohne Domänen-Kenntnis; in den
 /// Specs trägt ihn ein Fake. Die

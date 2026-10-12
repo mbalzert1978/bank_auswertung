@@ -19,7 +19,9 @@
 //! einer Buchungsart auf der Zeitachse des Laufs).
 //!
 //! Die **Wiederkehr-Erkennung** (Issue 0005) setzt darauf auf: der [`Recurrence`] ist ein
-//! wiederkehrender Abfluss, getaktet im [`Rhythm`], gegebenenfalls mit einer [`PriceIncrease`].
+//! wiederkehrender Abfluss, getaktet im [`Rhythm`], gegebenenfalls mit einer [`PriceIncrease`]. Die
+//! gelesene [`RunHistory`] und die zurückgegebene [`HistoryEvaluation`] sind **Werte**, keine
+//! Aggregate: sie haben keine Identität, werden nie abgelegt und entstehen je Lauf neu.
 //!
 //! Die Aggregate (`AnalysisWindow`, `WindowEvaluation`) sind über ihre Identität definiert und
 //! liegen in `entities/`.
@@ -29,11 +31,13 @@ mod booking_kind;
 mod category;
 mod category_answer;
 mod category_request;
+mod charge_series;
 mod counter_account;
 mod counterparty;
 mod currency;
 mod fee;
 mod fingerprint;
+mod history_evaluation;
 mod internal_transfer;
 mod month;
 mod monthly_cashflow;
@@ -44,6 +48,7 @@ mod price_increase;
 mod recipient;
 mod recurrence;
 mod rhythm;
+mod run_history;
 mod run_span;
 mod seed_marker;
 mod window_id;
@@ -54,22 +59,25 @@ pub use booking_kind::BookingKind;
 pub use category::Category;
 pub use category_answer::CategoryAnswer;
 pub use category_request::CategoryRequest;
+pub(crate) use charge_series::{Charge, ChargeSeries};
 pub use counter_account::{AccountRole, AccountToken, CounterAccount};
 pub use counterparty::Counterparty;
 pub use currency::Currency;
 pub use fee::Fee;
 pub use fingerprint::Fingerprint;
+pub use history_evaluation::HistoryEvaluation;
 pub use internal_transfer::InternalTransfer;
 pub use month::{DayStamp, Month};
 pub use monthly_cashflow::MonthlyCashflow;
 pub use non_empty_string::NonEmptyString;
 pub use occurrence::Occurrence;
 pub use own_accounts::OwnAccounts;
+pub(crate) use own_accounts::VerifiedOwnAccounts;
 pub use price_increase::PriceIncrease;
 pub use recipient::Recipient;
-pub(crate) use recurrence::Charge;
 pub use recurrence::Recurrence;
 pub use rhythm::Rhythm;
+pub use run_history::RunHistory;
 pub use run_span::RunSpan;
 pub use seed_marker::SeedMarker;
 pub use window_id::WindowId;

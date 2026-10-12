@@ -84,7 +84,7 @@ mod models;
 mod ports;
 mod value_objects;
 
-pub use entities::{AnalysisWindow, HistoryEvaluation, RunHistory, WindowEvaluation};
+pub use entities::{AnalysisWindow, WindowEvaluation};
 pub use error::EvaluationError;
 pub use handler::WindowEvaluationHandler;
 pub use history_handler::HistoryEvaluationHandler;
@@ -95,6 +95,7 @@ pub use ports::{
 pub use value_objects::{
     AccountRole, AccountToken, Amount, BookingKind, Category, CategoryAnswer, CategoryRequest,
     CounterAccount, Counterparty, Currency, DayStamp, Direction, Fee, Fingerprint,
-    InternalTransfer, Month, MonthlyCashflow, NonEmptyString, Occurrence, OwnAccounts,
-    PriceIncrease, Recipient, Recurrence, Rhythm, RunSpan, SeedMarker, WindowId, WindowedBooking,
+    HistoryEvaluation, InternalTransfer, Month, MonthlyCashflow, NonEmptyString, Occurrence,
+    OwnAccounts, PriceIncrease, Recipient, Recurrence, Rhythm, RunHistory, RunSpan, SeedMarker,
+    WindowId, WindowedBooking,
 };

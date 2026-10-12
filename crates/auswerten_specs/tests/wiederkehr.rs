@@ -19,10 +19,10 @@ use auswerten_adapter::{
 #[path = "../fixtures/mod.rs"]
 mod fixtures;
 use fixtures::{
-    APR_15, FEB_15, HAENDLER, JAN_15, MAERZ_2023, MAERZ_2024, MAERZ_2025, MAI_15, MAR_15,
-    SPARKONTO, ZWEITES_KONTO, dauerauftrag, eigene_konten, eigene_konten_mit_marker, fenster,
-    fenster_mit_marker, fingerabdruck, historie_api, preissteigerung, ueber_paypal, vorkommen,
-    wiederkehr, wiederkehrend,
+    APR_15, FEB_15, FEB_29, HAENDLER, JAN_15, JUN_15, MAERZ_2023, MAERZ_2024, MAERZ_2025, MAI_15,
+    MAR_15, SPARKONTO, ZWEITES_KONTO, dauerauftrag, eigene_konten, eigene_konten_mit_marker,
+    fenster, fenster_mit_marker, fingerabdruck, historie_api, preissteigerung, ueber_paypal,
+    vorkommen, wiederkehr, wiederkehrend,
 };
 
 /// Die Lauf-Spanne, die alle Tage dieses Specs umfasst — von 2023 bis 2025.
@@ -221,6 +221,51 @@ fn ein_gesunkener_betrag_bricht_die_serie() {
     assert_eq!(wiederkehr_in(&api), Ok(vec![]));
 }
 
+#[test]
+fn eine_stufe_mit_gesunkenem_typischem_betrag_ist_keine_preissteigerung() {
+    // 100,00 / 105,00 / 105,00 / 106,00 / 101,00 / 101,00: die 106,00 liegen über der Toleranz der
+    // ersten Stufe und beginnen eine neue — aber deren **typischer** Betrag (101,00) liegt **unter**
+    // dem der ersten (105,00). Das ist eine Senkung, keine Steigerung, und die Reihe als Ganzes
+    // schwankt. Sie wird darum gar nicht ausgewiesen — statt als „Preissteigerung von 105,00 auf
+    // 101,00".
+    let api = historie_api().with_window(
+        "fenster-1",
+        fenster(&[
+            wiederkehrend(JAN_15, 10_000),
+            wiederkehrend(FEB_15, 10_500),
+            wiederkehrend(MAR_15, 10_500),
+            wiederkehrend(APR_15, 10_600),
+            wiederkehrend(MAI_15, 10_100),
+            wiederkehrend(JUN_15, 10_100),
+        ]),
+    );
+
+    assert_eq!(wiederkehr_in(&api), Ok(vec![]));
+}
+
+// --- Bewusste Grenze: eine Art, eine Reihe ---------------------------------------
+
+#[test]
+fn ein_einzelkauf_beim_selben_glaeubiger_bricht_die_reihe() {
+    // Ein Monatsabo und dazwischen ein einzelner Kauf beim **selben** Gläubiger: beide tragen
+    // denselben Fingerabdruck, landen also in **einer** Reihe — und der Einzelkauf zerreißt deren
+    // Takt (Abstand 14 Tage). Die Erkennung trennt das nicht auf (kein Sub-Clustering); sie weist
+    // lieber nichts aus als einen Rhythmus, den die Reihe als Ganzes nicht trägt. Bewusste Grenze,
+    // im Ticket festgehalten.
+    let api = historie_api().with_window(
+        "fenster-1",
+        fenster(&[
+            wiederkehrend(JAN_15, 1_299),
+            wiederkehrend(FEB_15, 1_299),
+            wiederkehrend(FEB_29, 4_999),
+            wiederkehrend(MAR_15, 1_299),
+            wiederkehrend(APR_15, 1_299),
+        ]),
+    );
+
+    assert_eq!(wiederkehr_in(&api), Ok(vec![]));
+}
+
 // --- Zahlungsintermediär --------------------------------------------------------
 
 #[test]
@@ -347,6 +392,31 @@ fn eine_eigene_konten_config_aus_anderer_tokenisierung_endet_terminal() {
         );
 
     assert_eq!(wiederkehr_in(&api), Err(EvaluationError::SeedMismatch));
+}
+
+#[test]
+fn eine_historie_ohne_seed_marker_endet_terminal_und_redigiert() {
+    // Liegen Buchungen in der Spanne, ist der Seed-Marker **Pflicht**: ohne ihn ließe sich nicht
+    // prüfen, ob die Gegenkonto-Token zur Eigene-Konten-Config passen, und das Netting liefe blind.
+    // Das endet terminal — mit dem statischen Feldnamen, nie mit einem Rohwert.
+    let api = historie_api().with_window(
+        "fenster-1",
+        fenster_mit_marker(
+            "",
+            &[
+                wiederkehrend(JAN_15, 1_299),
+                wiederkehrend(FEB_15, 1_299),
+                wiederkehrend(MAR_15, 1_299),
+            ],
+        ),
+    );
+
+    assert_eq!(
+        wiederkehr_in(&api),
+        Err(EvaluationError::MissingMandatoryField {
+            field: "seed_marker"
+        })
+    );
 }
 
 #[test]

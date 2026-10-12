@@ -69,11 +69,15 @@ ab — das Ergebnis ist sein Rückgabewert.
    heraus. Dafür gibt es **eine** Regel (`WindowedBooking::transfer_role`), die jetzt beide
    Reichweiten benutzen: was im Cashflow als Umbuchung fehlt, kann nicht als Abo auftauchen. Weil
    dieser Vergleich auf Token läuft, prüft auch diese Reichweite den `SeedMarker`
-   (`EvaluationError::SeedMismatch`); eine **leere** Lauf-Spanne braucht keinen Abgleich.
+   (`EvaluationError::SeedMismatch`); eine **leere** Lauf-Spanne braucht keinen Abgleich. Die
+   Prüfung ist _parse, don't validate_: `OwnAccounts::verified_for(&SeedMarker)` liefert eine
+   `VerifiedOwnAccounts`, und nur sie kann ein Gegenkonto einordnen — beide Reichweiten teilen das.
 3. **Je Fingerabdruck gruppiert** — bei einem Durchleiter steckt der Händler-Token schon im
    Fingerabdruck (0041), zwei Händler hinter PayPal sind also zwei Gruppen. Eine Buchung ohne
    Gegenpartei hat keinen Fingerabdruck und gehört zu keiner Gruppe.
-4. **Takt prüfen**, dann **Preisstufen bilden**, dann das Ergebnis ableiten.
+4. **Chronologisch geordnet per Typ:** die Abbuchungen einer Art bilden eine `ChargeSeries`
+   (sortiert und nicht-leer per Konstruktion); Takt, Preisstufen und jüngstes Konto lesen nur sie.
+5. **Takt prüfen**, dann **Preisstufen bilden**, dann das Ergebnis ableiten.
 
 **Festlegungen** (benannte Konstanten in `value_objects/rhythm.rs` und `recurrence.rs`):
 
@@ -86,7 +90,7 @@ ab — das Ergebnis ist sein Rückgabewert.
 | Takt-Strenge | **jeder** Abstand im selben Band | Ein ausgelassener Monat (~60 Tage) oder eine Doppelbuchung (0 Tage) bricht die Reihe. Lieber ein Abo nicht erkennen als einen Rhythmus behaupten. |
 | „Ähnlicher Betrag" | ±5 % zum ersten Betrag der Preisstufe | Abos/Daueraufträge buchen centgenau; 5 % fängt nur Rundungs-/Kursreste. Größer darf es nicht sein, sonst verschluckte die Ähnlichkeit übliche Preiserhöhungen (12,99 → 13,99 = +7,7 %). |
 | Preissteigerung | ein Betrag **über** der Toleranz beginnt eine neue, höhere Preisstufe; ausgewiesen wird die **jüngste** Stufung (Stichtag = erste Abbuchung der neuen Stufe, alt/neu = typischer Betrag der beiden Stufen) | Die jüngste Stufung erklärt den heutigen Preis. |
-| Betrag sinkt | Reihe ist **keine** Wiederkehr | Was mal steigt, mal fällt, ist kein gleichbleibender Abfluss. |
+| Betrag sinkt | Reihe ist **keine** Wiederkehr — sowohl ein Betrag unter der laufenden Stufe als auch eine neue Stufe, deren **typischer** Betrag nicht über dem der vorigen liegt | Was mal steigt, mal fällt, ist kein gleichbleibender Abfluss. Die zweite Bedingung ist nötig, weil der Schwellwert am ersten Betrag einer Stufe misst, ausgewiesen aber der typische wird (100 / 105 / 105 / 106 / 101 / 101 wäre sonst eine „Steigerung" von 105 auf 101). `PriceIncrease::of` gibt zudem `None`, wenn `after > before` nicht gilt — eine Senkung als Steigerung ist unkonstruierbar. |
 | Typischer Betrag | unterer Median der **aktuellen** Preisstufe | Immer ein wirklich abgebuchter Betrag, keine Rundung, robust gegen Ausreißer. |
 | Jahresbetrag | typischer Betrag × 12 (monatlich) bzw. × 1 (jährlich) | Rechnet mit dem **aktuellen** Preis — das ist, was künftig abgeht, und die Bezugsgröße für Spar-Kandidaten (0007). |
 | Belastetes Konto | Auftragskonto der **jüngsten** Abbuchung | Dort wird heute abgebucht, dort setzt eine Kündigung an. Gruppiert wird nur nach Fingerabdruck, damit ein Konto-Umzug die Reihe nicht zerreißt. |
@@ -105,7 +109,7 @@ Fingerabdruck, Beträge, Tag-Stamp und Konto-Token; `HistoryEvaluationRow`, `Rec
 **io (minimal).** Der Lese-Seam heißt jetzt `OccurrenceSeam::history_in` und liefert eine
 `RunHistoryRow { seed_marker, bookings }`; io liest den Marker wie beim Einzel-Fenster aus den Zeilen
 und failt terminal, wenn die Spanne Buchungen aus verschiedenen Tokenisierungen trägt.
-`history_consumer` bekommt die Eigene-Konten-Config, der `OccurrenceSink` die ganze
+`history_consumer` bekommt die Eigene-Konten-Config, der `HistoryEvaluationSink` die ganze
 `HistoryEvaluationRow` (der reale Lauf zählt weiter nur die Vorkommen).
 
 **Tests** (`crates/auswerten_specs/tests/wiederkehr.rs`, je Kriterium):
@@ -116,13 +120,18 @@ und failt terminal, wenn die Spanne Buchungen aus verschiedenen Tokenisierungen 
 - jährlich: `eine_jaehrliche_abbuchung_im_zwoelf_monats_abstand_ist_wiederkehrend`
   (+ `ein_jahresabo_mit_verschobenem_abbuchungstag_bleibt_jaehrlich_und_zeigt_seine_preissteigerung`)
 - Preissteigerung: `eine_preissteigerung_ab_einem_stichtag_wird_erkannt_und_ausgewiesen`
-  (+ `ein_gesunkener_betrag_bricht_die_serie`)
+  (+ `ein_gesunkener_betrag_bricht_die_serie`,
+  `eine_stufe_mit_gesunkenem_typischem_betrag_ist_keine_preissteigerung`)
 - Durchleiter: `zwei_haendler_hinter_demselben_durchleiter_ergeben_zwei_wiederkehr_gruppen`
 - Umbuchung: `eine_wiederkehrende_umbuchung_auf_ein_eigenes_konto_erscheint_nicht`
   (+ Gegenprobe `derselbe_dauerauftrag_an_ein_fremdes_konto_ist_ein_wiederkehrender_abfluss`,
   `ein_regelmaessiger_zufluss_ist_kein_kosten_treiber`,
   `eine_eigene_konten_config_aus_anderer_tokenisierung_endet_terminal`,
+  `eine_historie_ohne_seed_marker_endet_terminal_und_redigiert`,
   `eine_leere_lauf_spanne_braucht_keinen_seed_abgleich`)
+- Grenze fixiert: `ein_einzelkauf_beim_selben_glaeubiger_bricht_die_reihe`
+- io gegen echtes SQLite: `history_in_ueber_fenster_mit_verschiedenen_seeds_failt_terminal`,
+  `history_in_ueber_fenster_einer_tokenisierung_traegt_deren_marker`
 - DTO-Vertrag: `der_dto_vertrag_nimmt_buchungen_und_gibt_das_wiederkehr_ergebnis_ohne_datei_und_netz`
 
 **Bewusste Grenzen** (heuristisch, nicht beweisbar vollständig):
@@ -131,6 +140,10 @@ und failt terminal, wenn die Spanne Buchungen aus verschiedenen Tokenisierungen 
   der wieder sinkt, bricht die Reihe. Das Ticket zielt auf Abos/Daueraufträge.
 - Eine Preiserhöhung unter 5 % geht in der Preisstufe auf und wird nicht ausgewiesen.
 - Ein ausgelassener Monat bricht eine Monatsreihe.
+- **Eine Art, eine Reihe:** gruppiert wird allein nach Fingerabdruck. Ein Einzelkauf beim selben
+  Gläubiger wie ein Abo (gleiche Gläubiger-ID, kein Durchleiter) landet in derselben Reihe und
+  zerreißt deren Takt — das Abo wird dann nicht ausgewiesen. Bewusst kein Sub-Clustering (etwa nach
+  Betrag); festgehalten durch `ein_einzelkauf_beim_selben_glaeubiger_bricht_die_reihe`.
 - Regelmäßige Bank-Entgelte ohne Gegenpartei haben keinen Fingerabdruck; sie weist die
   Gebühren-Sicht (0006) aus.
 - Das DTO trägt keine Währung; die Beträge sind Minor Units der einen Währung der Fenster.

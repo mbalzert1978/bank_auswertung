@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use auswerten_adapter::HistoryEvaluationRow;
 
-use crate::auswerten::OccurrenceSink;
+use crate::auswerten::HistoryEvaluationSink;
 
 /// Der **Abnehmer** der fenster-übergreifenden Reichweite im realen Lauf: er zählt die gelieferten
 /// Vorkommen und wirft sie fort.
@@ -20,11 +20,11 @@ use crate::auswerten::OccurrenceSink;
 /// `Clone` teilt denselben Zähler (`Rc` im Innern), sodass der Lauf ihn nach dem Registrieren des
 /// Consumers noch auslesen kann.
 #[derive(Clone, Debug, Default)]
-pub struct CountingOccurrenceSink {
+pub struct CountingHistorySink {
     count: Rc<Cell<usize>>,
 }
 
-impl CountingOccurrenceSink {
+impl CountingHistorySink {
     /// Die Zahl der insgesamt entgegengenommenen Vorkommen.
     #[must_use]
     pub fn count(&self) -> usize {
@@ -32,7 +32,7 @@ impl CountingOccurrenceSink {
     }
 }
 
-impl OccurrenceSink for CountingOccurrenceSink {
+impl HistoryEvaluationSink for CountingHistorySink {
     fn receive(&self, evaluation: HistoryEvaluationRow) {
         self.count
             .set(self.count.get() + evaluation.occurrences.len());

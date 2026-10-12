@@ -674,7 +674,7 @@ mod tests {
     use super::*;
     use crate::auswerten::{
         AuswertungsfensterSource, CONSUMED_HISTORY_MESSAGE_TYPE,
-        CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, OccurrenceSink,
+        CONSUMED_MESSAGE_TYPE as AUSWERTEN_CONSUMED, HistoryEvaluationSink,
         consumer as auswerten_consumer, history_consumer,
     };
     use crate::fenstern::{
@@ -723,7 +723,7 @@ mod tests {
     struct CollectingSink {
         deliveries: Rc<RefCell<Vec<Vec<OccurrenceRow>>>>,
     }
-    impl OccurrenceSink for CollectingSink {
+    impl HistoryEvaluationSink for CollectingSink {
         fn receive(&self, evaluation: HistoryEvaluationRow) {
             self.deliveries.borrow_mut().push(evaluation.occurrences);
         }

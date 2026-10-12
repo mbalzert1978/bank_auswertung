@@ -37,7 +37,7 @@ use auswerten_adapter::{
 };
 use fenstern_adapter::{ObfuscatedRow, ObfuscatedWindowSeam};
 use io::Dispatcher;
-use io::auswerten::OccurrenceSink;
+use io::auswerten::HistoryEvaluationSink;
 use io::outbox::{OutboxCommand, OutboxError, OutboxMessage, OutboxPublisher, UnitOfWork};
 
 #[path = "../commit_failed.rs"]
@@ -270,7 +270,7 @@ impl FakeSenke {
     }
 }
 
-impl OccurrenceSink for FakeSenke {
+impl HistoryEvaluationSink for FakeSenke {
     fn receive(&self, evaluation: HistoryEvaluationRow) {
         self.empfangen.borrow_mut().push(evaluation.occurrences);
     }

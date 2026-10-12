@@ -4,7 +4,7 @@ use crate::entities::AnalysisWindow;
 use crate::value_objects::WindowedBooking;
 use crate::value_objects::{
     BookingKind, Category, CategoryAnswer, CounterAccount, Currency, Fee, Fingerprint,
-    InternalTransfer, Month, MonthlyCashflow, OwnAccounts, WindowId,
+    InternalTransfer, Month, MonthlyCashflow, VerifiedOwnAccounts, WindowId,
 };
 
 /// Das **Pro-Fenster-Ergebnis** — was dieser Slice aus **einem** eingefrorenen Auswertungsfenster
@@ -61,7 +61,7 @@ impl WindowEvaluation {
     pub(crate) fn of(
         window: WindowId,
         snapshot: &AnalysisWindow,
-        own_accounts: &OwnAccounts,
+        own_accounts: VerifiedOwnAccounts<'_>,
         categories: Vec<CategoryAnswer>,
     ) -> Self {
         // Der genettete Cashflow: alles, was **nicht** zwischen den eigenen Konten floss. Der
@@ -71,7 +71,7 @@ impl WindowEvaluation {
             snapshot
                 .bookings()
                 .iter()
-                .filter(|booking| booking.transfer_role(own_accounts).is_none())
+                .filter(|booking| booking.transfer_role(&own_accounts).is_none())
                 .map(|booking| ((), booking)),
         );
         // Die andere Seite: dieselben Monats-Buckets, aber je **Rolle des Gegenkontos** getrennt —
@@ -80,7 +80,7 @@ impl WindowEvaluation {
             snapshot
                 .bookings()
                 .iter()
-                .filter_map(|booking| Some((booking.transfer_role(own_accounts)?, booking))),
+                .filter_map(|booking| Some((booking.transfer_role(&own_accounts)?, booking))),
         );
         // Und die **Überlagerung**: was die Bank innerhalb desselben Cashflows selbst einzog, je
         // Monat und belastetem Konto. Sie liest aus **derselben** Menge wie der Cashflow oben — nur
@@ -90,7 +90,7 @@ impl WindowEvaluation {
             snapshot
                 .bookings()
                 .iter()
-                .filter(|booking| booking.transfer_role(own_accounts).is_none())
+                .filter(|booking| booking.transfer_role(&own_accounts).is_none())
                 .filter(|booking| booking.kind() == BookingKind::Fee)
                 .map(|booking| (booking.ordering_account().clone(), booking)),
         );

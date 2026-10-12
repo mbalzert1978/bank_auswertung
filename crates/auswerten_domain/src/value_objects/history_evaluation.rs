@@ -1,17 +1,17 @@
 use std::collections::BTreeMap;
 
-use crate::entities::RunHistory;
 use crate::value_objects::{
-    Charge, Direction, Fingerprint, Occurrence, OwnAccounts, Recurrence, WindowedBooking,
+    Charge, ChargeSeries, Direction, Fingerprint, Occurrence, Recurrence, VerifiedOwnAccounts,
+    WindowedBooking,
 };
 
 /// Das **Ergebnis der fenster-übergreifenden Reichweite** (ADR-0013, Entscheidung E, Reichweite 2):
 /// die Vorkommen der ganzen Zeitachse des Laufs und die **wiederkehrenden Abflüsse**, die darin
 /// stecken ([Issue 0005](../../../../docs/issues/0005-wiederkehr-erkennung.md)).
 ///
-/// **Zurückgegeben, nie abgelegt:** kein Vorkommens-/Fold-Log, keine zweite persistierte Sicht. Es
-/// entsteht bei jedem Lauf neu aus den unveränderlichen Aggregaten — und ist darum
-/// replay-deterministisch, ohne Dedupe-Logik.
+/// **Ein Wert, zurückgegeben, nie abgelegt:** keine Identität, kein Vorkommens-/Fold-Log, keine
+/// zweite persistierte Sicht. Es entsteht bei jedem Lauf neu aus den unveränderlichen Aggregaten —
+/// und ist darum replay-deterministisch, ohne Dedupe-Logik.
 ///
 /// **Die beiden Sichten sehen verschieden viel, bewusst.** Die [`occurrences`](Self::occurrences)
 /// sind die **ungefilterte** Zeitachse: jede Buchung mit Gegenpartei, in beiden Richtungen, auch die
@@ -39,8 +39,7 @@ impl HistoryEvaluation {
     /// **ohne** Fingerabdruck (Entgeltzeile ohne Gegenpartei) gehört zu keiner Art und fällt heraus;
     /// was die Bank regelmäßig einzieht, weist die Gebühren-Sicht der pro-Fenster-Reichweite aus.
     #[must_use]
-    pub(crate) fn of(history: &RunHistory, own_accounts: &OwnAccounts) -> Self {
-        let bookings = history.bookings();
+    pub(crate) fn of(bookings: &[WindowedBooking], own_accounts: VerifiedOwnAccounts<'_>) -> Self {
         let mut occurrences = bookings
             .iter()
             .filter_map(occurrence_of)
@@ -53,7 +52,7 @@ impl HistoryEvaluation {
         let recurrences = bookings
             .iter()
             .filter(|booking| booking.direction() == Direction::Outgoing)
-            .filter(|booking| booking.transfer_role(own_accounts).is_none())
+            .filter(|booking| booking.transfer_role(&own_accounts).is_none())
             .filter_map(|booking| {
                 Some((
                     Fingerprint::of(booking.counterparty())?,
@@ -72,11 +71,22 @@ impl HistoryEvaluation {
                 },
             )
             .into_iter()
-            .filter_map(|(fingerprint, charges)| Recurrence::detect(fingerprint, &charges))
+            .filter_map(|(fingerprint, charges)| {
+                Recurrence::detect(fingerprint, &ChargeSeries::of(charges)?)
+            })
             .collect();
         Self {
             occurrences,
             recurrences,
+        }
+    }
+
+    /// Die Auswertung einer **leeren** Historie: keine Vorkommen, keine Wiederkehr.
+    #[must_use]
+    pub(crate) fn empty() -> Self {
+        Self {
+            occurrences: Vec::new(),
+            recurrences: Vec::new(),
         }
     }
 

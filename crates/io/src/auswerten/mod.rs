@@ -86,7 +86,7 @@ pub const CONSUMED_HISTORY_MESSAGE_TYPE: &str = auswerten_adapter::CONSUMED_HIST
 /// Nachricht erneut zugestellt und der Abnehmer sieht dasselbe Ergebnis noch einmal. Das ist
 /// at-least-once und hier unschädlich — die Query über unveränderliche Snapshots antwortet auf
 /// erneute Zustellung identisch.
-pub trait OccurrenceSink {
+pub trait HistoryEvaluationSink {
     /// Nimmt die Auswertung der ganzen Zeitachse des Laufs entgegen.
     fn receive(&self, evaluation: HistoryEvaluationRow);
 }
@@ -140,17 +140,17 @@ where
 
 /// Der [`TransactionalHandler`] der **fenster-übergreifenden** Reichweite: derselbe Commit-Rand, nur
 /// mit dem einzweckigen `HistoryEvaluationHandler` darin. Er kennt **keine Ablage** — er führt eine
-/// Query über alle Fenster des Laufs und reicht ihr Ergebnis an den [`OccurrenceSink`] weiter; die
+/// Query über alle Fenster des Laufs und reicht ihr Ergebnis an den [`HistoryEvaluationSink`] weiter; die
 /// Eigene-Konten-Config hält er für das Netting der Wiederkehr. Seine Arbeitseinheit umspannt darum
 /// allein den Ack.
-pub struct HistoryEvaluationTransactionalHandler<'a, F: UnitFactory, S: OccurrenceSink> {
+pub struct HistoryEvaluationTransactionalHandler<'a, F: UnitFactory, S: HistoryEvaluationSink> {
     source: &'a dyn OccurrenceSeam,
     own_accounts: OwnAccountsConfig,
     sink: S,
     units: F,
 }
 
-impl<F: UnitFactory, S: OccurrenceSink> TransactionalHandler
+impl<F: UnitFactory, S: HistoryEvaluationSink> TransactionalHandler
     for HistoryEvaluationTransactionalHandler<'_, F, S>
 {
     type Command = EvaluateHistoryCommand;
@@ -200,7 +200,7 @@ where
 /// eines fremden Slice-Stores; das ist der Preis dafür, den Bound dort zu verlangen, wo er benutzt
 /// wird, statt ihn jeder Unit-Quelle aufzuzwingen. Er kostet keine Garantie: die Einheit wird allein
 /// zum Committen des Acks geöffnet, und der Ack-Pfad ist slice-unabhängig.
-pub fn history_consumer<'a, F: UnitFactory, S: OccurrenceSink>(
+pub fn history_consumer<'a, F: UnitFactory, S: HistoryEvaluationSink>(
     source: &'a dyn OccurrenceSeam,
     own_accounts: OwnAccountsConfig,
     sink: S,

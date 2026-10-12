@@ -1,4 +1,4 @@
-use crate::value_objects::DayStamp;
+use crate::value_objects::ChargeSeries;
 
 /// Das **Abstandsband** eines monatlichen Rhythmus, in Tagen, beide Grenzen einschließlich.
 ///
@@ -37,21 +37,21 @@ pub enum Rhythm {
 }
 
 impl Rhythm {
-    /// Der Takt einer **chronologisch geordneten** Reihe von Abbuchungstagen — oder `None`, wenn sie
-    /// keinen trägt.
+    /// Der Takt einer Abbuchungs-Reihe — oder `None`, wenn sie keinen trägt. Die Reihe ist per
+    /// Typ chronologisch ([`ChargeSeries`]), die Abstände sind also nie negativ.
     ///
     /// **Jeder** Abstand muss in **dasselbe** Band fallen; ein einziger Ausreißer bricht die Reihe. Das
     /// ist bewusst streng: ein ausgelassener Monat (Abstand ~60) oder eine doppelte Abbuchung am selben
     /// Tag (Abstand 0) sind kein Takt mehr, sondern eine Aussage, die diese Erkennung nicht treffen
     /// kann. Lieber ein Abo **nicht** erkennen als einen Rhythmus behaupten, den es nicht gibt.
     #[must_use]
-    pub(crate) fn of(days: &[DayStamp]) -> Option<Self> {
-        let mut gaps = days.windows(2).filter_map(|pair| match pair {
-            [earlier, later] => Some(later.value().saturating_sub(earlier.value())),
-            _ => None,
-        });
+    pub(crate) fn of(series: &ChargeSeries) -> Option<Self> {
+        let mut gaps = series
+            .days()
+            .zip(series.days().skip(1))
+            .map(|(earlier, later)| later.value().saturating_sub(earlier.value()));
         let rhythm = Self::of_gap(gaps.next()?)?;
-        (gaps.all(|gap| Self::of_gap(gap) == Some(rhythm)) && days.len() >= rhythm.min_charges())
+        (gaps.all(|gap| Self::of_gap(gap) == Some(rhythm)) && series.len() >= rhythm.min_charges())
             .then_some(rhythm)
     }
 

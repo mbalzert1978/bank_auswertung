@@ -1,6 +1,5 @@
-use crate::entities::RunHistory;
 use crate::error::EvaluationError;
-use crate::value_objects::RunSpan;
+use crate::value_objects::{RunHistory, RunSpan};
 
 /// Der von der Domäne **verlangte** Lese-Port der **fenster-übergreifenden** Reichweite: er liefert
 /// die [`RunHistory`] — die Buchungen **aller** Auswertungsfenster **eines** Laufs samt dem

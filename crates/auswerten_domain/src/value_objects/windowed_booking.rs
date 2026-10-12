@@ -1,6 +1,6 @@
 use crate::value_objects::{
     AccountRole, AccountToken, Amount, BookingKind, CounterAccount, Counterparty, DayStamp,
-    Direction, NonEmptyString, OwnAccounts,
+    Direction, NonEmptyString, VerifiedOwnAccounts,
 };
 
 /// Eine **Buchung des eingefrorenen Fensters**, wie der Lese-Port
@@ -81,7 +81,10 @@ impl WindowedBooking {
     /// Abfluss und bleibt im Cashflow (CONTEXT.md, „Umbuchungskosten": die Gebühr *für* eine Umbuchung
     /// ist selbst keine). Genau daran hängt, dass beide Analyzer koexistieren: die Umbuchung fällt
     /// heraus, die Gebühr für sie bleibt und wird von [`Fee`](crate::Fee) zusätzlich herausgehoben.
-    pub(crate) fn transfer_role(&self, own_accounts: &OwnAccounts) -> Option<AccountRole> {
+    pub(crate) fn transfer_role(
+        &self,
+        own_accounts: &VerifiedOwnAccounts<'_>,
+    ) -> Option<AccountRole> {
         match self
             .counter_account()
             .map(|token| own_accounts.resolve(token))

@@ -11,8 +11,10 @@ use crate::value_objects::{SeedMarker, WindowedBooking};
 /// Kosten-Treiber. Der Marker macht die Voraussetzung **prüfbar** statt angenommen (ADR-0010).
 ///
 /// **Leer ist eine gültige Historie — und sie trägt dann keinen Marker.** Ein Lauf ohne Buchung in
-/// der Spanne hat keine Token, also auch keine Tokenisierung. „Buchungen ohne Marker" ist dagegen
-/// **unkonstruierbar**: es gibt nur die beiden Konstruktoren unten (ADR-0005).
+/// der Spanne hat keine Token, also auch keine Tokenisierung. „Buchungen ohne Marker" und „Marker
+/// ohne Buchungen" sind beide **unkonstruierbar** (ADR-0005).
+///
+/// Ein **Wert**, keine Entität: sie hat keine Identität und wird nie abgelegt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunHistory {
     recorded: Option<(SeedMarker, Vec<WindowedBooking>)>,
@@ -25,21 +27,23 @@ impl RunHistory {
         Self { recorded: None }
     }
 
-    /// **Hydratisiert** die Historie aus dem, was der Lese-Port für die Spanne geliefert hat.
+    /// **Hydratisiert** die Historie aus dem, was der Lese-Port für die Spanne geliefert hat. Ohne
+    /// Buchungen ist sie die [`empty`](Self::empty) Historie — der Marker fällt dann weg, denn
+    /// „Marker ohne Buchungen" behauptete eine Tokenisierung, von der nichts vorliegt.
     #[must_use]
     pub fn rehydrate(seed_marker: SeedMarker, bookings: Vec<WindowedBooking>) -> Self {
-        Self {
-            recorded: Some((seed_marker, bookings)),
+        match bookings.is_empty() {
+            true => Self::empty(),
+            false => Self {
+                recorded: Some((seed_marker, bookings)),
+            },
         }
     }
 
-    pub(crate) fn seed_marker(&self) -> Option<&SeedMarker> {
-        self.recorded.as_ref().map(|(marker, _)| marker)
-    }
-
-    pub(crate) fn bookings(&self) -> &[WindowedBooking] {
+    /// Der Seed-Marker samt den Buchungen — `None` für die leere Historie.
+    pub(crate) fn recorded(&self) -> Option<(&SeedMarker, &[WindowedBooking])> {
         self.recorded
             .as_ref()
-            .map_or(&[], |(_, bookings)| bookings.as_slice())
+            .map(|(marker, bookings)| (marker, bookings.as_slice()))
     }
 }
