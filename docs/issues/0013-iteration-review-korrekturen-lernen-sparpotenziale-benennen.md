@@ -1,7 +1,7 @@
 ---
 id: "0013"
 title: "Iteration: Review, Korrekturen lernen, Sparpotenziale benennen"
-status: blocked
+status: open
 ---
 
 # Iteration: Review, Korrekturen lernen, Sparpotenziale benennen
@@ -36,6 +36,9 @@ Sparpotenziale), nicht ein weiteres Feature.
       Beobachtungen festgehalten, nicht nur mündlich besprochen.
 
 ## Blockiert durch
+
+> **Aufgelöst (2026-10-12):** 0009, 0011 und 0012 sind gebaut. Ablauf der Sitzung:
+> [Schritt-6-Checkliste](../plans/2026-10-12-schritt-6-checkliste.md), Punkt 7.
 
 - Blockiert durch [0009](0009-speicher-sqlite-fuer-dtos-und-kategorie-register.md)
 - Blockiert durch [0011](0011-kategorisierer-chat-payload-adapter.md)

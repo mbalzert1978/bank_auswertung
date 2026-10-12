@@ -21,7 +21,7 @@ begonnen; in Arbeit = Worktree unter `.claude/worktrees/` existiert.
 | 5a HTML-Bericht | [0012](0012-html-bericht.md) | #99 | erledigt | af52ca3 |
 | 5b Chat-Export/-Import | [0011](0011-kategorisierer-chat-payload-adapter.md) | #98 | erledigt | 6dc0ff0 |
 | E2E vier Konten + Leak-Test | — | — | offen (nach 5a + 5b) | — |
-| Schritt-6-Checkliste | — | — | offen | — |
+| Schritt-6-Checkliste | [2026-10-12-schritt-6-checkliste.md](../plans/2026-10-12-schritt-6-checkliste.md) | — | erledigt | (dieser Commit) |
 
 Weitere GitHub-Spiegel (Schritt 0): 0002 → #93, 0013 → #100, 0086 → #103, 0087 → #104.
 
