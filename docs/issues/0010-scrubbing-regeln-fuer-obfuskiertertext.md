@@ -1,7 +1,7 @@
 ---
 id: "0010"
 title: "Scrubbing-Regeln für ObfuskierterText"
-status: open
+status: closed
 ---
 
 # Scrubbing-Regeln für ObfuskierterText
@@ -40,8 +40,8 @@ Grenze des Modells, keine Lücke, die dieser Slice schließen soll (siehe PRD
       → `ein_bekannter_personen_name_wird_ersetzt`,
       `ein_bekannter_name_wird_auch_gross_geschrieben_und_in_bank_schreibweise_ersetzt`,
       `ein_bekannter_name_im_genitiv_wird_ersetzt`,
-      (Gegenprobe der bewussten Lücke: `ein_vorname_allein_eines_bekannten_empfaengers_bleibt_stehen`)
-      `eine_firma_ohne_gläubiger_id_auf_der_namensliste_wird_mitgeschwärzt`;
+      `eine_firma_ohne_gläubiger_id_auf_der_namensliste_wird_mitgeschwärzt`
+      (Gegenprobe der bewussten Lücke: `ein_vorname_allein_eines_bekannten_empfaengers_bleibt_stehen`);
       Herkunft der Namen real belegt durch
       `liefert_empfaenger_ohne_glaeubiger_id_und_die_konfigurierten_namen` (io) und
       `ein_lauf_schwaerzt_namen_iban_und_bic_im_verwendungszweck_bevor_sie_obfuskiert_liegen` (Lauf)
